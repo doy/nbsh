@@ -3,13 +3,17 @@ use textmode::Textmode as _;
 pub struct Nbsh {
     repl: crate::repl::Repl,
     history: crate::history::History,
+
+    action: async_std::channel::Receiver<Action>,
 }
 
 impl Nbsh {
     pub fn new() -> Self {
+        let (action_w, action_r) = async_std::channel::unbounded();
         Self {
-            repl: crate::repl::Repl::new(),
-            history: crate::history::History::new(),
+            repl: crate::repl::Repl::new(action_w.clone()),
+            history: crate::history::History::new(action_w),
+            action: action_r,
         }
     }
 
@@ -22,85 +26,119 @@ impl Nbsh {
         let _input_guard = input.take_raw_guard();
         let _output_guard = output.take_screen_guard();
 
-        let (run_w, run_r) = async_std::channel::unbounded();
-        let (render_w, render_r) = async_std::channel::unbounded();
+        let Self {
+            repl,
+            history,
+            action,
+        } = self;
 
-        self.render(&mut output).await.unwrap();
+        let repl =
+            async_std::sync::Arc::new(async_std::sync::Mutex::new(repl));
+        let history =
+            async_std::sync::Arc::new(async_std::sync::Mutex::new(history));
+        let input_source = async_std::sync::Arc::new(
+            async_std::sync::Mutex::new(InputSource::Repl),
+        );
 
-        let locked_self =
-            async_std::sync::Arc::new(async_std::sync::Mutex::new(self));
+        render(
+            &mut output,
+            &*repl.lock_arc().await,
+            &*history.lock_arc().await,
+        )
+        .await
+        .unwrap();
 
-        let readline_self = std::sync::Arc::clone(&locked_self);
-        let readline_render = render_w.clone();
-        let readline_task = async_std::task::spawn(async move {
-            loop {
-                let key = input.read_key().await.unwrap();
-                let mut self_ = readline_self.lock_arc().await;
-                let (last, cmd) = self_.handle_key(key);
-                if last {
+        let action_history = async_std::sync::Arc::clone(&history);
+        let action_repl = async_std::sync::Arc::clone(&repl);
+        let action_input_source = async_std::sync::Arc::clone(&input_source);
+        async_std::task::spawn(async move {
+            while let Ok(action) = action.recv().await {
+                match action {
+                    Action::Render => {
+                        render(
+                            &mut output,
+                            &*action_repl.lock_arc().await,
+                            &*action_history.lock_arc().await,
+                        )
+                        .await
+                        .unwrap();
+                    }
+                    Action::Run(cmd) => {
+                        action_history
+                            .lock_arc()
+                            .await
+                            .run(&cmd)
+                            .await
+                            .unwrap();
+                    }
+                    Action::UpdateFocus(new_input_source) => {
+                        *action_input_source.lock_arc().await =
+                            new_input_source;
+                    }
+                }
+            }
+        });
+
+        loop {
+            let input_source = *input_source.lock_arc().await;
+            match input_source {
+                InputSource::Repl => {
+                    input.parse_utf8(true);
+                    input.parse_ctrl(true);
+                    input.parse_meta(true);
+                    input.parse_special_keys(true);
+                    input.parse_single(false);
+                }
+                InputSource::History(_) => {
+                    input.parse_utf8(false);
+                    input.parse_ctrl(false);
+                    input.parse_meta(false);
+                    input.parse_special_keys(false);
+                    input.parse_single(false);
+                }
+            }
+            let key = input.read_key().await.unwrap();
+            if let Some(key) = key {
+                let quit = match input_source {
+                    InputSource::Repl => {
+                        repl.lock_arc().await.handle_key(key).await
+                    }
+                    InputSource::History(idx) => {
+                        history.lock_arc().await.handle_key(key, idx).await
+                    }
+                };
+                if quit {
                     break;
                 }
-                if let Some(cmd) = cmd {
-                    run_w.send(cmd).await.unwrap();
-                }
-                readline_render.send(()).await.unwrap();
+            } else {
+                break;
             }
-        });
-
-        let history_self = std::sync::Arc::clone(&locked_self);
-        let history_render = render_w.clone();
-        async_std::task::spawn(async move {
-            while let Ok(cmd) = run_r.recv().await {
-                let mut self_ = history_self.lock_arc().await;
-                self_
-                    .history
-                    .run(&cmd, history_render.clone())
-                    .await
-                    .unwrap();
-            }
-        });
-
-        let render_self = std::sync::Arc::clone(&locked_self);
-        async_std::task::spawn(async move {
-            while let Ok(()) = render_r.recv().await {
-                while let Ok(()) = render_r.try_recv() {}
-                let self_ = render_self.lock_arc().await;
-                self_.render(&mut output).await.unwrap();
-            }
-        });
-
-        readline_task.await;
-
-        Ok(())
-    }
-
-    fn handle_key(
-        &mut self,
-        key: Option<textmode::Key>,
-    ) -> (bool, Option<String>) {
-        let mut cmd = None;
-        match key {
-            Some(textmode::Key::String(s)) => self.repl.add_input(&s),
-            Some(textmode::Key::Char(c)) => {
-                self.repl.add_input(&c.to_string());
-            }
-            Some(textmode::Key::Ctrl(b'c')) => self.repl.clear_input(),
-            Some(textmode::Key::Ctrl(b'd')) | None => return (true, None),
-            Some(textmode::Key::Ctrl(b'm')) => {
-                cmd = Some(self.repl.input());
-                self.repl.clear_input();
-            }
-            Some(textmode::Key::Backspace) => self.repl.backspace(),
-            _ => {}
         }
-        (false, cmd)
-    }
 
-    async fn render(&self, out: &mut textmode::Output) -> anyhow::Result<()> {
-        out.clear();
-        self.history.render(out, self.repl.lines()).await?;
-        self.repl.render(out).await?;
-        out.refresh().await?;
         Ok(())
     }
+}
+
+async fn render(
+    out: &mut textmode::Output,
+    repl: &crate::repl::Repl,
+    history: &crate::history::History,
+) -> anyhow::Result<()> {
+    out.clear();
+    history.render(out, repl.lines()).await?;
+    repl.render(out).await?;
+    out.refresh().await?;
+    Ok(())
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum InputSource {
+    Repl,
+    History(usize),
+}
+
+pub enum Action {
+    Render,
+    Run(String),
+    UpdateFocus(InputSource),
 }

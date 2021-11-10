@@ -3,30 +3,42 @@ use textmode::Textmode as _;
 pub struct Repl {
     prompt: String,
     input_line: String,
+    action: async_std::channel::Sender<crate::nbsh::Action>,
 }
 
 impl Repl {
-    pub fn new() -> Self {
+    pub fn new(
+        action: async_std::channel::Sender<crate::nbsh::Action>,
+    ) -> Self {
         Self {
             prompt: "$ ".into(),
             input_line: "".into(),
+            action,
         }
     }
 
-    pub fn input(&self) -> String {
-        self.input_line.clone()
-    }
-
-    pub fn add_input(&mut self, s: &str) {
-        self.input_line.push_str(s);
-    }
-
-    pub fn backspace(&mut self) {
-        self.input_line.pop();
-    }
-
-    pub fn clear_input(&mut self) {
-        self.input_line.clear();
+    pub async fn handle_key(&mut self, key: textmode::Key) -> bool {
+        match key {
+            textmode::Key::String(s) => self.add_input(&s),
+            textmode::Key::Char(c) => {
+                self.add_input(&c.to_string());
+            }
+            textmode::Key::Ctrl(b'c') => self.clear_input(),
+            textmode::Key::Ctrl(b'd') => {
+                return true;
+            }
+            textmode::Key::Ctrl(b'm') => {
+                self.action
+                    .send(crate::nbsh::Action::Run(self.input()))
+                    .await
+                    .unwrap();
+                self.clear_input();
+            }
+            textmode::Key::Backspace => self.backspace(),
+            _ => {}
+        }
+        self.action.send(crate::nbsh::Action::Render).await.unwrap();
+        false
     }
 
     pub fn lines(&self) -> usize {
@@ -41,5 +53,21 @@ impl Repl {
         out.write_str(&self.prompt);
         out.write_str(&self.input_line);
         Ok(())
+    }
+
+    fn input(&self) -> String {
+        self.input_line.clone()
+    }
+
+    fn add_input(&mut self, s: &str) {
+        self.input_line.push_str(s);
+    }
+
+    fn backspace(&mut self) {
+        self.input_line.pop();
+    }
+
+    fn clear_input(&mut self) {
+        self.input_line.clear();
     }
 }

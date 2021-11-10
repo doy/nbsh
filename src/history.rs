@@ -2,21 +2,22 @@ use async_std::io::ReadExt as _;
 use pty_process::Command as _;
 use textmode::Textmode as _;
 
-#[derive(Default)]
 pub struct History {
     entries: Vec<async_std::sync::Arc<async_std::sync::Mutex<HistoryEntry>>>,
+    action: async_std::channel::Sender<crate::nbsh::Action>,
 }
 
 impl History {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(
+        action: async_std::channel::Sender<crate::nbsh::Action>,
+    ) -> Self {
+        Self {
+            entries: vec![],
+            action,
+        }
     }
 
-    pub async fn run(
-        &mut self,
-        cmd: &str,
-        render: async_std::channel::Sender<()>,
-    ) -> anyhow::Result<()> {
+    pub async fn run(&mut self, cmd: &str) -> anyhow::Result<usize> {
         let (exe, args) = parse_cmd(cmd);
         let mut process = async_process::Command::new(&exe);
         process.args(&args);
@@ -27,7 +28,7 @@ impl History {
             HistoryEntry::new(cmd),
         ));
         let task_entry = async_std::sync::Arc::clone(&entry);
-        let task_render = render.clone();
+        let task_action = self.action.clone();
         async_std::task::spawn(async move {
             loop {
                 let mut buf = [0_u8; 4096];
@@ -40,16 +41,32 @@ impl History {
                             eprintln!("pty read failed: {:?}", e);
                         }
                         task_entry.lock_arc().await.running = false;
-                        task_render.send(()).await.unwrap();
+                        task_action
+                            .send(crate::nbsh::Action::Render)
+                            .await
+                            .unwrap();
                         break;
                     }
                 }
-                task_render.send(()).await.unwrap();
+                task_action.send(crate::nbsh::Action::Render).await.unwrap();
             }
         });
         self.entries.push(entry);
-        render.send(()).await.unwrap();
-        Ok(())
+        self.action.send(crate::nbsh::Action::Render).await.unwrap();
+        Ok(self.entries.len() - 1)
+    }
+
+    pub async fn handle_key(
+        &mut self,
+        key: textmode::Key,
+        idx: usize,
+    ) -> bool {
+        if let textmode::Key::Bytes(b) = key {
+            self.send_process_input(idx, &b).await.unwrap();
+        } else {
+            unreachable!();
+        }
+        false
     }
 
     pub async fn render(
@@ -96,6 +113,14 @@ impl History {
             out.reset_attributes();
         }
         Ok(())
+    }
+
+    async fn send_process_input(
+        &self,
+        idx: usize,
+        input: &[u8],
+    ) -> anyhow::Result<()> {
+        todo!()
     }
 }
 
