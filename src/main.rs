@@ -19,25 +19,21 @@ async fn async_main() -> anyhow::Result<()> {
 
     let (action_w, action_r) = async_std::channel::unbounded();
 
-    let state = util::mutex(state::State::new(action_w));
+    let mut state = state::State::new(action_w, output);
+    state.render().await.unwrap();
 
-    state.lock_arc().await.render(&mut output).await.unwrap();
+    let state = util::mutex(state);
 
     {
         let state = async_std::sync::Arc::clone(&state);
         async_std::task::spawn(async move {
             while let Ok(action) = action_r.recv().await {
-                state
-                    .lock_arc()
-                    .await
-                    .handle_action(action, &mut output)
-                    .await;
+                state.lock_arc().await.handle_action(action).await;
             }
         });
     }
 
-    loop {
-        let key = input.read_key().await.unwrap();
+    while let Some(key) = input.read_key().await.unwrap() {
         if state.lock_arc().await.handle_input(key).await {
             break;
         }

@@ -4,10 +4,14 @@ pub struct State {
     readline: crate::readline::Readline,
     history: crate::history::History,
     focus: Focus,
+    output: textmode::Output,
 }
 
 impl State {
-    pub fn new(actions: async_std::channel::Sender<Action>) -> Self {
+    pub fn new(
+        actions: async_std::channel::Sender<Action>,
+        output: textmode::Output,
+    ) -> Self {
         let readline = crate::readline::Readline::new(actions.clone());
         let history = crate::history::History::new(actions);
         let focus = Focus::Readline;
@@ -15,58 +19,44 @@ impl State {
             readline,
             history,
             focus,
+            output,
         }
     }
 
-    pub async fn render(
-        &self,
-        out: &mut textmode::Output,
-    ) -> anyhow::Result<()> {
-        out.clear();
+    pub async fn render(&mut self) -> anyhow::Result<()> {
+        self.output.clear();
         if let Focus::Readline = self.focus {
-            self.history.render(out, self.readline.lines()).await?;
-            self.readline.render(out).await?;
+            self.history
+                .render(&mut self.output, self.readline.lines())
+                .await?;
+            self.readline.render(&mut self.output).await?;
         } else {
-            self.history.render(out, 0).await?;
+            self.history.render(&mut self.output, 0).await?;
         }
-        out.refresh().await?;
+        self.output.refresh().await?;
         Ok(())
     }
 
-    pub async fn handle_action(
-        &mut self,
-        action: Action,
-        output: &mut textmode::Output,
-    ) {
+    pub async fn handle_action(&mut self, action: Action) {
         match action {
             Action::Render => {
-                self.render(output).await.unwrap();
+                self.render().await.unwrap();
             }
             Action::Run(ref cmd) => {
                 self.history.run(cmd).await.unwrap();
             }
             Action::UpdateFocus(new_focus) => {
                 self.focus = new_focus;
-                self.render(output).await.unwrap();
+                self.render().await.unwrap();
             }
         }
     }
 
-    pub async fn handle_input(&mut self, key: Option<textmode::Key>) -> bool {
-        if let Some(key) = key {
-            let quit = match self.focus {
-                Focus::Readline => self.readline.handle_key(key).await,
-                Focus::History(idx) => {
-                    self.history.handle_key(key, idx).await
-                }
-            };
-            if quit {
-                return true;
-            }
-        } else {
-            return true;
+    pub async fn handle_input(&mut self, key: textmode::Key) -> bool {
+        match self.focus {
+            Focus::Readline => self.readline.handle_key(key).await,
+            Focus::History(idx) => self.history.handle_key(key, idx).await,
         }
-        false
     }
 }
 
