@@ -25,7 +25,7 @@ impl History {
             .spawn_pty(Some(&pty_process::Size::new(24, 80)))
             .unwrap();
         let entry = async_std::sync::Arc::new(async_std::sync::Mutex::new(
-            HistoryEntry::new(cmd),
+            HistoryEntry::new(cmd, child.id().try_into().unwrap()),
         ));
         let task_entry = async_std::sync::Arc::clone(&entry);
         let task_action = self.action.clone();
@@ -42,6 +42,12 @@ impl History {
                         }
                         task_entry.lock_arc().await.running = false;
                         task_action
+                            .send(crate::nbsh::Action::UpdateFocus(
+                                crate::nbsh::InputSource::Repl,
+                            ))
+                            .await
+                            .unwrap();
+                        task_action
                             .send(crate::nbsh::Action::Render)
                             .await
                             .unwrap();
@@ -52,6 +58,12 @@ impl History {
             }
         });
         self.entries.push(entry);
+        self.action
+            .send(crate::nbsh::Action::UpdateFocus(
+                crate::nbsh::InputSource::History(self.entries.len() - 1),
+            ))
+            .await
+            .unwrap();
         self.action.send(crate::nbsh::Action::Render).await.unwrap();
         Ok(self.entries.len() - 1)
     }
@@ -61,10 +73,26 @@ impl History {
         key: textmode::Key,
         idx: usize,
     ) -> bool {
-        if let textmode::Key::Bytes(b) = key {
-            self.send_process_input(idx, &b).await.unwrap();
-        } else {
-            unreachable!();
+        match key {
+            textmode::Key::Ctrl(b'c') => {
+                let pid = self.entries[idx].lock_arc().await.pid;
+                nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT)
+                    .unwrap();
+            }
+            textmode::Key::Ctrl(b'z') => {
+                self.action
+                    .send(crate::nbsh::Action::UpdateFocus(
+                        crate::nbsh::InputSource::Repl,
+                    ))
+                    .await
+                    .unwrap();
+            }
+            textmode::Key::Ctrl(_) => {}
+            key => {
+                self.send_process_input(idx, &key.into_bytes())
+                    .await
+                    .unwrap();
+            }
         }
         false
     }
@@ -75,6 +103,7 @@ impl History {
         repl_lines: usize,
     ) -> anyhow::Result<()> {
         let mut used_lines = repl_lines;
+        let mut pos = None;
         for entry in self.entries.iter().rev() {
             let entry = entry.lock_arc().await;
             let screen = entry.vt.screen();
@@ -95,22 +124,29 @@ impl History {
             }
             out.write_str(&entry.cmd);
             out.reset_attributes();
-            out.write(b"\r\n");
             if last_row > 5 {
+                out.write(b"\r\n");
                 out.set_bgcolor(textmode::color::RED);
                 out.write(b"...");
                 out.reset_attributes();
-                out.write(b"\r\n");
             }
+            let mut end_pos = (0, 0);
             for row in screen
                 .rows_formatted(0, 80)
                 .take(last_row)
                 .skip(last_row.saturating_sub(5))
             {
-                out.write(&row);
                 out.write(b"\r\n");
+                out.write(&row);
+                end_pos = out.screen().cursor_position();
+            }
+            if pos.is_none() {
+                pos = Some(end_pos);
             }
             out.reset_attributes();
+        }
+        if let Some(pos) = pos {
+            out.move_to(pos.0, pos.1);
         }
         Ok(())
     }
@@ -126,15 +162,17 @@ impl History {
 
 struct HistoryEntry {
     cmd: String,
+    pid: nix::unistd::Pid,
     vt: vt100::Parser,
     running: bool, // option end time
                    // start time
 }
 
 impl HistoryEntry {
-    fn new(cmd: &str) -> Self {
+    fn new(cmd: &str, pid: i32) -> Self {
         Self {
             cmd: cmd.into(),
+            pid: nix::unistd::Pid::from_raw(pid),
             vt: vt100::Parser::new(24, 80, 0),
             running: true,
         }

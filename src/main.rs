@@ -8,8 +8,7 @@ mod nbsh;
 mod repl;
 
 async fn async_main() -> anyhow::Result<()> {
-    let nbsh = nbsh::Nbsh::new();
-    nbsh.run().await
+    nbsh::run().await
 }
 
 fn main() {
