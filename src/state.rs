@@ -70,12 +70,13 @@ impl State {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum Focus {
     Readline,
     History(usize),
 }
 
+#[derive(Debug)]
 pub enum Action {
     Render,
     Run(String),
