@@ -1,8 +1,15 @@
-use async_std::io::WriteExt as _;
+#![warn(clippy::pedantic)]
+#![warn(clippy::nursery)]
+#![allow(clippy::missing_const_for_fn)]
+#![allow(clippy::unused_self)]
+
+mod history;
+mod nbsh;
+mod repl;
 
 async fn async_main() -> anyhow::Result<()> {
-    async_std::io::stdout().write_all(b"hello world\n").await?;
-    Ok(())
+    let nbsh = nbsh::Nbsh::new();
+    nbsh.run().await
 }
 
 fn main() {
