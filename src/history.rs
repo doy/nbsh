@@ -3,13 +3,13 @@ use pty_process::Command as _;
 use textmode::Textmode as _;
 
 pub struct History {
-    entries: Vec<async_std::sync::Arc<async_std::sync::Mutex<HistoryEntry>>>,
-    action: async_std::channel::Sender<crate::nbsh::Action>,
+    entries: Vec<crate::util::Mutex<HistoryEntry>>,
+    action: async_std::channel::Sender<crate::state::Action>,
 }
 
 impl History {
     pub fn new(
-        action: async_std::channel::Sender<crate::nbsh::Action>,
+        action: async_std::channel::Sender<crate::state::Action>,
     ) -> Self {
         Self {
             entries: vec![],
@@ -24,8 +24,9 @@ impl History {
         let child = process
             .spawn_pty(Some(&pty_process::Size::new(24, 80)))
             .unwrap();
-        let entry = async_std::sync::Arc::new(async_std::sync::Mutex::new(
-            HistoryEntry::new(cmd, child.id().try_into().unwrap()),
+        let entry = crate::util::mutex(HistoryEntry::new(
+            cmd,
+            child.id().try_into().unwrap(),
         ));
         let task_entry = async_std::sync::Arc::clone(&entry);
         let task_action = self.action.clone();
@@ -42,29 +43,27 @@ impl History {
                         }
                         task_entry.lock_arc().await.running = false;
                         task_action
-                            .send(crate::nbsh::Action::UpdateFocus(
-                                crate::nbsh::InputSource::Repl,
+                            .send(crate::state::Action::UpdateFocus(
+                                crate::state::Focus::Readline,
                             ))
-                            .await
-                            .unwrap();
-                        task_action
-                            .send(crate::nbsh::Action::Render)
                             .await
                             .unwrap();
                         break;
                     }
                 }
-                task_action.send(crate::nbsh::Action::Render).await.unwrap();
+                task_action
+                    .send(crate::state::Action::Render)
+                    .await
+                    .unwrap();
             }
         });
         self.entries.push(entry);
         self.action
-            .send(crate::nbsh::Action::UpdateFocus(
-                crate::nbsh::InputSource::History(self.entries.len() - 1),
+            .send(crate::state::Action::UpdateFocus(
+                crate::state::Focus::History(self.entries.len() - 1),
             ))
             .await
             .unwrap();
-        self.action.send(crate::nbsh::Action::Render).await.unwrap();
         Ok(self.entries.len() - 1)
     }
 
@@ -81,8 +80,8 @@ impl History {
             }
             textmode::Key::Ctrl(b'z') => {
                 self.action
-                    .send(crate::nbsh::Action::UpdateFocus(
-                        crate::nbsh::InputSource::Repl,
+                    .send(crate::state::Action::UpdateFocus(
+                        crate::state::Focus::Readline,
                     ))
                     .await
                     .unwrap();

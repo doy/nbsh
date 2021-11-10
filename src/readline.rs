@@ -1,14 +1,14 @@
 use textmode::Textmode as _;
 
-pub struct Repl {
+pub struct Readline {
     prompt: String,
     input_line: String,
-    action: async_std::channel::Sender<crate::nbsh::Action>,
+    action: async_std::channel::Sender<crate::state::Action>,
 }
 
-impl Repl {
+impl Readline {
     pub fn new(
-        action: async_std::channel::Sender<crate::nbsh::Action>,
+        action: async_std::channel::Sender<crate::state::Action>,
     ) -> Self {
         Self {
             prompt: "$ ".into(),
@@ -29,7 +29,7 @@ impl Repl {
             }
             textmode::Key::Ctrl(b'm') => {
                 self.action
-                    .send(crate::nbsh::Action::Run(self.input()))
+                    .send(crate::state::Action::Run(self.input()))
                     .await
                     .unwrap();
                 self.clear_input();
@@ -37,7 +37,10 @@ impl Repl {
             textmode::Key::Backspace => self.backspace(),
             _ => {}
         }
-        self.action.send(crate::nbsh::Action::Render).await.unwrap();
+        self.action
+            .send(crate::state::Action::Render)
+            .await
+            .unwrap();
         false
     }
 
