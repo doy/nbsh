@@ -116,6 +116,10 @@ impl History {
             if used_lines > 24 {
                 break;
             }
+            if used_lines == 1 {
+                used_lines = 2;
+                pos = Some((23, 0));
+            }
             out.move_to((24 - used_lines).try_into().unwrap(), 0);
             out.write_str("$ ");
             if entry.running {
