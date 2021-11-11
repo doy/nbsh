@@ -19,7 +19,7 @@ impl History {
 
     pub async fn run(&mut self, cmd: &str) -> anyhow::Result<usize> {
         let (exe, args) = parse_cmd(cmd);
-        let mut process = async_process::Command::new(&exe);
+        let mut process = async_std::process::Command::new(&exe);
         process.args(&args);
         let child = process
             .spawn_pty(Some(&pty_process::Size::new(24, 80)))

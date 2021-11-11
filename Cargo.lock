@@ -119,6 +119,7 @@ dependencies = [
  "async-global-executor",
  "async-io",
  "async-lock",
+ "async-process",
  "crossbeam-utils",
  "futures-channel",
  "futures-core",
@@ -375,7 +376,6 @@ name = "nbsh"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-process",
  "async-std",
  "futures-lite",
  "libc",
