@@ -191,7 +191,7 @@ impl History {
             );
             out.write_str("$ ");
             if entry.running {
-                out.set_bgcolor(vt100::Color::Rgb(16, 64, 16));
+                out.set_bgcolor(textmode::Color::Rgb(16, 64, 16));
             }
             out.write_str(&entry.cmd);
             out.reset_attributes();
