@@ -460,8 +460,6 @@ dependencies = [
 [[package]]
 name = "pty-process"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f5ee5b47038135661458191580c0755ac2392be97385cd9446412c9892b676e"
 dependencies = [
  "async-io",
  "async-process",
@@ -550,8 +548,6 @@ dependencies = [
 [[package]]
 name = "textmode"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b9b8e80092d9f4b0c016d755c6a162c89d08dee6379e1d3c65129d274b777ae"
 dependencies = [
  "blocking",
  "futures-lite",
@@ -619,8 +615,6 @@ checksum = "5fecdca9a5291cc2b8dcf7dc02453fee791a280f3743cb0905f8822ae463b3fe"
 [[package]]
 name = "vt100"
 version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6552f8bf8f321d38f509ddf5c5c092df487e2d0b5d89f0025fc010372693779e"
 dependencies = [
  "itoa",
  "log",

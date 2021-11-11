@@ -11,11 +11,11 @@ async-std = { version = "1.10.0", features = ["unstable"] }
 futures-lite = "1.12.0"
 libc = "0.2.107"
 nix = "0.23.0"
-pty-process = { version = "0.1.1", features = ["backend-async-std"] }
+pty-process = { path = "../pty-process", version = "0.1.1", features = ["backend-async-std"] }
 signal-hook = "0.3.10"
 signal-hook-async-std = "0.2.1"
 terminal_size = "0.1.17"
-textmode = { version = "0.1.1", features = ["async"] }
-vt100 = "0.12.0"
+textmode = { path = "../textmode", version = "0.1.1", features = ["async"] }
+vt100 = { path = "../vt100-rust", version = "0.12.0" }
 
 [features]
