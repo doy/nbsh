@@ -25,13 +25,16 @@ impl State {
 
     pub async fn render(&mut self) -> anyhow::Result<()> {
         self.output.clear();
-        if let Focus::Readline = self.focus {
-            self.history
-                .render(&mut self.output, self.readline.lines())
-                .await?;
-            self.readline.render(&mut self.output).await?;
-        } else {
-            self.history.render(&mut self.output, 0).await?;
+        match self.focus {
+            Focus::Readline => {
+                self.history
+                    .render(&mut self.output, self.readline.lines(), None)
+                    .await?;
+                self.readline.render(&mut self.output).await?;
+            }
+            Focus::History(idx) => {
+                self.history.render(&mut self.output, 0, Some(idx)).await?;
+            }
         }
         self.output.refresh().await?;
         Ok(())

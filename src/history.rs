@@ -127,10 +127,11 @@ impl History {
         &self,
         out: &mut textmode::Output,
         repl_lines: usize,
+        focus: Option<usize>,
     ) -> anyhow::Result<()> {
         let mut used_lines = repl_lines;
         let mut pos = None;
-        for entry in self.entries.iter().rev() {
+        for (idx, entry) in self.entries.iter().enumerate().rev() {
             let entry = entry.lock_arc().await;
             let screen = entry.vt.screen();
             let mut last_row = 0;
@@ -138,6 +139,12 @@ impl History {
                 if !row.is_empty() {
                     last_row = idx + 1;
                 }
+            }
+            if focus == Some(idx) {
+                last_row = std::cmp::max(
+                    last_row,
+                    screen.cursor_position().0 as usize + 1,
+                );
             }
             used_lines += 1 + std::cmp::min(6, last_row);
             if used_lines > 24 {
