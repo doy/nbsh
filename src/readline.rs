@@ -3,12 +3,12 @@ use textmode::Textmode as _;
 pub struct Readline {
     prompt: String,
     input_line: String,
-    action: async_std::channel::Sender<crate::state::Action>,
+    action: async_std::channel::Sender<crate::action::Action>,
 }
 
 impl Readline {
     pub fn new(
-        action: async_std::channel::Sender<crate::state::Action>,
+        action: async_std::channel::Sender<crate::action::Action>,
     ) -> Self {
         Self {
             prompt: "$ ".into(),
@@ -29,7 +29,7 @@ impl Readline {
             }
             textmode::Key::Ctrl(b'm') => {
                 self.action
-                    .send(crate::state::Action::Run(self.input()))
+                    .send(crate::action::Action::Run(self.input()))
                     .await
                     .unwrap();
                 self.clear_input();
@@ -38,7 +38,7 @@ impl Readline {
             _ => {}
         }
         self.action
-            .send(crate::state::Action::Render)
+            .send(crate::action::Action::Render)
             .await
             .unwrap();
         false

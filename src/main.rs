@@ -3,6 +3,7 @@
 #![allow(clippy::missing_const_for_fn)]
 #![allow(clippy::unused_self)]
 
+mod action;
 mod history;
 mod readline;
 mod state;
@@ -27,7 +28,8 @@ async fn async_main() -> anyhow::Result<()> {
     {
         let state = async_std::sync::Arc::clone(&state);
         async_std::task::spawn(async move {
-            while let Ok(action) = action_r.recv().await {
+            let debouncer = crate::action::debounce(action_r);
+            while let Some(action) = debouncer.recv().await {
                 state.lock_arc().await.handle_action(action).await;
             }
         });

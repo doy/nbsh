@@ -4,12 +4,12 @@ use textmode::Textmode as _;
 
 pub struct History {
     entries: Vec<crate::util::Mutex<HistoryEntry>>,
-    action: async_std::channel::Sender<crate::state::Action>,
+    action: async_std::channel::Sender<crate::action::Action>,
 }
 
 impl History {
     pub fn new(
-        action: async_std::channel::Sender<crate::state::Action>,
+        action: async_std::channel::Sender<crate::action::Action>,
     ) -> Self {
         Self {
             entries: vec![],
@@ -58,7 +58,7 @@ impl History {
                                 }
                                 task_entry.lock_arc().await.running = false;
                                 task_action
-                                    .send(crate::state::Action::UpdateFocus(
+                                    .send(crate::action::Action::UpdateFocus(
                                         crate::state::Focus::Readline,
                                     ))
                                     .await
@@ -67,7 +67,7 @@ impl History {
                             }
                         }
                         task_action
-                            .send(crate::state::Action::Render)
+                            .send(crate::action::Action::Render)
                             .await
                             .unwrap();
                     }
@@ -87,7 +87,7 @@ impl History {
         });
         self.entries.push(entry);
         self.action
-            .send(crate::state::Action::UpdateFocus(
+            .send(crate::action::Action::UpdateFocus(
                 crate::state::Focus::History(self.entries.len() - 1),
             ))
             .await
@@ -108,7 +108,7 @@ impl History {
             }
             textmode::Key::Ctrl(b'z') => {
                 self.action
-                    .send(crate::state::Action::UpdateFocus(
+                    .send(crate::action::Action::UpdateFocus(
                         crate::state::Focus::Readline,
                     ))
                     .await

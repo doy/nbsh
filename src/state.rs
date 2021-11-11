@@ -9,7 +9,7 @@ pub struct State {
 
 impl State {
     pub fn new(
-        actions: async_std::channel::Sender<Action>,
+        actions: async_std::channel::Sender<crate::action::Action>,
         output: textmode::Output,
     ) -> Self {
         let readline = crate::readline::Readline::new(actions.clone());
@@ -37,15 +37,15 @@ impl State {
         Ok(())
     }
 
-    pub async fn handle_action(&mut self, action: Action) {
+    pub async fn handle_action(&mut self, action: crate::action::Action) {
         match action {
-            Action::Render => {
+            crate::action::Action::Render => {
                 self.render().await.unwrap();
             }
-            Action::Run(ref cmd) => {
+            crate::action::Action::Run(ref cmd) => {
                 self.history.run(cmd).await.unwrap();
             }
-            Action::UpdateFocus(new_focus) => {
+            crate::action::Action::UpdateFocus(new_focus) => {
                 self.focus = new_focus;
                 self.render().await.unwrap();
             }
@@ -64,11 +64,4 @@ impl State {
 pub enum Focus {
     Readline,
     History(usize),
-}
-
-#[derive(Debug)]
-pub enum Action {
-    Render,
-    Run(String),
-    UpdateFocus(Focus),
 }
