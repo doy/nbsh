@@ -58,7 +58,7 @@ impl State {
                 self.readline.resize(new_size).await;
                 self.history.resize(new_size).await;
                 self.output.set_size(new_size.0, new_size.1);
-                self.output.clear();
+                self.output.hard_refresh().await.unwrap();
                 self.render().await.unwrap();
             }
         }
