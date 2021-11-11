@@ -1,6 +1,7 @@
 #![warn(clippy::pedantic)]
 #![warn(clippy::nursery)]
 #![allow(clippy::missing_const_for_fn)]
+#![allow(clippy::too_many_lines)]
 #![allow(clippy::unused_self)]
 
 mod action;
@@ -8,6 +9,8 @@ mod history;
 mod readline;
 mod state;
 mod util;
+
+use async_std::stream::StreamExt as _;
 
 async fn async_main() -> anyhow::Result<()> {
     let mut input = textmode::Input::new().await?;
@@ -24,6 +27,20 @@ async fn async_main() -> anyhow::Result<()> {
     state.render().await.unwrap();
 
     let state = util::mutex(state);
+
+    {
+        let state = async_std::sync::Arc::clone(&state);
+        let mut signals = signal_hook_async_std::Signals::new(&[
+            signal_hook::consts::signal::SIGWINCH,
+        ])?;
+        async_std::task::spawn(async move {
+            while signals.next().await.is_some() {
+                state.lock_arc().await.resize().await;
+            }
+        });
+    }
+
+    state.lock_arc().await.resize().await;
 
     {
         let state = async_std::sync::Arc::clone(&state);

@@ -1,6 +1,7 @@
 use textmode::Textmode as _;
 
 pub struct Readline {
+    size: (u16, u16),
     prompt: String,
     input_line: String,
     action: async_std::channel::Sender<crate::action::Action>,
@@ -11,6 +12,7 @@ impl Readline {
         action: async_std::channel::Sender<crate::action::Action>,
     ) -> Self {
         Self {
+            size: (24, 80),
             prompt: "$ ".into(),
             input_line: "".into(),
             action,
@@ -52,10 +54,14 @@ impl Readline {
         &self,
         out: &mut textmode::Output,
     ) -> anyhow::Result<()> {
-        out.move_to(23, 0);
+        out.move_to(self.size.0 - 1, 0);
         out.write_str(&self.prompt);
         out.write_str(&self.input_line);
         Ok(())
+    }
+
+    pub async fn resize(&mut self, size: (u16, u16)) {
+        self.size = size;
     }
 
     fn input(&self) -> String {

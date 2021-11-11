@@ -1,8 +1,10 @@
 use async_std::io::{ReadExt as _, WriteExt as _};
+use futures_lite::future::FutureExt as _;
 use pty_process::Command as _;
 use textmode::Textmode as _;
 
 pub struct History {
+    size: (u16, u16),
     entries: Vec<crate::util::Mutex<HistoryEntry>>,
     action: async_std::channel::Sender<crate::action::Action>,
 }
@@ -12,6 +14,7 @@ impl History {
         action: async_std::channel::Sender<crate::action::Action>,
     ) -> Self {
         Self {
+            size: (24, 80),
             entries: vec![],
             action,
         }
@@ -22,13 +25,19 @@ impl History {
         let mut process = async_std::process::Command::new(&exe);
         process.args(&args);
         let child = process
-            .spawn_pty(Some(&pty_process::Size::new(24, 80)))
+            .spawn_pty(Some(&pty_process::Size::new(
+                self.size.0,
+                self.size.1,
+            )))
             .unwrap();
         let (input_w, input_r) = async_std::channel::unbounded();
+        let (resize_w, resize_r) = async_std::channel::unbounded();
         let entry = crate::util::mutex(HistoryEntry::new(
             cmd,
             child.id().try_into().unwrap(),
+            self.size,
             input_w,
+            resize_w,
         ));
         let task_entry = async_std::sync::Arc::clone(&entry);
         let task_action = self.action.clone();
@@ -37,12 +46,14 @@ impl History {
                 enum Res {
                     Read(Result<usize, std::io::Error>),
                     Write(Result<Vec<u8>, async_std::channel::RecvError>),
+                    Resize(Result<(u16, u16), async_std::channel::RecvError>),
                 }
                 let mut buf = [0_u8; 4096];
                 let mut pty = child.pty();
                 let read = async { Res::Read(pty.read(&mut buf).await) };
                 let write = async { Res::Write(input_r.recv().await) };
-                match futures_lite::future::race(read, write).await {
+                let resize = async { Res::Resize(resize_r.recv().await) };
+                match read.race(write).race(resize).await {
                     Res::Read(res) => {
                         match res {
                             Ok(bytes) => {
@@ -78,6 +89,26 @@ impl History {
                         Err(e) => {
                             panic!(
                                 "failed to read from input channel: {}",
+                                e
+                            );
+                        }
+                    },
+                    Res::Resize(res) => match res {
+                        Ok(size) => {
+                            child
+                                .resize_pty(&pty_process::Size::new(
+                                    size.0, size.1,
+                                ))
+                                .unwrap();
+                            task_entry
+                                .lock_arc()
+                                .await
+                                .vt
+                                .set_size(size.0, size.1);
+                        }
+                        Err(e) => {
+                            panic!(
+                                "failed to read from resize channel: {}",
                                 e
                             );
                         }
@@ -135,7 +166,7 @@ impl History {
             let entry = entry.lock_arc().await;
             let screen = entry.vt.screen();
             let mut last_row = 0;
-            for (idx, row) in screen.rows(0, 80).enumerate() {
+            for (idx, row) in screen.rows(0, self.size.1).enumerate() {
                 if !row.is_empty() {
                     last_row = idx + 1;
                 }
@@ -147,14 +178,17 @@ impl History {
                 );
             }
             used_lines += 1 + std::cmp::min(6, last_row);
-            if used_lines > 24 {
+            if used_lines > self.size.0 as usize {
                 break;
             }
             if used_lines == 1 {
                 used_lines = 2;
-                pos = Some((23, 0));
+                pos = Some((self.size.0 - 1, 0));
             }
-            out.move_to((24 - used_lines).try_into().unwrap(), 0);
+            out.move_to(
+                (self.size.0 as usize - used_lines).try_into().unwrap(),
+                0,
+            );
             out.write_str("$ ");
             if entry.running {
                 out.set_bgcolor(vt100::Color::Rgb(16, 64, 16));
@@ -169,7 +203,7 @@ impl History {
             }
             let mut end_pos = (0, 0);
             for row in screen
-                .rows_formatted(0, 80)
+                .rows_formatted(0, self.size.1)
                 .take(last_row)
                 .skip(last_row.saturating_sub(5))
             {
@@ -186,6 +220,16 @@ impl History {
             out.move_to(pos.0, pos.1);
         }
         Ok(())
+    }
+
+    pub async fn resize(&mut self, size: (u16, u16)) {
+        self.size = size;
+        for entry in &self.entries {
+            let entry = entry.lock_arc().await;
+            if entry.running {
+                entry.resize.send(size).await.unwrap();
+            }
+        }
     }
 
     async fn send_process_input(
@@ -209,6 +253,7 @@ struct HistoryEntry {
     pid: nix::unistd::Pid,
     vt: vt100::Parser,
     input: async_std::channel::Sender<Vec<u8>>,
+    resize: async_std::channel::Sender<(u16, u16)>,
     running: bool, // option end time
                    // start time
 }
@@ -217,13 +262,16 @@ impl HistoryEntry {
     fn new(
         cmd: &str,
         pid: i32,
+        size: (u16, u16),
         input: async_std::channel::Sender<Vec<u8>>,
+        resize: async_std::channel::Sender<(u16, u16)>,
     ) -> Self {
         Self {
             cmd: cmd.into(),
             pid: nix::unistd::Pid::from_raw(pid),
-            vt: vt100::Parser::new(24, 80, 0),
+            vt: vt100::Parser::new(size.0, size.1, 0),
             input,
+            resize,
             running: true,
         }
     }

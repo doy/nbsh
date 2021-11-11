@@ -3,6 +3,7 @@ pub enum Action {
     Render,
     Run(String),
     UpdateFocus(crate::state::Focus),
+    Resize((u16, u16)),
 }
 
 pub struct Debouncer {
@@ -30,9 +31,10 @@ impl Debouncer {
 
 #[derive(Default)]
 struct Pending {
-    render: bool,
+    render: Option<()>,
     run: std::collections::VecDeque<String>,
     focus: Option<crate::state::Focus>,
+    size: Option<(u16, u16)>,
     done: bool,
 }
 
@@ -42,18 +44,24 @@ impl Pending {
     }
 
     fn has_event(&self) -> bool {
-        self.render || !self.run.is_empty() || self.focus.is_some()
+        self.render.is_some()
+            || !self.run.is_empty()
+            || self.focus.is_some()
+            || self.size.is_some()
     }
 
     fn get_event(&mut self) -> Option<Action> {
+        if self.size.is_some() {
+            return Some(Action::Resize(self.size.take().unwrap()));
+        }
         if !self.run.is_empty() {
             return Some(Action::Run(self.run.pop_front().unwrap()));
         }
         if self.focus.is_some() {
             return Some(Action::UpdateFocus(self.focus.take().unwrap()));
         }
-        if self.render {
-            self.render = false;
+        if self.render.is_some() {
+            self.render.take();
             return Some(Action::Render);
         }
         if self.done {
@@ -66,7 +74,8 @@ impl Pending {
         match action {
             Some(Action::Run(cmd)) => self.run.push_back(cmd.to_string()),
             Some(Action::UpdateFocus(focus)) => self.focus = Some(*focus),
-            Some(Action::Render) => self.render = true,
+            Some(Action::Render) => self.render = Some(()),
+            Some(Action::Resize(size)) => self.size = Some(*size),
             None => self.done = true,
         }
     }

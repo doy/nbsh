@@ -5,21 +5,23 @@ pub struct State {
     history: crate::history::History,
     focus: Focus,
     output: textmode::Output,
+    action: async_std::channel::Sender<crate::action::Action>,
 }
 
 impl State {
     pub fn new(
-        actions: async_std::channel::Sender<crate::action::Action>,
+        action: async_std::channel::Sender<crate::action::Action>,
         output: textmode::Output,
     ) -> Self {
-        let readline = crate::readline::Readline::new(actions.clone());
-        let history = crate::history::History::new(actions);
+        let readline = crate::readline::Readline::new(action.clone());
+        let history = crate::history::History::new(action.clone());
         let focus = Focus::Readline;
         Self {
             readline,
             history,
             focus,
             output,
+            action,
         }
     }
 
@@ -52,6 +54,13 @@ impl State {
                 self.focus = new_focus;
                 self.render().await.unwrap();
             }
+            crate::action::Action::Resize(new_size) => {
+                self.readline.resize(new_size).await;
+                self.history.resize(new_size).await;
+                self.output.set_size(new_size.0, new_size.1);
+                self.output.clear();
+                self.render().await.unwrap();
+            }
         }
     }
 
@@ -60,6 +69,17 @@ impl State {
             Focus::Readline => self.readline.handle_key(key).await,
             Focus::History(idx) => self.history.handle_key(key, idx).await,
         }
+    }
+
+    pub async fn resize(&mut self) {
+        let size = terminal_size::terminal_size().map_or(
+            (24, 80),
+            |(terminal_size::Width(w), terminal_size::Height(h))| (h, w),
+        );
+        self.action
+            .send(crate::action::Action::Resize(size))
+            .await
+            .unwrap();
     }
 }
 
