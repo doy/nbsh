@@ -36,6 +36,7 @@ impl Readline {
                     .unwrap();
                 self.clear_input();
             }
+            textmode::Key::Ctrl(b'u') => self.clear_backwards(),
             textmode::Key::Backspace => self.backspace(),
             _ => {}
         }
@@ -77,6 +78,10 @@ impl Readline {
     }
 
     fn clear_input(&mut self) {
+        self.input_line.clear();
+    }
+
+    fn clear_backwards(&mut self) {
         self.input_line.clear();
     }
 }
