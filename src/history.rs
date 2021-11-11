@@ -34,12 +34,16 @@ impl History {
         let task_action = self.action.clone();
         async_std::task::spawn(async move {
             loop {
+                enum Res {
+                    Read(Result<usize, std::io::Error>),
+                    Write(Result<Vec<u8>, async_std::channel::RecvError>),
+                }
                 let mut buf = [0_u8; 4096];
                 let mut pty = child.pty();
-                let read = pty.read(&mut buf);
-                let write = input_r.recv();
-                match futures::future::select(read, write).await {
-                    futures::future::Either::Left((res, _)) => {
+                let read = async { Res::Read(pty.read(&mut buf).await) };
+                let write = async { Res::Write(input_r.recv().await) };
+                match futures_lite::future::race(read, write).await {
+                    Res::Read(res) => {
                         match res {
                             Ok(bytes) => {
                                 task_entry
@@ -67,7 +71,7 @@ impl History {
                             .await
                             .unwrap();
                     }
-                    futures::future::Either::Right((res, _)) => match res {
+                    Res::Write(res) => match res {
                         Ok(bytes) => {
                             pty.write(&bytes).await.unwrap();
                         }
