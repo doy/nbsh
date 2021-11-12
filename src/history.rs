@@ -160,6 +160,28 @@ impl History {
         repl_lines: usize,
         focus: Option<usize>,
     ) -> anyhow::Result<()> {
+        if let Some(idx) = focus {
+            let mut entry = self.entries[idx].lock_arc().await;
+            let screen = entry.vt.screen();
+            if screen.alternate_screen() {
+                let new_audible_bell_state = screen.audible_bell_count();
+                let new_visual_bell_state = screen.visual_bell_count();
+
+                out.write(&screen.state_formatted());
+
+                if entry.audible_bell_state != new_audible_bell_state {
+                    out.write(b"\x07");
+                    entry.audible_bell_state = new_audible_bell_state;
+                }
+
+                if entry.visual_bell_state != new_visual_bell_state {
+                    out.write(b"\x1bg");
+                    entry.visual_bell_state = new_visual_bell_state;
+                }
+
+                return Ok(());
+            }
+        }
         let mut used_lines = repl_lines;
         let mut pos = None;
         for (idx, entry) in self.entries.iter().enumerate().rev() {
@@ -252,6 +274,8 @@ struct HistoryEntry {
     cmd: String,
     pid: nix::unistd::Pid,
     vt: vt100::Parser,
+    audible_bell_state: usize,
+    visual_bell_state: usize,
     input: async_std::channel::Sender<Vec<u8>>,
     resize: async_std::channel::Sender<(u16, u16)>,
     running: bool, // option end time
@@ -270,6 +294,8 @@ impl HistoryEntry {
             cmd: cmd.into(),
             pid: nix::unistd::Pid::from_raw(pid),
             vt: vt100::Parser::new(size.0, size.1, 0),
+            audible_bell_state: 0,
+            visual_bell_state: 0,
             input,
             resize,
             running: true,
