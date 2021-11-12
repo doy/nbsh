@@ -385,6 +385,7 @@ dependencies = [
  "signal-hook-async-std",
  "terminal_size",
  "textmode",
+ "unicode-width",
  "vt100",
 ]
 

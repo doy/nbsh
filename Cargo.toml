@@ -16,6 +16,7 @@ signal-hook = "0.3.10"
 signal-hook-async-std = "0.2.1"
 terminal_size = "0.1.17"
 textmode = { path = "../textmode", version = "0.1.1", features = ["async"] }
+unicode-width = "0.1.9"
 vt100 = { path = "../vt100-rust", version = "0.12.0" }
 
 [features]

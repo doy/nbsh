@@ -1,4 +1,5 @@
 use textmode::Textmode as _;
+use unicode_width::UnicodeWidthChar as _;
 
 pub struct Readline {
     size: (u16, u16),
@@ -74,7 +75,11 @@ impl Readline {
     }
 
     fn backspace(&mut self) {
-        self.input_line.pop();
+        let mut width = 0;
+        while width == 0 {
+            width =
+                self.input_line.pop().map_or(1, |c| c.width().unwrap_or(0));
+        }
     }
 
     fn clear_input(&mut self) {
