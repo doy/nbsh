@@ -6,7 +6,6 @@ use textmode::Textmode as _;
 pub struct History {
     size: (u16, u16),
     entries: Vec<crate::util::Mutex<HistoryEntry>>,
-    escape: bool,
     action: async_std::channel::Sender<crate::action::Action>,
 }
 
@@ -17,7 +16,6 @@ impl History {
         Self {
             size: (24, 80),
             entries: vec![],
-            escape: false,
             action,
         }
     }
@@ -134,36 +132,13 @@ impl History {
         key: textmode::Key,
         idx: usize,
     ) -> bool {
-        if self.escape {
-            match key {
-                textmode::Key::Ctrl(b'e') => {
-                    self.send_process_input(idx, &key.into_bytes())
-                        .await
-                        .unwrap();
-                }
-                textmode::Key::Char('r') => {
-                    self.action
-                        .send(crate::action::Action::UpdateFocus(
-                            crate::state::Focus::Readline,
-                        ))
-                        .await
-                        .unwrap();
-                }
-                _ => {}
-            }
-            self.escape = false;
-        } else {
-            match key {
-                textmode::Key::Ctrl(b'e') => {
-                    self.escape = true;
-                }
-                key => {
-                    self.send_process_input(idx, &key.into_bytes())
-                        .await
-                        .unwrap();
-                }
-            }
-        }
+        self.entries[idx]
+            .lock_arc()
+            .await
+            .input
+            .send(key.into_bytes())
+            .await
+            .unwrap();
         false
     }
 
@@ -218,21 +193,6 @@ impl History {
                 entry.resize.send(size).await.unwrap();
             }
         }
-    }
-
-    async fn send_process_input(
-        &self,
-        idx: usize,
-        input: &[u8],
-    ) -> anyhow::Result<()> {
-        self.entries[idx]
-            .lock_arc()
-            .await
-            .input
-            .send(input.to_vec())
-            .await
-            .unwrap();
-        Ok(())
     }
 }
 

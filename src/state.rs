@@ -5,6 +5,7 @@ pub struct State {
     history: crate::history::History,
     focus: Focus,
     output: textmode::Output,
+    escape: bool,
     action: async_std::channel::Sender<crate::action::Action>,
 }
 
@@ -21,6 +22,7 @@ impl State {
             history,
             focus,
             output,
+            escape: false,
             action,
         }
     }
@@ -65,6 +67,27 @@ impl State {
     }
 
     pub async fn handle_input(&mut self, key: textmode::Key) -> bool {
+        if self.escape {
+            let mut ret = true;
+            match key {
+                textmode::Key::Ctrl(b'e') => {
+                    ret = false; // fall through and handle normally
+                }
+                textmode::Key::Char('r') => {
+                    self.focus = Focus::Readline;
+                    self.render().await.unwrap();
+                }
+                _ => {}
+            }
+            self.escape = false;
+            if ret {
+                return false;
+            }
+        } else if key == textmode::Key::Ctrl(b'e') {
+            self.escape = true;
+            return false;
+        }
+
         match self.focus {
             Focus::Readline => self.readline.handle_key(key).await,
             Focus::History(idx) => self.history.handle_key(key, idx).await,
