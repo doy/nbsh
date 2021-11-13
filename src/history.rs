@@ -175,43 +175,18 @@ impl History {
     ) -> anyhow::Result<()> {
         if let Some(idx) = focus {
             let mut entry = self.entries[idx].lock_arc().await;
-            let screen = entry.vt.screen();
-            if screen.alternate_screen() {
-                let new_audible_bell_state = screen.audible_bell_count();
-                let new_visual_bell_state = screen.visual_bell_count();
-
-                out.write(&screen.state_formatted());
-
-                if entry.audible_bell_state != new_audible_bell_state {
-                    out.write(b"\x07");
-                    entry.audible_bell_state = new_audible_bell_state;
-                }
-
-                if entry.visual_bell_state != new_visual_bell_state {
-                    out.write(b"\x1bg");
-                    entry.visual_bell_state = new_visual_bell_state;
-                }
-
+            if entry.should_full_screen() {
+                entry.render_full_screen(out);
                 return Ok(());
             }
         }
+
         let mut used_lines = repl_lines;
         let mut pos = None;
         for (idx, entry) in self.entries.iter().enumerate().rev() {
-            let entry = entry.lock_arc().await;
-            let screen = entry.vt.screen();
-            let mut last_row = 0;
-            for (idx, row) in screen.rows(0, self.size.1).enumerate() {
-                if !row.is_empty() {
-                    last_row = idx + 1;
-                }
-            }
-            if focus == Some(idx) {
-                last_row = std::cmp::max(
-                    last_row,
-                    screen.cursor_position().0 as usize + 1,
-                );
-            }
+            let mut entry = entry.lock_arc().await;
+            let focused = focus.map_or(false, |focus| idx == focus);
+            let last_row = entry.lines(self.size.1, focused);
             used_lines += 1 + std::cmp::min(6, last_row);
             if used_lines > self.size.0 as usize {
                 break;
@@ -224,58 +199,10 @@ impl History {
                 (self.size.0 as usize - used_lines).try_into().unwrap(),
                 0,
             );
-            if let Some(info) = entry.exit_info {
-                out.write_str(&crate::format::exit_status(info.status));
-            } else {
-                out.write_str("     ");
-            }
-            if focus == Some(idx) {
-                out.set_fgcolor(textmode::color::BLACK);
-                out.set_bgcolor(textmode::color::CYAN);
-            }
-            out.write_str("$ ");
-            out.reset_attributes();
-            if entry.running() {
-                out.set_bgcolor(textmode::Color::Rgb(16, 64, 16));
-            }
-            out.write_str(&entry.cmd);
-            out.reset_attributes();
-            let time = if let Some(info) = entry.exit_info {
-                format!(
-                    "[{} ({:6})]",
-                    entry.start_time.time().format("%H:%M:%S"),
-                    crate::format::duration(
-                        info.instant - entry.start_instant
-                    )
-                )
-            } else {
-                format!("[{}]", entry.start_time.time().format("%H:%M:%S"))
-            };
-            out.move_to(
-                (self.size.0 as usize - used_lines).try_into().unwrap(),
-                (self.size.1 as usize - time.len() - 1).try_into().unwrap(),
-            );
-            out.write_str(&time);
-            if last_row > 5 {
-                out.write(b"\r\n");
-                out.set_bgcolor(textmode::color::RED);
-                out.write(b"...");
-                out.reset_attributes();
-            }
-            let mut end_pos = (0, 0);
-            for row in screen
-                .rows_formatted(0, self.size.1)
-                .take(last_row)
-                .skip(last_row.saturating_sub(5))
-            {
-                out.write(b"\r\n");
-                out.write(&row);
-                end_pos = out.screen().cursor_position();
-            }
+            entry.render(out, self.size.1, focused);
             if pos.is_none() {
-                pos = Some(end_pos);
+                pos = Some(out.screen().cursor_position());
             }
-            out.reset_attributes();
         }
         if let Some(pos) = pos {
             out.move_to(pos.0, pos.1);
@@ -343,6 +270,104 @@ impl HistoryEntry {
 
     fn running(&self) -> bool {
         self.exit_info.is_none()
+    }
+
+    fn lines(&self, width: u16, focused: bool) -> usize {
+        let screen = self.vt.screen();
+        let mut last_row = 0;
+        for (idx, row) in screen.rows(0, width).enumerate() {
+            if !row.is_empty() {
+                last_row = idx + 1;
+            }
+        }
+        if focused {
+            last_row = std::cmp::max(
+                last_row,
+                screen.cursor_position().0 as usize + 1,
+            );
+        }
+        last_row
+    }
+
+    fn render(
+        &mut self,
+        out: &mut textmode::Output,
+        width: u16,
+        focused: bool,
+    ) {
+        if let Some(info) = self.exit_info {
+            out.write_str(&crate::format::exit_status(info.status));
+        } else {
+            out.write_str("     ");
+        }
+        if focused {
+            out.set_fgcolor(textmode::color::BLACK);
+            out.set_bgcolor(textmode::color::CYAN);
+        }
+        out.write_str("$ ");
+        out.reset_attributes();
+        if self.running() {
+            out.set_bgcolor(textmode::Color::Rgb(16, 64, 16));
+        }
+        out.write_str(&self.cmd);
+        out.reset_attributes();
+        let time = if let Some(info) = self.exit_info {
+            format!(
+                "[{} ({:6})]",
+                self.start_time.time().format("%H:%M:%S"),
+                crate::format::duration(info.instant - self.start_instant)
+            )
+        } else {
+            format!("[{}]", self.start_time.time().format("%H:%M:%S"))
+        };
+        let cur_pos = out.screen().cursor_position();
+        out.move_relative(
+            0,
+            (width as usize - time.len() - 1 - cur_pos.1 as usize)
+                .try_into()
+                .unwrap(),
+        );
+        out.write_str(&time);
+        let last_row = self.lines(width, focused);
+        if last_row > 5 {
+            out.write(b"\r\n");
+            out.set_bgcolor(textmode::color::RED);
+            out.write(b"...");
+            out.reset_attributes();
+        }
+        for row in self
+            .vt
+            .screen()
+            .rows_formatted(0, width)
+            .take(last_row)
+            .skip(last_row.saturating_sub(5))
+        {
+            out.write(b"\r\n");
+            out.write(&row);
+        }
+        out.reset_attributes();
+    }
+
+    fn should_full_screen(&self) -> bool {
+        self.vt.screen().alternate_screen()
+    }
+
+    fn render_full_screen(&mut self, out: &mut textmode::Output) {
+        let screen = self.vt.screen();
+        let new_audible_bell_state = screen.audible_bell_count();
+        let new_visual_bell_state = screen.visual_bell_count();
+
+        out.write(&screen.state_formatted());
+
+        if self.audible_bell_state != new_audible_bell_state {
+            out.write(b"\x07");
+            self.audible_bell_state = new_audible_bell_state;
+        }
+
+        if self.visual_bell_state != new_visual_bell_state {
+            out.write(b"\x1bg");
+            self.visual_bell_state = new_visual_bell_state;
+        }
     }
 }
 
