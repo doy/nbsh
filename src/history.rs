@@ -1,7 +1,6 @@
 use async_std::io::{ReadExt as _, WriteExt as _};
 use futures_lite::future::FutureExt as _;
 use pty_process::Command as _;
-use std::os::unix::process::ExitStatusExt as _;
 use textmode::Textmode as _;
 
 pub struct History {
@@ -227,17 +226,9 @@ impl History {
                 0,
             );
             if let Some(status) = entry.exit_status {
-                if let Some(sig) = status.signal() {
-                    if let Some(name) =
-                        signal_hook::low_level::signal_name(sig)
-                    {
-                        out.write_str(&format!("{} ", &name[3..]));
-                    } else {
-                        out.write_str(&format!("SIG{} ", sig));
-                    }
-                } else {
-                    out.write_str(&format!("{} ", status.code().unwrap()));
-                }
+                out.write_str(&crate::format::exit_status(status));
+            } else {
+                out.write_str("     ");
             }
             if focus == Some(idx) {
                 out.set_fgcolor(textmode::color::BLACK);
@@ -252,9 +243,9 @@ impl History {
             out.reset_attributes();
             let time = if let Some(end_instant) = entry.end_instant {
                 format!(
-                    "[{} ({})]",
+                    "[{} ({:6})]",
                     entry.start_time.time().format("%H:%M:%S"),
-                    crate::util::format_duration(
+                    crate::format::duration(
                         end_instant - entry.start_instant
                     )
                 )

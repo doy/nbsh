@@ -5,6 +5,7 @@
 #![allow(clippy::unused_self)]
 
 mod action;
+mod format;
 mod history;
 mod readline;
 mod state;
