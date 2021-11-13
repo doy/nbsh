@@ -1,6 +1,7 @@
 use async_std::io::{ReadExt as _, WriteExt as _};
 use futures_lite::future::FutureExt as _;
 use pty_process::Command as _;
+use std::os::unix::process::ExitStatusExt as _;
 use textmode::Textmode as _;
 
 pub struct History {
@@ -26,7 +27,7 @@ impl History {
         let (exe, args) = parse_cmd(cmd);
         let mut process = async_std::process::Command::new(&exe);
         process.args(&args);
-        let child = process
+        let mut child = process
             .spawn_pty(Some(&pty_process::Size::new(
                 self.size.0,
                 self.size.1,
@@ -65,7 +66,11 @@ impl History {
                                 if e.raw_os_error() != Some(libc::EIO) {
                                     eprintln!("pty read failed: {:?}", e);
                                 }
-                                task_entry.lock_arc().await.running = false;
+                                // XXX not sure if this is safe - are we sure
+                                // the child exited?
+                                let status = child.status().await.unwrap();
+                                task_entry.lock_arc().await.exit_status =
+                                    Some(status);
                                 task_action
                                     .send(crate::action::Action::UpdateFocus(
                                         crate::state::Focus::Readline,
@@ -219,8 +224,15 @@ impl History {
                 (self.size.0 as usize - used_lines).try_into().unwrap(),
                 0,
             );
+            if let Some(status) = entry.exit_status {
+                if let Some(sig) = status.signal() {
+                    out.write_str(&format!("SIG{} ", sig));
+                } else {
+                    out.write_str(&format!("{} ", status.code().unwrap()));
+                }
+            }
             out.write_str("$ ");
-            if entry.running {
+            if entry.running() {
                 out.set_bgcolor(textmode::Color::Rgb(16, 64, 16));
             }
             out.write_str(&entry.cmd);
@@ -256,7 +268,7 @@ impl History {
         self.size = size;
         for entry in &self.entries {
             let entry = entry.lock_arc().await;
-            if entry.running {
+            if entry.running() {
                 entry.resize.send(size).await.unwrap();
             }
         }
@@ -285,8 +297,7 @@ struct HistoryEntry {
     visual_bell_state: usize,
     input: async_std::channel::Sender<Vec<u8>>,
     resize: async_std::channel::Sender<(u16, u16)>,
-    running: bool, // option end time
-                   // start time
+    exit_status: Option<async_std::process::ExitStatus>,
 }
 
 impl HistoryEntry {
@@ -303,8 +314,12 @@ impl HistoryEntry {
             visual_bell_state: 0,
             input,
             resize,
-            running: true,
+            exit_status: None,
         }
+    }
+
+    fn running(&self) -> bool {
+        self.exit_status.is_none()
     }
 }
 
