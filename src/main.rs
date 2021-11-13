@@ -7,6 +7,7 @@
 mod action;
 mod format;
 mod history;
+mod parse;
 mod readline;
 mod state;
 mod util;

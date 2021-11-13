@@ -21,7 +21,7 @@ impl History {
     }
 
     pub async fn run(&mut self, cmd: &str) -> anyhow::Result<usize> {
-        let (exe, args) = parse_cmd(cmd);
+        let (exe, args) = crate::parse::cmd(cmd);
         let mut process = async_std::process::Command::new(&exe);
         process.args(&args);
         let mut child = process
@@ -363,13 +363,4 @@ impl ExitInfo {
             instant: std::time::Instant::now(),
         }
     }
-}
-
-fn parse_cmd(full_cmd: &str) -> (String, Vec<String>) {
-    let mut parts = full_cmd.split(' ');
-    let cmd = parts.next().unwrap();
-    (
-        cmd.to_string(),
-        parts.map(std::string::ToString::to_string).collect(),
-    )
 }
