@@ -73,6 +73,36 @@ impl State {
                 textmode::Key::Ctrl(b'e') => {
                     ret = false; // fall through and handle normally
                 }
+                textmode::Key::Char('j') => {
+                    let new_focus = match self.focus {
+                        Focus::History(idx) => {
+                            if idx >= self.history.entry_count() - 1 {
+                                Focus::Readline
+                            } else {
+                                Focus::History(idx + 1)
+                            }
+                        }
+                        Focus::Readline => Focus::Readline,
+                    };
+                    self.focus = new_focus;
+                    self.render().await.unwrap();
+                }
+                textmode::Key::Char('k') => {
+                    let new_focus = match self.focus {
+                        Focus::History(idx) => {
+                            if idx == 0 {
+                                Focus::History(0)
+                            } else {
+                                Focus::History(idx - 1)
+                            }
+                        }
+                        Focus::Readline => {
+                            Focus::History(self.history.entry_count() - 1)
+                        }
+                    };
+                    self.focus = new_focus;
+                    self.render().await.unwrap();
+                }
                 textmode::Key::Char('r') => {
                     self.focus = Focus::Readline;
                     self.render().await.unwrap();

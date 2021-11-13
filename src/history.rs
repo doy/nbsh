@@ -194,6 +194,10 @@ impl History {
             }
         }
     }
+
+    pub fn entry_count(&self) -> usize {
+        self.entries.len()
+    }
 }
 
 struct HistoryEntry {
