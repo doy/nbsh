@@ -69,8 +69,10 @@ impl History {
                                 // XXX not sure if this is safe - are we sure
                                 // the child exited?
                                 let status = child.status().await.unwrap();
-                                task_entry.lock_arc().await.exit_status =
-                                    Some(status);
+                                let mut entry = task_entry.lock_arc().await;
+                                entry.exit_status = Some(status);
+                                entry.end_instant =
+                                    Some(std::time::Instant::now());
                                 task_action
                                     .send(crate::action::Action::UpdateFocus(
                                         crate::state::Focus::Readline,
@@ -237,6 +239,22 @@ impl History {
             }
             out.write_str(&entry.cmd);
             out.reset_attributes();
+            let time = if let Some(end_instant) = entry.end_instant {
+                format!(
+                    "[{} ({})]",
+                    entry.start_time.time().format("%H:%M:%S"),
+                    crate::util::format_duration(
+                        end_instant - entry.start_instant
+                    )
+                )
+            } else {
+                format!("[{}]", entry.start_time.time().format("%H:%M:%S"))
+            };
+            out.move_to(
+                (self.size.0 as usize - used_lines).try_into().unwrap(),
+                (self.size.1 as usize - time.len() - 1).try_into().unwrap(),
+            );
+            out.write_str(&time);
             if last_row > 5 {
                 out.write(b"\r\n");
                 out.set_bgcolor(textmode::color::RED);
@@ -298,6 +316,9 @@ struct HistoryEntry {
     input: async_std::channel::Sender<Vec<u8>>,
     resize: async_std::channel::Sender<(u16, u16)>,
     exit_status: Option<async_std::process::ExitStatus>,
+    start_time: chrono::DateTime<chrono::Local>,
+    start_instant: std::time::Instant,
+    end_instant: Option<std::time::Instant>,
 }
 
 impl HistoryEntry {
@@ -315,6 +336,9 @@ impl HistoryEntry {
             input,
             resize,
             exit_status: None,
+            start_time: chrono::Local::now(),
+            start_instant: std::time::Instant::now(),
+            end_instant: None,
         }
     }
 
