@@ -65,10 +65,21 @@ impl Readline {
         if focus {
             out.set_fgcolor(textmode::color::BLACK);
             out.set_bgcolor(textmode::color::CYAN);
+        } else {
+            out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
         }
         out.write_str(&self.prompt);
         out.reset_attributes();
+        out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
         out.write_str(&self.input_line);
+        out.write_str(
+            &" ".repeat(
+                (self.size.1 - self.prompt_width() - self.input_line_width())
+                    .try_into()
+                    .unwrap(),
+            ),
+        );
+        out.reset_attributes();
         out.move_to(self.size.0 - 1, self.prompt_width() + self.pos_width());
         Ok(())
     }
@@ -137,6 +148,10 @@ impl Readline {
 
     fn prompt_width(&self) -> u16 {
         self.prompt.width().try_into().unwrap()
+    }
+
+    fn input_line_width(&self) -> u16 {
+        self.input_line.width().try_into().unwrap()
     }
 
     fn pos_width(&self) -> u16 {

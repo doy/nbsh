@@ -295,6 +295,7 @@ impl HistoryEntry {
         width: u16,
         focused: bool,
     ) {
+        out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
         if let Some(info) = self.exit_info {
             out.write_str(&crate::format::exit_status(info.status));
         } else {
@@ -306,11 +307,13 @@ impl HistoryEntry {
         }
         out.write_str("$ ");
         out.reset_attributes();
+        out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
         if self.running() {
             out.set_bgcolor(textmode::Color::Rgb(16, 64, 16));
         }
         out.write_str(&self.cmd);
         out.reset_attributes();
+        out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
         let time = if let Some(info) = self.exit_info {
             format!(
                 "[{} ({:6})]",
@@ -321,13 +324,12 @@ impl HistoryEntry {
             format!("[{}]", self.start_time.time().format("%H:%M:%S"))
         };
         let cur_pos = out.screen().cursor_position();
-        out.move_relative(
-            0,
-            (width as usize - time.len() - 1 - cur_pos.1 as usize)
-                .try_into()
-                .unwrap(),
+        out.write_str(
+            &" ".repeat(width as usize - time.len() - 1 - cur_pos.1 as usize),
         );
         out.write_str(&time);
+        out.write_str(" ");
+        out.reset_attributes();
         let last_row = self.lines(width, focused);
         if last_row > 5 {
             out.write(b"\r\n");
