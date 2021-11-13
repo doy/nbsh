@@ -228,7 +228,13 @@ impl History {
             );
             if let Some(status) = entry.exit_status {
                 if let Some(sig) = status.signal() {
-                    out.write_str(&format!("SIG{} ", sig));
+                    if let Some(name) =
+                        signal_hook::low_level::signal_name(sig)
+                    {
+                        out.write_str(&format!("{} ", &name[3..]));
+                    } else {
+                        out.write_str(&format!("SIG{} ", sig));
+                    }
                 } else {
                     out.write_str(&format!("{} ", status.code().unwrap()));
                 }
