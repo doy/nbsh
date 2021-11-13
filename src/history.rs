@@ -33,11 +33,7 @@ impl History {
         let (input_w, input_r) = async_std::channel::unbounded();
         let (resize_w, resize_r) = async_std::channel::unbounded();
         let entry = crate::util::mutex(HistoryEntry::new(
-            cmd,
-            child.id().try_into().unwrap(),
-            self.size,
-            input_w,
-            resize_w,
+            cmd, self.size, input_w, resize_w,
         ));
         let task_entry = async_std::sync::Arc::clone(&entry);
         let task_action = self.action.clone();
@@ -132,11 +128,6 @@ impl History {
         idx: usize,
     ) -> bool {
         match key {
-            textmode::Key::Ctrl(b'c') => {
-                let pid = self.entries[idx].lock_arc().await.pid;
-                nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT)
-                    .unwrap();
-            }
             textmode::Key::Ctrl(b'z') => {
                 self.action
                     .send(crate::action::Action::UpdateFocus(
@@ -272,7 +263,6 @@ impl History {
 
 struct HistoryEntry {
     cmd: String,
-    pid: nix::unistd::Pid,
     vt: vt100::Parser,
     audible_bell_state: usize,
     visual_bell_state: usize,
@@ -285,14 +275,12 @@ struct HistoryEntry {
 impl HistoryEntry {
     fn new(
         cmd: &str,
-        pid: i32,
         size: (u16, u16),
         input: async_std::channel::Sender<Vec<u8>>,
         resize: async_std::channel::Sender<(u16, u16)>,
     ) -> Self {
         Self {
             cmd: cmd.into(),
-            pid: nix::unistd::Pid::from_raw(pid),
             vt: vt100::Parser::new(size.0, size.1, 0),
             audible_bell_state: 0,
             visual_bell_state: 0,
