@@ -330,6 +330,8 @@ impl HistoryEntry {
             out.write(b"\x1bg");
             self.visual_bell_state = new_visual_bell_state;
         }
+
+        out.reset_attributes();
     }
 }
 
