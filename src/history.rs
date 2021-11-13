@@ -191,6 +191,10 @@ impl History {
         }
     }
 
+    pub async fn toggle_fullscreen(&mut self, idx: usize) {
+        self.entries[idx].lock_arc().await.toggle_fullscreen();
+    }
+
     pub fn entry_count(&self) -> usize {
         self.entries.len()
     }
@@ -201,6 +205,7 @@ struct HistoryEntry {
     vt: vt100::Parser,
     audible_bell_state: usize,
     visual_bell_state: usize,
+    fullscreen: Option<bool>,
     input: async_std::channel::Sender<Vec<u8>>,
     resize: async_std::channel::Sender<(u16, u16)>,
     start_time: chrono::DateTime<chrono::Local>,
@@ -222,6 +227,7 @@ impl HistoryEntry {
             visual_bell_state: 0,
             input,
             resize,
+            fullscreen: None,
             start_time: chrono::Local::now(),
             start_instant: std::time::Instant::now(),
             exit_info: None,
@@ -311,7 +317,8 @@ impl HistoryEntry {
     }
 
     fn should_full_screen(&self) -> bool {
-        self.vt.screen().alternate_screen()
+        self.fullscreen
+            .unwrap_or_else(|| self.vt.screen().alternate_screen())
     }
 
     fn render_full_screen(&mut self, out: &mut textmode::Output) {
@@ -332,6 +339,14 @@ impl HistoryEntry {
         }
 
         out.reset_attributes();
+    }
+
+    fn toggle_fullscreen(&mut self) {
+        if let Some(fullscreen) = self.fullscreen {
+            self.fullscreen = Some(!fullscreen);
+        } else {
+            self.fullscreen = Some(!self.vt.screen().alternate_screen());
+        }
     }
 }
 

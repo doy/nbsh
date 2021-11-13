@@ -73,6 +73,12 @@ impl State {
                 textmode::Key::Ctrl(b'e') => {
                     ret = false; // fall through and handle normally
                 }
+                textmode::Key::Char('f') => {
+                    if let Focus::History(idx) = self.focus {
+                        self.history.toggle_fullscreen(idx).await;
+                        self.render().await.unwrap();
+                    }
+                }
                 textmode::Key::Char('j') => {
                     let new_focus = match self.focus {
                         Focus::History(idx) => {
