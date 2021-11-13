@@ -67,11 +67,10 @@ impl History {
                                 }
                                 // XXX not sure if this is safe - are we sure
                                 // the child exited?
-                                let status = child.status().await.unwrap();
-                                let mut entry = task_entry.lock_arc().await;
-                                entry.exit_status = Some(status);
-                                entry.end_instant =
-                                    Some(std::time::Instant::now());
+                                task_entry.lock_arc().await.exit_info =
+                                    Some(ExitInfo::new(
+                                        child.status().await.unwrap(),
+                                    ));
                                 task_action
                                     .send(crate::action::Action::UpdateFocus(
                                         crate::state::Focus::Readline,
@@ -225,8 +224,8 @@ impl History {
                 (self.size.0 as usize - used_lines).try_into().unwrap(),
                 0,
             );
-            if let Some(status) = entry.exit_status {
-                out.write_str(&crate::format::exit_status(status));
+            if let Some(info) = entry.exit_info {
+                out.write_str(&crate::format::exit_status(info.status));
             } else {
                 out.write_str("     ");
             }
@@ -241,12 +240,12 @@ impl History {
             }
             out.write_str(&entry.cmd);
             out.reset_attributes();
-            let time = if let Some(end_instant) = entry.end_instant {
+            let time = if let Some(info) = entry.exit_info {
                 format!(
                     "[{} ({:6})]",
                     entry.start_time.time().format("%H:%M:%S"),
                     crate::format::duration(
-                        end_instant - entry.start_instant
+                        info.instant - entry.start_instant
                     )
                 )
             } else {
@@ -317,10 +316,9 @@ struct HistoryEntry {
     visual_bell_state: usize,
     input: async_std::channel::Sender<Vec<u8>>,
     resize: async_std::channel::Sender<(u16, u16)>,
-    exit_status: Option<async_std::process::ExitStatus>,
     start_time: chrono::DateTime<chrono::Local>,
     start_instant: std::time::Instant,
-    end_instant: Option<std::time::Instant>,
+    exit_info: Option<ExitInfo>,
 }
 
 impl HistoryEntry {
@@ -337,15 +335,29 @@ impl HistoryEntry {
             visual_bell_state: 0,
             input,
             resize,
-            exit_status: None,
             start_time: chrono::Local::now(),
             start_instant: std::time::Instant::now(),
-            end_instant: None,
+            exit_info: None,
         }
     }
 
     fn running(&self) -> bool {
-        self.exit_status.is_none()
+        self.exit_info.is_none()
+    }
+}
+
+#[derive(Copy, Clone)]
+struct ExitInfo {
+    status: async_std::process::ExitStatus,
+    instant: std::time::Instant,
+}
+
+impl ExitInfo {
+    fn new(status: async_std::process::ExitStatus) -> Self {
+        Self {
+            status,
+            instant: std::time::Instant::now(),
+        }
     }
 }
 
