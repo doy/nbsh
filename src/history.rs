@@ -233,7 +233,12 @@ impl History {
                     out.write_str(&format!("{} ", status.code().unwrap()));
                 }
             }
+            if focus == Some(idx) {
+                out.set_fgcolor(textmode::color::BLACK);
+                out.set_bgcolor(textmode::color::CYAN);
+            }
             out.write_str("$ ");
+            out.reset_attributes();
             if entry.running() {
                 out.set_bgcolor(textmode::Color::Rgb(16, 64, 16));
             }

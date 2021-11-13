@@ -32,7 +32,7 @@ impl State {
                 self.history
                     .render(&mut self.output, self.readline.lines(), None)
                     .await?;
-                self.readline.render(&mut self.output).await?;
+                self.readline.render(&mut self.output, true).await?;
             }
             Focus::History(idx) => {
                 self.history.render(&mut self.output, 0, Some(idx)).await?;

@@ -59,9 +59,15 @@ impl Readline {
     pub async fn render(
         &self,
         out: &mut textmode::Output,
+        focus: bool,
     ) -> anyhow::Result<()> {
         out.move_to(self.size.0 - 1, 0);
+        if focus {
+            out.set_fgcolor(textmode::color::BLACK);
+            out.set_bgcolor(textmode::color::CYAN);
+        }
         out.write_str(&self.prompt);
+        out.reset_attributes();
         out.write_str(&self.input_line);
         out.move_to(self.size.0 - 1, self.prompt_width() + self.pos_width());
         Ok(())
