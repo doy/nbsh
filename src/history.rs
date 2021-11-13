@@ -132,13 +132,10 @@ impl History {
         key: textmode::Key,
         idx: usize,
     ) -> bool {
-        self.entries[idx]
-            .lock_arc()
-            .await
-            .input
-            .send(key.into_bytes())
-            .await
-            .unwrap();
+        let entry = self.entries[idx].lock_arc().await;
+        if entry.running() {
+            entry.input.send(key.into_bytes()).await.unwrap();
+        }
         false
     }
 
@@ -166,16 +163,15 @@ impl History {
             if used_lines > self.size.0 as usize {
                 break;
             }
-            if used_lines == 1 {
+            if focused && used_lines == 1 && entry.running() {
                 used_lines = 2;
-                pos = Some((self.size.0 - 1, 0));
             }
             out.move_to(
                 (self.size.0 as usize - used_lines).try_into().unwrap(),
                 0,
             );
             entry.render(out, self.size.1, focused);
-            if pos.is_none() {
+            if focused {
                 pos = Some(out.screen().cursor_position());
             }
         }
@@ -244,7 +240,7 @@ impl HistoryEntry {
                 last_row = idx + 1;
             }
         }
-        if focused {
+        if focused && self.running() {
             last_row = std::cmp::max(
                 last_row,
                 screen.cursor_position().0 as usize + 1,
