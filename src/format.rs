@@ -19,6 +19,8 @@ pub fn duration(dur: std::time::Duration) -> String {
         let mins = secs / 60;
         let secs = secs - mins * 60;
         format!("{}m{}s", mins, secs)
+    } else if secs > 9 {
+        format!("{}.{:02}s", secs, nanos / 10_000_000)
     } else if secs > 0 {
         format!("{}.{:03}s", secs, nanos / 1_000_000)
     } else if nanos >= 1_000_000 {
