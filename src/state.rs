@@ -27,7 +27,7 @@ impl State {
         }
     }
 
-    pub async fn render(&mut self) -> anyhow::Result<()> {
+    pub async fn render(&mut self, hard: bool) -> anyhow::Result<()> {
         self.output.clear();
         match self.focus {
             Focus::Readline => {
@@ -40,28 +40,35 @@ impl State {
                 self.history.render(&mut self.output, 0, Some(idx)).await?;
             }
         }
-        self.output.refresh().await?;
+        if hard {
+            self.output.hard_refresh().await?;
+        } else {
+            self.output.refresh().await?;
+        }
         Ok(())
     }
 
     pub async fn handle_action(&mut self, action: crate::action::Action) {
         match action {
             crate::action::Action::Render => {
-                self.render().await.unwrap();
+                self.render(false).await.unwrap();
+            }
+            crate::action::Action::ForceRedraw => {
+                self.render(true).await.unwrap();
             }
             crate::action::Action::Run(ref cmd) => {
                 self.history.run(cmd).await.unwrap();
             }
             crate::action::Action::UpdateFocus(new_focus) => {
                 self.focus = new_focus;
-                self.render().await.unwrap();
+                self.render(false).await.unwrap();
             }
             crate::action::Action::Resize(new_size) => {
                 self.readline.resize(new_size).await;
                 self.history.resize(new_size).await;
                 self.output.set_size(new_size.0, new_size.1);
                 self.output.hard_refresh().await.unwrap();
-                self.render().await.unwrap();
+                self.render(false).await.unwrap();
             }
         }
     }
@@ -73,10 +80,13 @@ impl State {
                 textmode::Key::Ctrl(b'e') => {
                     ret = false; // fall through and handle normally
                 }
+                textmode::Key::Ctrl(b'l') => {
+                    self.render(true).await.unwrap();
+                }
                 textmode::Key::Char('f') => {
                     if let Focus::History(idx) = self.focus {
                         self.history.toggle_fullscreen(idx).await;
-                        self.render().await.unwrap();
+                        self.render(false).await.unwrap();
                     }
                 }
                 textmode::Key::Char('j') => {
@@ -91,7 +101,7 @@ impl State {
                         Focus::Readline => Focus::Readline,
                     };
                     self.focus = new_focus;
-                    self.render().await.unwrap();
+                    self.render(false).await.unwrap();
                 }
                 textmode::Key::Char('k') => {
                     let new_focus = match self.focus {
@@ -107,11 +117,11 @@ impl State {
                         }
                     };
                     self.focus = new_focus;
-                    self.render().await.unwrap();
+                    self.render(false).await.unwrap();
                 }
                 textmode::Key::Char('r') => {
                     self.focus = Focus::Readline;
-                    self.render().await.unwrap();
+                    self.render(false).await.unwrap();
                 }
                 _ => {}
             }

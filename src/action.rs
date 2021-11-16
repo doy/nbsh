@@ -1,6 +1,7 @@
 #[derive(Debug)]
 pub enum Action {
     Render,
+    ForceRedraw,
     Run(String),
     UpdateFocus(crate::state::Focus),
     Resize((u16, u16)),
@@ -32,6 +33,7 @@ impl Debouncer {
 #[derive(Default)]
 struct Pending {
     render: Option<()>,
+    force_redraw: Option<()>,
     run: std::collections::VecDeque<String>,
     focus: Option<crate::state::Focus>,
     size: Option<(u16, u16)>,
@@ -45,6 +47,7 @@ impl Pending {
 
     fn has_event(&self) -> bool {
         self.render.is_some()
+            || self.force_redraw.is_some()
             || !self.run.is_empty()
             || self.focus.is_some()
             || self.size.is_some()
@@ -60,6 +63,11 @@ impl Pending {
         if self.focus.is_some() {
             return Some(Action::UpdateFocus(self.focus.take().unwrap()));
         }
+        if self.force_redraw.is_some() {
+            self.force_redraw.take();
+            self.render.take();
+            return Some(Action::ForceRedraw);
+        }
         if self.render.is_some() {
             self.render.take();
             return Some(Action::Render);
@@ -72,9 +80,10 @@ impl Pending {
 
     fn new_event(&mut self, action: &Option<Action>) {
         match action {
+            Some(Action::Render) => self.render = Some(()),
+            Some(Action::ForceRedraw) => self.force_redraw = Some(()),
             Some(Action::Run(cmd)) => self.run.push_back(cmd.to_string()),
             Some(Action::UpdateFocus(focus)) => self.focus = Some(*focus),
-            Some(Action::Render) => self.render = Some(()),
             Some(Action::Resize(size)) => self.size = Some(*size),
             None => self.done = true,
         }

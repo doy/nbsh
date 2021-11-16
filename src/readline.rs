@@ -32,6 +32,12 @@ impl Readline {
             textmode::Key::Ctrl(b'd') => {
                 return true;
             }
+            textmode::Key::Ctrl(b'l') => {
+                self.action
+                    .send(crate::action::Action::ForceRedraw)
+                    .await
+                    .unwrap();
+            }
             textmode::Key::Ctrl(b'm') => {
                 self.action
                     .send(crate::action::Action::Run(self.input()))

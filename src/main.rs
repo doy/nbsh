@@ -26,7 +26,7 @@ async fn async_main() -> anyhow::Result<()> {
     let (action_w, action_r) = async_std::channel::unbounded();
 
     let mut state = state::State::new(action_w, output);
-    state.render().await.unwrap();
+    state.render(true).await.unwrap();
 
     let state = util::mutex(state);
 
