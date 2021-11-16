@@ -303,15 +303,23 @@ impl HistoryEntry {
             out.write(b"...");
             out.reset_attributes();
         }
-        for row in self
-            .vt
-            .screen()
+        let mut out_row = out.screen().cursor_position().0 + 1;
+        let screen = self.vt.screen();
+        let mut wrapped = false;
+        for (idx, row) in screen
             .rows_formatted(0, width)
+            .enumerate()
             .take(last_row)
             .skip(last_row.saturating_sub(5))
         {
-            out.write(b"\r\n");
+            let idx: u16 = idx.try_into().unwrap();
+            out.write(b"\x1b[m");
+            if !wrapped {
+                out.write(format!("\x1b[{}H", out_row + 1).as_bytes());
+            }
             out.write(&row);
+            wrapped = screen.row_wrapped(idx);
+            out_row += 1;
         }
         out.reset_attributes();
     }
