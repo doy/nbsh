@@ -305,7 +305,9 @@ impl HistoryEntry {
         }
         let mut out_row = out.screen().cursor_position().0 + 1;
         let screen = self.vt.screen();
+        let pos = screen.cursor_position();
         let mut wrapped = false;
+        let mut cursor_found = None;
         for (idx, row) in screen
             .rows_formatted(0, width)
             .enumerate()
@@ -319,7 +321,22 @@ impl HistoryEntry {
             }
             out.write(&row);
             wrapped = screen.row_wrapped(idx);
+            if pos.0 == idx {
+                cursor_found = Some(out_row);
+            }
             out_row += 1;
+        }
+        if focused {
+            if let Some(row) = cursor_found {
+                if screen.hide_cursor() {
+                    out.write(b"\x1b[?25l");
+                } else {
+                    out.write(b"\x1b[?25h");
+                    out.move_to(row, pos.1);
+                }
+            } else {
+                out.write(b"\x1b[?25l");
+            }
         }
         out.reset_attributes();
     }

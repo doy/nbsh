@@ -87,6 +87,9 @@ impl Readline {
         );
         out.reset_attributes();
         out.move_to(self.size.0 - 1, self.prompt_width() + self.pos_width());
+        if focus {
+            out.write(b"\x1b[?25h");
+        }
         Ok(())
     }
 
