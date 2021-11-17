@@ -272,13 +272,15 @@ impl HistoryEntry {
                 out.set_fgcolor(textmode::color::RED);
             }
             out.write_str(&crate::format::exit_status(info.status));
-            out.reset_attributes();
         } else {
             out.write_str("     ");
         }
+        out.reset_attributes();
         if focused {
             out.set_fgcolor(textmode::color::BLACK);
             out.set_bgcolor(textmode::color::CYAN);
+        } else {
+            out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
         }
         out.write_str("$ ");
         out.reset_attributes();

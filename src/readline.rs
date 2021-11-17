@@ -59,7 +59,7 @@ impl Readline {
     }
 
     pub fn lines(&self) -> usize {
-        1 // XXX handle wrapping, multiline prompts
+        2 // XXX handle wrapping
     }
 
     pub async fn render(
@@ -67,6 +67,37 @@ impl Readline {
         out: &mut textmode::Output,
         focus: bool,
     ) -> anyhow::Result<()> {
+        let mut pwd = std::env::current_dir()?.display().to_string();
+        let home = std::env::var("HOME")?;
+        if pwd.starts_with(&home) {
+            pwd.replace_range(..home.len(), "~");
+        }
+        let user = users::get_current_username()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        let mut hostname =
+            hostname::get().unwrap().to_string_lossy().into_owned();
+        if let Some(idx) = hostname.find('.') {
+            hostname.truncate(idx);
+        }
+        let id = format!("{}@{}", user, hostname);
+        let idlen: u16 = id.len().try_into().unwrap();
+        let time = chrono::Local::now().format("%H:%M:%S").to_string();
+        let timelen: u16 = time.len().try_into().unwrap();
+
+        out.move_to(self.size.0 - 2, 0);
+        out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
+        out.write(b"\x1b[K");
+        out.write(b" (");
+        out.write_str(&pwd);
+        out.write(b")");
+        out.move_to(self.size.0 - 2, self.size.1 - 4 - idlen - timelen);
+        out.write_str(&id);
+        out.write_str(" [");
+        out.write_str(&time);
+        out.write_str("]");
+
         out.move_to(self.size.0 - 1, 0);
         if focus {
             out.set_fgcolor(textmode::color::BLACK);
@@ -77,14 +108,8 @@ impl Readline {
         out.write_str(&self.prompt);
         out.reset_attributes();
         out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
+        out.write(b"\x1b[K");
         out.write_str(&self.input_line);
-        out.write_str(
-            &" ".repeat(
-                (self.size.1 - self.prompt_width() - self.input_line_width())
-                    .try_into()
-                    .unwrap(),
-            ),
-        );
         out.reset_attributes();
         out.move_to(self.size.0 - 1, self.prompt_width() + self.pos_width());
         if focus {
@@ -157,10 +182,6 @@ impl Readline {
 
     fn prompt_width(&self) -> u16 {
         self.prompt.width().try_into().unwrap()
-    }
-
-    fn input_line_width(&self) -> u16 {
-        self.input_line.width().try_into().unwrap()
     }
 
     fn pos_width(&self) -> u16 {
