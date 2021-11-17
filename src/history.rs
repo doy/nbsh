@@ -1,6 +1,7 @@
 use async_std::io::{ReadExt as _, WriteExt as _};
 use futures_lite::future::FutureExt as _;
 use pty_process::Command as _;
+use std::os::unix::process::ExitStatusExt as _;
 use textmode::Textmode as _;
 
 pub struct History {
@@ -263,7 +264,15 @@ impl HistoryEntry {
     ) {
         out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
         if let Some(info) = self.exit_info {
+            if info.status.signal().is_some() {
+                out.set_fgcolor(textmode::color::MAGENTA);
+            } else if info.status.success() {
+                out.set_fgcolor(textmode::color::DARKGREY);
+            } else {
+                out.set_fgcolor(textmode::color::RED);
+            }
             out.write_str(&crate::format::exit_status(info.status));
+            out.reset_attributes();
         } else {
             out.write_str("     ");
         }
@@ -299,7 +308,7 @@ impl HistoryEntry {
         let last_row = self.lines(width, focused);
         if last_row > 5 {
             out.write(b"\r\n");
-            out.set_bgcolor(textmode::color::RED);
+            out.set_fgcolor(textmode::color::BLUE);
             out.write(b"...");
             out.reset_attributes();
         }
