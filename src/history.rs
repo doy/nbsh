@@ -82,100 +82,39 @@ impl History {
         action_w: async_std::channel::Sender<crate::action::Action>,
     ) -> anyhow::Result<usize> {
         let (exe, args) = crate::parse::cmd(cmd);
-        let mut process = async_std::process::Command::new(&exe);
-        process.args(&args);
-        let mut child = process
-            .spawn_pty(Some(&pty_process::Size::new(
-                self.size.0,
-                self.size.1,
-            )))
-            .unwrap();
         let (input_w, input_r) = async_std::channel::unbounded();
         let (resize_w, resize_r) = async_std::channel::unbounded();
         let entry = crate::util::mutex(HistoryEntry::new(
             cmd, self.size, input_w, resize_w,
         ));
-        let task_entry = async_std::sync::Arc::clone(&entry);
-        async_std::task::spawn(async move {
-            loop {
-                enum Res {
-                    Read(Result<usize, std::io::Error>),
-                    Write(Result<Vec<u8>, async_std::channel::RecvError>),
-                    Resize(Result<(u16, u16), async_std::channel::RecvError>),
-                }
-                let mut buf = [0_u8; 4096];
-                let mut pty = child.pty();
-                let read = async { Res::Read(pty.read(&mut buf).await) };
-                let write = async { Res::Write(input_r.recv().await) };
-                let resize = async { Res::Resize(resize_r.recv().await) };
-                match read.race(write).race(resize).await {
-                    Res::Read(res) => {
-                        match res {
-                            Ok(bytes) => {
-                                task_entry
-                                    .lock_arc()
-                                    .await
-                                    .vt
-                                    .process(&buf[..bytes]);
-                            }
-                            Err(e) => {
-                                if e.raw_os_error() != Some(libc::EIO) {
-                                    eprintln!("pty read failed: {:?}", e);
-                                }
-                                // XXX not sure if this is safe - are we sure
-                                // the child exited?
-                                task_entry.lock_arc().await.exit_info =
-                                    Some(ExitInfo::new(
-                                        child.status().await.unwrap(),
-                                    ));
-                                action_w
-                                    .send(crate::action::Action::UpdateFocus(
-                                        crate::state::Focus::Readline,
-                                    ))
-                                    .await
-                                    .unwrap();
-                                break;
-                            }
-                        }
-                        action_w
-                            .send(crate::action::Action::Render)
-                            .await
-                            .unwrap();
-                    }
-                    Res::Write(res) => match res {
-                        Ok(bytes) => {
-                            pty.write(&bytes).await.unwrap();
-                        }
-                        Err(e) => {
-                            panic!(
-                                "failed to read from input channel: {}",
-                                e
-                            );
-                        }
-                    },
-                    Res::Resize(res) => match res {
-                        Ok(size) => {
-                            child
-                                .resize_pty(&pty_process::Size::new(
-                                    size.0, size.1,
-                                ))
-                                .unwrap();
-                            task_entry
-                                .lock_arc()
-                                .await
-                                .vt
-                                .set_size(size.0, size.1);
-                        }
-                        Err(e) => {
-                            panic!(
-                                "failed to read from resize channel: {}",
-                                e
-                            );
-                        }
-                    },
-                }
-            }
-        });
+        if crate::builtins::is(&exe) {
+            let code: i32 = crate::builtins::run(&exe, &args).into();
+            entry.lock_arc().await.exit_info = Some(ExitInfo::new(
+                async_std::process::ExitStatus::from_raw(code << 8),
+            ));
+            action_w
+                .send(crate::action::Action::UpdateFocus(
+                    crate::state::Focus::Readline,
+                ))
+                .await
+                .unwrap();
+        } else {
+            let mut process = async_std::process::Command::new(&exe);
+            process.args(&args);
+            let child = process
+                .spawn_pty(Some(&pty_process::Size::new(
+                    self.size.0,
+                    self.size.1,
+                )))
+                .unwrap();
+            run_process(
+                child,
+                async_std::sync::Arc::clone(&entry),
+                input_r,
+                resize_r,
+                action_w,
+            );
+        }
         self.entries.push(entry);
         Ok(self.entries.len() - 1)
     }
@@ -391,4 +330,78 @@ impl ExitInfo {
             instant: std::time::Instant::now(),
         }
     }
+}
+
+fn run_process(
+    mut child: pty_process::async_std::Child,
+    entry: crate::util::Mutex<HistoryEntry>,
+    input_r: async_std::channel::Receiver<Vec<u8>>,
+    resize_r: async_std::channel::Receiver<(u16, u16)>,
+    action_w: async_std::channel::Sender<crate::action::Action>,
+) {
+    async_std::task::spawn(async move {
+        loop {
+            enum Res {
+                Read(Result<usize, std::io::Error>),
+                Write(Result<Vec<u8>, async_std::channel::RecvError>),
+                Resize(Result<(u16, u16), async_std::channel::RecvError>),
+            }
+            let mut buf = [0_u8; 4096];
+            let mut pty = child.pty();
+            let read = async { Res::Read(pty.read(&mut buf).await) };
+            let write = async { Res::Write(input_r.recv().await) };
+            let resize = async { Res::Resize(resize_r.recv().await) };
+            match read.race(write).race(resize).await {
+                Res::Read(res) => {
+                    match res {
+                        Ok(bytes) => {
+                            entry.lock_arc().await.vt.process(&buf[..bytes]);
+                        }
+                        Err(e) => {
+                            if e.raw_os_error() != Some(libc::EIO) {
+                                eprintln!("pty read failed: {:?}", e);
+                            }
+                            // XXX not sure if this is safe - are we sure
+                            // the child exited?
+                            entry.lock_arc().await.exit_info = Some(
+                                ExitInfo::new(child.status().await.unwrap()),
+                            );
+                            action_w
+                                .send(crate::action::Action::UpdateFocus(
+                                    crate::state::Focus::Readline,
+                                ))
+                                .await
+                                .unwrap();
+                            break;
+                        }
+                    }
+                    action_w
+                        .send(crate::action::Action::Render)
+                        .await
+                        .unwrap();
+                }
+                Res::Write(res) => match res {
+                    Ok(bytes) => {
+                        pty.write(&bytes).await.unwrap();
+                    }
+                    Err(e) => {
+                        panic!("failed to read from input channel: {}", e);
+                    }
+                },
+                Res::Resize(res) => match res {
+                    Ok(size) => {
+                        child
+                            .resize_pty(&pty_process::Size::new(
+                                size.0, size.1,
+                            ))
+                            .unwrap();
+                        entry.lock_arc().await.vt.set_size(size.0, size.1);
+                    }
+                    Err(e) => {
+                        panic!("failed to read from resize channel: {}", e);
+                    }
+                },
+            }
+        }
+    });
 }
