@@ -122,16 +122,11 @@ impl History {
         Ok(self.entries.len() - 1)
     }
 
-    pub async fn handle_key(
-        &mut self,
-        key: textmode::Key,
-        idx: usize,
-    ) -> bool {
+    pub async fn handle_key(&mut self, key: textmode::Key, idx: usize) {
         let entry = self.entries[idx].lock_arc().await;
         if entry.running() {
             entry.input.send(key.into_bytes()).await.unwrap();
         }
-        false
     }
 
     pub async fn render(

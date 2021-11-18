@@ -5,6 +5,7 @@ pub enum Action {
     Run(String),
     UpdateFocus(crate::state::Focus),
     Resize((u16, u16)),
+    Quit,
 }
 
 pub struct Debouncer {
@@ -46,7 +47,8 @@ impl Pending {
     }
 
     fn has_event(&self) -> bool {
-        self.render.is_some()
+        self.done
+            || self.render.is_some()
             || self.force_redraw.is_some()
             || !self.run.is_empty()
             || self.focus.is_some()
@@ -85,7 +87,7 @@ impl Pending {
             Some(Action::Run(cmd)) => self.run.push_back(cmd.to_string()),
             Some(Action::UpdateFocus(focus)) => self.focus = Some(*focus),
             Some(Action::Resize(size)) => self.size = Some(*size),
-            None => self.done = true,
+            Some(Action::Quit) | None => self.done = true,
         }
     }
 }

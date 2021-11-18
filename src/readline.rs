@@ -22,7 +22,7 @@ impl Readline {
         }
     }
 
-    pub async fn handle_key(&mut self, key: textmode::Key) -> bool {
+    pub async fn handle_key(&mut self, key: textmode::Key) {
         match key {
             textmode::Key::String(s) => self.add_input(&s),
             textmode::Key::Char(c) => {
@@ -30,7 +30,7 @@ impl Readline {
             }
             textmode::Key::Ctrl(b'c') => self.clear_input(),
             textmode::Key::Ctrl(b'd') => {
-                return true;
+                self.action.send(crate::action::Action::Quit).await.unwrap();
             }
             textmode::Key::Ctrl(b'l') => {
                 self.action
@@ -55,7 +55,6 @@ impl Readline {
             .send(crate::action::Action::Render)
             .await
             .unwrap();
-        false
     }
 
     pub fn lines(&self) -> usize {

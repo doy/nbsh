@@ -90,15 +90,19 @@ impl State {
                 self.output.hard_refresh().await.unwrap();
                 self.render(false).await.unwrap();
             }
+            crate::action::Action::Quit => {
+                // the debouncer should return None in this case
+                unreachable!();
+            }
         }
     }
 
-    pub async fn handle_input(&mut self, key: textmode::Key) -> bool {
+    pub async fn handle_input(&mut self, key: textmode::Key) {
         if self.escape {
-            let mut ret = true;
+            let mut fallthrough = false;
             match key {
                 textmode::Key::Ctrl(b'e') => {
-                    ret = false; // fall through and handle normally
+                    fallthrough = true;
                 }
                 textmode::Key::Ctrl(b'l') => {
                     self.render(true).await.unwrap();
@@ -149,12 +153,12 @@ impl State {
                 _ => {}
             }
             self.escape = false;
-            if ret {
-                return false;
+            if !fallthrough {
+                return;
             }
         } else if key == textmode::Key::Ctrl(b'e') {
             self.escape = true;
-            return false;
+            return;
         }
 
         match self.focus {

@@ -47,17 +47,15 @@ async fn async_main() -> anyhow::Result<()> {
     {
         let state = async_std::sync::Arc::clone(&state);
         async_std::task::spawn(async move {
-            let debouncer = crate::action::debounce(action_r);
-            while let Some(action) = debouncer.recv().await {
-                state.lock_arc().await.handle_action(action).await;
+            while let Some(key) = input.read_key().await.unwrap() {
+                state.lock_arc().await.handle_input(key).await;
             }
         });
     }
 
-    while let Some(key) = input.read_key().await.unwrap() {
-        if state.lock_arc().await.handle_input(key).await {
-            break;
-        }
+    let debouncer = crate::action::debounce(action_r);
+    while let Some(action) = debouncer.recv().await {
+        state.lock_arc().await.handle_action(action).await;
     }
 
     Ok(())
