@@ -6,6 +6,7 @@ pub struct State {
     focus: Focus,
     output: textmode::Output,
     escape: bool,
+    hide_readline: bool,
     action: async_std::channel::Sender<crate::action::Action>,
 }
 
@@ -23,6 +24,7 @@ impl State {
             focus,
             output,
             escape: false,
+            hide_readline: false,
             action,
         }
     }
@@ -37,7 +39,22 @@ impl State {
                 self.readline.render(&mut self.output, true).await?;
             }
             Focus::History(idx) => {
-                self.history.render(&mut self.output, 0, Some(idx)).await?;
+                if self.hide_readline {
+                    self.history
+                        .render(&mut self.output, 0, Some(idx))
+                        .await?;
+                } else {
+                    self.history
+                        .render(
+                            &mut self.output,
+                            self.readline.lines(),
+                            Some(idx),
+                        )
+                        .await?;
+                    let pos = self.output.screen().cursor_position();
+                    self.readline.render(&mut self.output, false).await?;
+                    self.output.move_to(pos.0, pos.1);
+                }
             }
         }
         if hard {
@@ -57,10 +74,13 @@ impl State {
                 self.render(true).await.unwrap();
             }
             crate::action::Action::Run(ref cmd) => {
-                self.history.run(cmd).await.unwrap();
+                let idx = self.history.run(cmd).await.unwrap();
+                self.focus = Focus::History(idx);
+                self.hide_readline = true;
             }
             crate::action::Action::UpdateFocus(new_focus) => {
                 self.focus = new_focus;
+                self.hide_readline = false;
                 self.render(false).await.unwrap();
             }
             crate::action::Action::Resize(new_size) => {
@@ -101,6 +121,7 @@ impl State {
                         Focus::Readline => Focus::Readline,
                     };
                     self.focus = new_focus;
+                    self.hide_readline = false;
                     self.render(false).await.unwrap();
                 }
                 textmode::Key::Char('k') => {
@@ -117,10 +138,12 @@ impl State {
                         }
                     };
                     self.focus = new_focus;
+                    self.hide_readline = false;
                     self.render(false).await.unwrap();
                 }
                 textmode::Key::Char('r') => {
                     self.focus = Focus::Readline;
+                    self.hide_readline = false;
                     self.render(false).await.unwrap();
                 }
                 _ => {}

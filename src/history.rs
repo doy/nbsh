@@ -119,12 +119,6 @@ impl History {
             }
         });
         self.entries.push(entry);
-        self.action
-            .send(crate::action::Action::UpdateFocus(
-                crate::state::Focus::History(self.entries.len() - 1),
-            ))
-            .await
-            .unwrap();
         Ok(self.entries.len() - 1)
     }
 
