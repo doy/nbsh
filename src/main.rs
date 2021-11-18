@@ -71,6 +71,27 @@ async fn async_main() -> anyhow::Result<()> {
         });
     }
 
+    // redraw the clock every second
+    {
+        let action_w = action_w.clone();
+        async_std::task::spawn(async move {
+            let first_sleep = 1_000_000_000_u64.saturating_sub(
+                chrono::Local::now().timestamp_subsec_nanos().into(),
+            );
+            async_std::task::sleep(std::time::Duration::from_nanos(
+                first_sleep,
+            ))
+            .await;
+            let mut interval = async_std::stream::interval(
+                std::time::Duration::from_secs(1),
+            );
+            action_w.send(crate::action::Action::Render).await.unwrap();
+            while interval.next().await.is_some() {
+                action_w.send(crate::action::Action::Render).await.unwrap();
+            }
+        });
+    }
+
     let debouncer = crate::action::debounce(action_r);
     while let Some(action) = debouncer.recv().await {
         state
