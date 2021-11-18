@@ -87,7 +87,7 @@ impl Readline {
         let timelen: u16 = time.len().try_into().unwrap();
 
         out.move_to(self.size.0 - 2, 0);
-        out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
+        out.set_bgcolor(textmode::Color::Rgb(32, 32, 64));
         out.write(b"\x1b[K");
         out.write(b" (");
         out.write_str(&pwd);
