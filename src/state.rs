@@ -22,6 +22,83 @@ impl State {
         }
     }
 
+    pub async fn handle_key(
+        &mut self,
+        key: textmode::Key,
+    ) -> Option<crate::action::Action> {
+        if self.escape {
+            self.escape = false;
+            let mut fallthrough = false;
+            match key {
+                textmode::Key::Ctrl(b'e') => {
+                    fallthrough = true;
+                }
+                textmode::Key::Ctrl(b'l') => {
+                    return Some(crate::action::Action::ForceRedraw);
+                }
+                textmode::Key::Char('f') => {
+                    if let Focus::History(idx) = self.focus {
+                        return Some(
+                            crate::action::Action::ToggleFullscreen(idx),
+                        );
+                    }
+                }
+                textmode::Key::Char('j') => {
+                    let new_focus = match self.focus {
+                        Focus::History(idx) => {
+                            if idx >= self.history.entry_count() - 1 {
+                                Focus::Readline
+                            } else {
+                                Focus::History(idx + 1)
+                            }
+                        }
+                        Focus::Readline => Focus::Readline,
+                    };
+                    return Some(crate::action::Action::UpdateFocus(
+                        new_focus,
+                    ));
+                }
+                textmode::Key::Char('k') => {
+                    let new_focus = match self.focus {
+                        Focus::History(idx) => {
+                            if idx == 0 {
+                                Focus::History(0)
+                            } else {
+                                Focus::History(idx - 1)
+                            }
+                        }
+                        Focus::Readline => {
+                            Focus::History(self.history.entry_count() - 1)
+                        }
+                    };
+                    return Some(crate::action::Action::UpdateFocus(
+                        new_focus,
+                    ));
+                }
+                textmode::Key::Char('r') => {
+                    return Some(crate::action::Action::UpdateFocus(
+                        Focus::Readline,
+                    ));
+                }
+                _ => {}
+            }
+            if !fallthrough {
+                return None;
+            }
+        } else if key == textmode::Key::Ctrl(b'e') {
+            self.escape = true;
+            return None;
+        }
+
+        match self.focus {
+            Focus::Readline => self.readline.handle_key(key).await,
+            Focus::History(idx) => {
+                self.history.handle_key(key, idx).await;
+                None
+            }
+        }
+    }
+
     pub async fn render(
         &self,
         out: &mut textmode::Output,
@@ -96,83 +173,6 @@ impl State {
             crate::action::Action::Quit => {
                 // the debouncer should return None in this case
                 unreachable!();
-            }
-        }
-    }
-
-    pub async fn handle_key(
-        &mut self,
-        key: textmode::Key,
-    ) -> Option<crate::action::Action> {
-        if self.escape {
-            self.escape = false;
-            let mut fallthrough = false;
-            match key {
-                textmode::Key::Ctrl(b'e') => {
-                    fallthrough = true;
-                }
-                textmode::Key::Ctrl(b'l') => {
-                    return Some(crate::action::Action::ForceRedraw);
-                }
-                textmode::Key::Char('f') => {
-                    if let Focus::History(idx) = self.focus {
-                        return Some(
-                            crate::action::Action::ToggleFullscreen(idx),
-                        );
-                    }
-                }
-                textmode::Key::Char('j') => {
-                    let new_focus = match self.focus {
-                        Focus::History(idx) => {
-                            if idx >= self.history.entry_count() - 1 {
-                                Focus::Readline
-                            } else {
-                                Focus::History(idx + 1)
-                            }
-                        }
-                        Focus::Readline => Focus::Readline,
-                    };
-                    return Some(crate::action::Action::UpdateFocus(
-                        new_focus,
-                    ));
-                }
-                textmode::Key::Char('k') => {
-                    let new_focus = match self.focus {
-                        Focus::History(idx) => {
-                            if idx == 0 {
-                                Focus::History(0)
-                            } else {
-                                Focus::History(idx - 1)
-                            }
-                        }
-                        Focus::Readline => {
-                            Focus::History(self.history.entry_count() - 1)
-                        }
-                    };
-                    return Some(crate::action::Action::UpdateFocus(
-                        new_focus,
-                    ));
-                }
-                textmode::Key::Char('r') => {
-                    return Some(crate::action::Action::UpdateFocus(
-                        Focus::Readline,
-                    ));
-                }
-                _ => {}
-            }
-            if !fallthrough {
-                return None;
-            }
-        } else if key == textmode::Key::Ctrl(b'e') {
-            self.escape = true;
-            return None;
-        }
-
-        match self.focus {
-            Focus::Readline => self.readline.handle_key(key).await,
-            Focus::History(idx) => {
-                self.history.handle_key(key, idx).await;
-                None
             }
         }
     }

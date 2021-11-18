@@ -48,10 +48,6 @@ impl Readline {
         Some(crate::action::Action::Render)
     }
 
-    pub fn lines(&self) -> usize {
-        2 // XXX handle wrapping
-    }
-
     pub async fn render(
         &self,
         out: &mut textmode::Output,
@@ -110,6 +106,10 @@ impl Readline {
 
     pub async fn resize(&mut self, size: (u16, u16)) {
         self.size = size;
+    }
+
+    pub fn lines(&self) -> usize {
+        2 // XXX handle wrapping
     }
 
     fn input(&self) -> String {

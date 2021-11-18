@@ -17,6 +17,65 @@ impl History {
         }
     }
 
+    pub async fn handle_key(&self, key: textmode::Key, idx: usize) {
+        let entry = self.entries[idx].lock_arc().await;
+        if entry.running() {
+            entry.input.send(key.into_bytes()).await.unwrap();
+        }
+    }
+
+    pub async fn render(
+        &self,
+        out: &mut textmode::Output,
+        repl_lines: usize,
+        focus: Option<usize>,
+    ) -> anyhow::Result<()> {
+        if let Some(idx) = focus {
+            let mut entry = self.entries[idx].lock_arc().await;
+            if entry.should_fullscreen() {
+                entry.render_fullscreen(out);
+                return Ok(());
+            }
+        }
+
+        let mut used_lines = repl_lines;
+        let mut pos = None;
+        for (idx, entry) in self.entries.iter().enumerate().rev() {
+            let mut entry = entry.lock_arc().await;
+            let focused = focus.map_or(false, |focus| idx == focus);
+            let last_row = entry.lines(self.size.1, focused);
+            used_lines += 1 + std::cmp::min(6, last_row);
+            if used_lines > self.size.0 as usize {
+                break;
+            }
+            if focused && used_lines == 1 && entry.running() {
+                used_lines = 2;
+            }
+            out.move_to(
+                (self.size.0 as usize - used_lines).try_into().unwrap(),
+                0,
+            );
+            entry.render(out, self.size.1, focused);
+            if focused {
+                pos = Some(out.screen().cursor_position());
+            }
+        }
+        if let Some(pos) = pos {
+            out.move_to(pos.0, pos.1);
+        }
+        Ok(())
+    }
+
+    pub async fn resize(&mut self, size: (u16, u16)) {
+        self.size = size;
+        for entry in &self.entries {
+            let entry = entry.lock_arc().await;
+            if entry.running() {
+                entry.resize.send(size).await.unwrap();
+            }
+        }
+    }
+
     pub async fn run(
         &mut self,
         cmd: &str,
@@ -121,65 +180,6 @@ impl History {
         Ok(self.entries.len() - 1)
     }
 
-    pub async fn handle_key(&self, key: textmode::Key, idx: usize) {
-        let entry = self.entries[idx].lock_arc().await;
-        if entry.running() {
-            entry.input.send(key.into_bytes()).await.unwrap();
-        }
-    }
-
-    pub async fn render(
-        &self,
-        out: &mut textmode::Output,
-        repl_lines: usize,
-        focus: Option<usize>,
-    ) -> anyhow::Result<()> {
-        if let Some(idx) = focus {
-            let mut entry = self.entries[idx].lock_arc().await;
-            if entry.should_fullscreen() {
-                entry.render_fullscreen(out);
-                return Ok(());
-            }
-        }
-
-        let mut used_lines = repl_lines;
-        let mut pos = None;
-        for (idx, entry) in self.entries.iter().enumerate().rev() {
-            let mut entry = entry.lock_arc().await;
-            let focused = focus.map_or(false, |focus| idx == focus);
-            let last_row = entry.lines(self.size.1, focused);
-            used_lines += 1 + std::cmp::min(6, last_row);
-            if used_lines > self.size.0 as usize {
-                break;
-            }
-            if focused && used_lines == 1 && entry.running() {
-                used_lines = 2;
-            }
-            out.move_to(
-                (self.size.0 as usize - used_lines).try_into().unwrap(),
-                0,
-            );
-            entry.render(out, self.size.1, focused);
-            if focused {
-                pos = Some(out.screen().cursor_position());
-            }
-        }
-        if let Some(pos) = pos {
-            out.move_to(pos.0, pos.1);
-        }
-        Ok(())
-    }
-
-    pub async fn resize(&mut self, size: (u16, u16)) {
-        self.size = size;
-        for entry in &self.entries {
-            let entry = entry.lock_arc().await;
-            if entry.running() {
-                entry.resize.send(size).await.unwrap();
-            }
-        }
-    }
-
     pub async fn toggle_fullscreen(&mut self, idx: usize) {
         self.entries[idx].lock_arc().await.toggle_fullscreen();
     }
@@ -225,27 +225,6 @@ impl HistoryEntry {
             start_instant: std::time::Instant::now(),
             exit_info: None,
         }
-    }
-
-    fn running(&self) -> bool {
-        self.exit_info.is_none()
-    }
-
-    fn lines(&self, width: u16, focused: bool) -> usize {
-        let screen = self.vt.screen();
-        let mut last_row = 0;
-        for (idx, row) in screen.rows(0, width).enumerate() {
-            if !row.is_empty() {
-                last_row = idx + 1;
-            }
-        }
-        if focused && self.running() {
-            last_row = std::cmp::max(
-                last_row,
-                screen.cursor_position().0 as usize + 1,
-            );
-        }
-        last_row
     }
 
     fn render(
@@ -344,11 +323,6 @@ impl HistoryEntry {
         out.reset_attributes();
     }
 
-    fn should_fullscreen(&self) -> bool {
-        self.fullscreen
-            .unwrap_or_else(|| self.vt.screen().alternate_screen())
-    }
-
     fn render_fullscreen(&mut self, out: &mut textmode::Output) {
         let screen = self.vt.screen();
         let new_audible_bell_state = screen.audible_bell_count();
@@ -375,6 +349,32 @@ impl HistoryEntry {
         } else {
             self.fullscreen = Some(!self.vt.screen().alternate_screen());
         }
+    }
+
+    fn running(&self) -> bool {
+        self.exit_info.is_none()
+    }
+
+    fn lines(&self, width: u16, focused: bool) -> usize {
+        let screen = self.vt.screen();
+        let mut last_row = 0;
+        for (idx, row) in screen.rows(0, width).enumerate() {
+            if !row.is_empty() {
+                last_row = idx + 1;
+            }
+        }
+        if focused && self.running() {
+            last_row = std::cmp::max(
+                last_row,
+                screen.cursor_position().0 as usize + 1,
+            );
+        }
+        last_row
+    }
+
+    fn should_fullscreen(&self) -> bool {
+        self.fullscreen
+            .unwrap_or_else(|| self.vt.screen().alternate_screen())
     }
 }
 
