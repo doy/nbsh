@@ -12,7 +12,12 @@ impl Readline {
     pub fn new() -> Self {
         Self {
             size: (24, 80),
-            prompt: "$ ".into(),
+            prompt: if users::get_current_uid() == 0 {
+                "# "
+            } else {
+                "$ "
+            }
+            .into(),
             input_line: "".into(),
             pos: 0,
         }
