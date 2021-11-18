@@ -4,6 +4,7 @@ pub struct State {
     readline: crate::readline::Readline,
     history: crate::history::History,
     focus: Focus,
+    scene: Scene,
     escape: bool,
     hide_readline: bool,
 }
@@ -13,10 +14,12 @@ impl State {
         let readline = crate::readline::Readline::new();
         let history = crate::history::History::new();
         let focus = Focus::Readline;
+        let scene = Scene::Readline;
         Self {
             readline,
             history,
             focus,
+            scene,
             escape: false,
             hide_readline: false,
         }
@@ -38,9 +41,8 @@ impl State {
                 }
                 textmode::Key::Char('f') => {
                     if let Focus::History(idx) = self.focus {
-                        return Some(
-                            crate::action::Action::ToggleFullscreen(idx),
-                        );
+                        self.history.toggle_fullscreen(idx).await;
+                        return Some(crate::action::Action::CheckUpdateScene);
                     }
                 }
                 textmode::Key::Char('j') => {
@@ -105,24 +107,32 @@ impl State {
         hard: bool,
     ) -> anyhow::Result<()> {
         out.clear();
-        match self.focus {
-            Focus::Readline => {
-                self.history
-                    .render(out, self.readline.lines(), None)
-                    .await?;
-                self.readline.render(out, true).await?;
-            }
-            Focus::History(idx) => {
-                if self.hide_readline || self.history.is_fullscreen(idx).await
-                {
-                    self.history.render(out, 0, Some(idx)).await?;
-                } else {
+        match self.scene {
+            Scene::Readline => match self.focus {
+                Focus::Readline => {
                     self.history
-                        .render(out, self.readline.lines(), Some(idx))
+                        .render(out, self.readline.lines(), None)
                         .await?;
-                    let pos = out.screen().cursor_position();
-                    self.readline.render(out, false).await?;
-                    out.move_to(pos.0, pos.1);
+                    self.readline.render(out, true).await?;
+                }
+                Focus::History(idx) => {
+                    if self.hide_readline {
+                        self.history.render(out, 0, Some(idx)).await?;
+                    } else {
+                        self.history
+                            .render(out, self.readline.lines(), Some(idx))
+                            .await?;
+                        let pos = out.screen().cursor_position();
+                        self.readline.render(out, false).await?;
+                        out.move_to(pos.0, pos.1);
+                    }
+                }
+            },
+            Scene::Fullscreen => {
+                if let Focus::History(idx) = self.focus {
+                    self.history.render_fullscreen(out, idx).await;
+                } else {
+                    unreachable!();
                 }
             }
         }
@@ -155,9 +165,13 @@ impl State {
             crate::action::Action::UpdateFocus(new_focus) => {
                 self.focus = new_focus;
                 self.hide_readline = false;
+                self.scene = self.default_scene(new_focus).await;
             }
-            crate::action::Action::ToggleFullscreen(idx) => {
-                self.history.toggle_fullscreen(idx).await;
+            crate::action::Action::UpdateScene(new_scene) => {
+                self.scene = new_scene;
+            }
+            crate::action::Action::CheckUpdateScene => {
+                self.scene = self.default_scene(self.focus).await;
             }
             crate::action::Action::Resize(new_size) => {
                 self.readline.resize(new_size).await;
@@ -172,10 +186,29 @@ impl State {
         }
         self.render(out, hard_refresh).await.unwrap();
     }
+
+    async fn default_scene(&self, focus: Focus) -> Scene {
+        match focus {
+            Focus::Readline => Scene::Readline,
+            Focus::History(idx) => {
+                if self.history.should_fullscreen(idx).await {
+                    Scene::Fullscreen
+                } else {
+                    Scene::Readline
+                }
+            }
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug)]
 pub enum Focus {
     Readline,
     History(usize),
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum Scene {
+    Readline,
+    Fullscreen,
 }

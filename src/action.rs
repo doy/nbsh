@@ -4,7 +4,8 @@ pub enum Action {
     ForceRedraw,
     Run(String),
     UpdateFocus(crate::state::Focus),
-    ToggleFullscreen(usize),
+    UpdateScene(crate::state::Scene),
+    CheckUpdateScene,
     Resize((u16, u16)),
     Quit,
 }
@@ -38,7 +39,8 @@ struct Pending {
     force_redraw: Option<()>,
     run: std::collections::VecDeque<String>,
     focus: Option<crate::state::Focus>,
-    fullscreen: std::collections::VecDeque<usize>,
+    scene: Option<crate::state::Scene>,
+    check_scene: Option<()>,
     size: Option<(u16, u16)>,
     done: bool,
 }
@@ -54,7 +56,8 @@ impl Pending {
             || self.force_redraw.is_some()
             || !self.run.is_empty()
             || self.focus.is_some()
-            || !self.fullscreen.is_empty()
+            || self.scene.is_some()
+            || self.check_scene.is_some()
             || self.size.is_some()
     }
 
@@ -68,18 +71,17 @@ impl Pending {
         if self.focus.is_some() {
             return Some(Action::UpdateFocus(self.focus.take().unwrap()));
         }
-        if !self.fullscreen.is_empty() {
-            return Some(Action::ToggleFullscreen(
-                self.fullscreen.pop_front().unwrap(),
-            ));
+        if self.scene.is_some() {
+            return Some(Action::UpdateScene(self.scene.take().unwrap()));
         }
-        if self.force_redraw.is_some() {
-            self.force_redraw.take();
+        if self.check_scene.take().is_some() {
+            return Some(Action::CheckUpdateScene);
+        }
+        if self.force_redraw.take().is_some() {
             self.render.take();
             return Some(Action::ForceRedraw);
         }
-        if self.render.is_some() {
-            self.render.take();
+        if self.render.take().is_some() {
             return Some(Action::Render);
         }
         if self.done {
@@ -94,9 +96,8 @@ impl Pending {
             Some(Action::ForceRedraw) => self.force_redraw = Some(()),
             Some(Action::Run(cmd)) => self.run.push_back(cmd.to_string()),
             Some(Action::UpdateFocus(focus)) => self.focus = Some(*focus),
-            Some(Action::ToggleFullscreen(idx)) => {
-                self.fullscreen.push_back(*idx);
-            }
+            Some(Action::UpdateScene(scene)) => self.scene = Some(*scene),
+            Some(Action::CheckUpdateScene) => self.check_scene = Some(()),
             Some(Action::Resize(size)) => self.size = Some(*size),
             Some(Action::Quit) | None => self.done = true,
         }

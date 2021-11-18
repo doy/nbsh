@@ -30,14 +30,6 @@ impl History {
         repl_lines: usize,
         focus: Option<usize>,
     ) -> anyhow::Result<()> {
-        if let Some(idx) = focus {
-            let mut entry = self.entries[idx].lock_arc().await;
-            if entry.should_fullscreen() {
-                entry.render_fullscreen(out);
-                return Ok(());
-            }
-        }
-
         let mut used_lines = repl_lines;
         let mut pos = None;
         for (idx, entry) in self.entries.iter().enumerate().rev() {
@@ -64,6 +56,15 @@ impl History {
             out.move_to(pos.0, pos.1);
         }
         Ok(())
+    }
+
+    pub async fn render_fullscreen(
+        &self,
+        out: &mut textmode::Output,
+        idx: usize,
+    ) {
+        let mut entry = self.entries[idx].lock_arc().await;
+        entry.render_fullscreen(out);
     }
 
     pub async fn resize(&mut self, size: (u16, u16)) {
@@ -123,7 +124,7 @@ impl History {
         self.entries[idx].lock_arc().await.toggle_fullscreen();
     }
 
-    pub async fn is_fullscreen(&self, idx: usize) -> bool {
+    pub async fn should_fullscreen(&self, idx: usize) -> bool {
         self.entries[idx].lock_arc().await.should_fullscreen()
     }
 
@@ -352,34 +353,45 @@ fn run_process(
             let write = async { Res::Write(input_r.recv().await) };
             let resize = async { Res::Resize(resize_r.recv().await) };
             match read.race(write).race(resize).await {
-                Res::Read(res) => {
-                    match res {
-                        Ok(bytes) => {
-                            entry.lock_arc().await.vt.process(&buf[..bytes]);
-                        }
-                        Err(e) => {
-                            if e.raw_os_error() != Some(libc::EIO) {
-                                eprintln!("pty read failed: {:?}", e);
-                            }
-                            // XXX not sure if this is safe - are we sure
-                            // the child exited?
-                            entry.lock_arc().await.exit_info = Some(
-                                ExitInfo::new(child.status().await.unwrap()),
-                            );
+                Res::Read(res) => match res {
+                    Ok(bytes) => {
+                        let mut entry = entry.lock_arc().await;
+                        let pre_alternate_screen =
+                            entry.vt.screen().alternate_screen();
+                        entry.vt.process(&buf[..bytes]);
+                        let post_alternate_screen =
+                            entry.vt.screen().alternate_screen();
+                        if entry.fullscreen.is_none()
+                            && pre_alternate_screen != post_alternate_screen
+                        {
                             action_w
-                                .send(crate::action::Action::UpdateFocus(
-                                    crate::state::Focus::Readline,
-                                ))
+                                .send(crate::action::Action::CheckUpdateScene)
                                 .await
                                 .unwrap();
-                            break;
                         }
+                        action_w
+                            .send(crate::action::Action::Render)
+                            .await
+                            .unwrap();
                     }
-                    action_w
-                        .send(crate::action::Action::Render)
-                        .await
-                        .unwrap();
-                }
+                    Err(e) => {
+                        if e.raw_os_error() != Some(libc::EIO) {
+                            eprintln!("pty read failed: {:?}", e);
+                        }
+                        // XXX not sure if this is safe - are we sure
+                        // the child exited?
+                        entry.lock_arc().await.exit_info = Some(
+                            ExitInfo::new(child.status().await.unwrap()),
+                        );
+                        action_w
+                            .send(crate::action::Action::UpdateFocus(
+                                crate::state::Focus::Readline,
+                            ))
+                            .await
+                            .unwrap();
+                        break;
+                    }
+                },
                 Res::Write(res) => match res {
                     Ok(bytes) => {
                         pty.write(&bytes).await.unwrap();
