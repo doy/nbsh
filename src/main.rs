@@ -62,8 +62,9 @@ async fn async_main() -> anyhow::Result<()> {
         let action_w = action_w.clone();
         async_std::task::spawn(async move {
             while let Some(key) = input.read_key().await.unwrap() {
-                let action = state.lock_arc().await.handle_key(key).await;
-                if let Some(action) = action {
+                if let Some(action) =
+                    state.lock_arc().await.handle_key(key).await
+                {
                     action_w.send(action).await.unwrap();
                 }
             }
