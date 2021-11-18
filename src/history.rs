@@ -136,8 +136,8 @@ impl History {
     ) -> anyhow::Result<()> {
         if let Some(idx) = focus {
             let mut entry = self.entries[idx].lock_arc().await;
-            if entry.should_full_screen() {
-                entry.render_full_screen(out);
+            if entry.should_fullscreen() {
+                entry.render_fullscreen(out);
                 return Ok(());
             }
         }
@@ -182,6 +182,10 @@ impl History {
 
     pub async fn toggle_fullscreen(&mut self, idx: usize) {
         self.entries[idx].lock_arc().await.toggle_fullscreen();
+    }
+
+    pub async fn is_fullscreen(&self, idx: usize) -> bool {
+        self.entries[idx].lock_arc().await.should_fullscreen()
     }
 
     pub fn entry_count(&self) -> usize {
@@ -340,12 +344,12 @@ impl HistoryEntry {
         out.reset_attributes();
     }
 
-    fn should_full_screen(&self) -> bool {
+    fn should_fullscreen(&self) -> bool {
         self.fullscreen
             .unwrap_or_else(|| self.vt.screen().alternate_screen())
     }
 
-    fn render_full_screen(&mut self, out: &mut textmode::Output) {
+    fn render_fullscreen(&mut self, out: &mut textmode::Output) {
         let screen = self.vt.screen();
         let new_audible_bell_state = screen.audible_bell_count();
         let new_visual_bell_state = screen.visual_bell_count();

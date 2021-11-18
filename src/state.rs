@@ -36,7 +36,8 @@ impl State {
                 self.readline.render(out, true).await?;
             }
             Focus::History(idx) => {
-                if self.hide_readline {
+                if self.hide_readline || self.history.is_fullscreen(idx).await
+                {
                     self.history.render(out, 0, Some(idx)).await?;
                 } else {
                     self.history
