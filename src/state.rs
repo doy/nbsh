@@ -6,15 +6,12 @@ pub struct State {
     focus: Focus,
     escape: bool,
     hide_readline: bool,
-    action: async_std::channel::Sender<crate::action::Action>,
 }
 
 impl State {
-    pub fn new(
-        action: async_std::channel::Sender<crate::action::Action>,
-    ) -> Self {
-        let readline = crate::readline::Readline::new(action.clone());
-        let history = crate::history::History::new(action.clone());
+    pub fn new() -> Self {
+        let readline = crate::readline::Readline::new();
+        let history = crate::history::History::new();
         let focus = Focus::Readline;
         Self {
             readline,
@@ -22,12 +19,11 @@ impl State {
             focus,
             escape: false,
             hide_readline: false,
-            action,
         }
     }
 
     pub async fn render(
-        &mut self,
+        &self,
         out: &mut textmode::Output,
         hard: bool,
     ) -> anyhow::Result<()> {
@@ -64,6 +60,7 @@ impl State {
         &mut self,
         action: crate::action::Action,
         out: &mut textmode::Output,
+        action_w: &async_std::channel::Sender<crate::action::Action>,
     ) {
         match action {
             crate::action::Action::Render => {
@@ -73,13 +70,19 @@ impl State {
                 self.render(out, true).await.unwrap();
             }
             crate::action::Action::Run(ref cmd) => {
-                let idx = self.history.run(cmd).await.unwrap();
+                let idx =
+                    self.history.run(cmd, action_w.clone()).await.unwrap();
                 self.focus = Focus::History(idx);
                 self.hide_readline = true;
+                self.render(out, false).await.unwrap();
             }
             crate::action::Action::UpdateFocus(new_focus) => {
                 self.focus = new_focus;
                 self.hide_readline = false;
+                self.render(out, false).await.unwrap();
+            }
+            crate::action::Action::ToggleFullscreen(idx) => {
+                self.history.toggle_fullscreen(idx).await;
                 self.render(out, false).await.unwrap();
             }
             crate::action::Action::Resize(new_size) => {
@@ -96,26 +99,25 @@ impl State {
         }
     }
 
-    pub async fn handle_input(&mut self, key: textmode::Key) {
+    pub async fn handle_key(
+        &mut self,
+        key: textmode::Key,
+    ) -> Option<crate::action::Action> {
         if self.escape {
+            self.escape = false;
             let mut fallthrough = false;
             match key {
                 textmode::Key::Ctrl(b'e') => {
                     fallthrough = true;
                 }
                 textmode::Key::Ctrl(b'l') => {
-                    self.action
-                        .send(crate::action::Action::ForceRedraw)
-                        .await
-                        .unwrap();
+                    return Some(crate::action::Action::ForceRedraw);
                 }
                 textmode::Key::Char('f') => {
                     if let Focus::History(idx) = self.focus {
-                        self.history.toggle_fullscreen(idx).await;
-                        self.action
-                            .send(crate::action::Action::Render)
-                            .await
-                            .unwrap();
+                        return Some(
+                            crate::action::Action::ToggleFullscreen(idx),
+                        );
                     }
                 }
                 textmode::Key::Char('j') => {
@@ -129,12 +131,9 @@ impl State {
                         }
                         Focus::Readline => Focus::Readline,
                     };
-                    self.focus = new_focus;
-                    self.hide_readline = false;
-                    self.action
-                        .send(crate::action::Action::Render)
-                        .await
-                        .unwrap();
+                    return Some(crate::action::Action::UpdateFocus(
+                        new_focus,
+                    ));
                 }
                 textmode::Key::Char('k') => {
                     let new_focus = match self.focus {
@@ -149,47 +148,32 @@ impl State {
                             Focus::History(self.history.entry_count() - 1)
                         }
                     };
-                    self.focus = new_focus;
-                    self.hide_readline = false;
-                    self.action
-                        .send(crate::action::Action::Render)
-                        .await
-                        .unwrap();
+                    return Some(crate::action::Action::UpdateFocus(
+                        new_focus,
+                    ));
                 }
                 textmode::Key::Char('r') => {
-                    self.focus = Focus::Readline;
-                    self.hide_readline = false;
-                    self.action
-                        .send(crate::action::Action::Render)
-                        .await
-                        .unwrap();
+                    return Some(crate::action::Action::UpdateFocus(
+                        Focus::Readline,
+                    ));
                 }
                 _ => {}
             }
-            self.escape = false;
             if !fallthrough {
-                return;
+                return None;
             }
         } else if key == textmode::Key::Ctrl(b'e') {
             self.escape = true;
-            return;
+            return None;
         }
 
         match self.focus {
             Focus::Readline => self.readline.handle_key(key).await,
-            Focus::History(idx) => self.history.handle_key(key, idx).await,
+            Focus::History(idx) => {
+                self.history.handle_key(key, idx).await;
+                None
+            }
         }
-    }
-
-    pub async fn resize(&mut self) {
-        let size = terminal_size::terminal_size().map_or(
-            (24, 80),
-            |(terminal_size::Width(w), terminal_size::Height(h))| (h, w),
-        );
-        self.action
-            .send(crate::action::Action::Resize(size))
-            .await
-            .unwrap();
     }
 }
 

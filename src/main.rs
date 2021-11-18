@@ -14,6 +14,19 @@ mod util;
 
 use async_std::stream::StreamExt as _;
 
+async fn resize(
+    action_w: &async_std::channel::Sender<crate::action::Action>,
+) {
+    let size = terminal_size::terminal_size().map_or(
+        (24, 80),
+        |(terminal_size::Width(w), terminal_size::Height(h))| (h, w),
+    );
+    action_w
+        .send(crate::action::Action::Resize(size))
+        .await
+        .unwrap();
+}
+
 async fn async_main() -> anyhow::Result<()> {
     let mut input = textmode::Input::new().await?;
     let mut output = textmode::Output::new().await?;
@@ -25,30 +38,34 @@ async fn async_main() -> anyhow::Result<()> {
 
     let (action_w, action_r) = async_std::channel::unbounded();
 
-    let mut state = state::State::new(action_w);
+    let state = state::State::new();
     state.render(&mut output, true).await.unwrap();
 
     let state = util::mutex(state);
 
     {
-        let state = async_std::sync::Arc::clone(&state);
         let mut signals = signal_hook_async_std::Signals::new(&[
             signal_hook::consts::signal::SIGWINCH,
         ])?;
+        let action_w = action_w.clone();
         async_std::task::spawn(async move {
             while signals.next().await.is_some() {
-                state.lock_arc().await.resize().await;
+                resize(&action_w).await;
             }
         });
     }
 
-    state.lock_arc().await.resize().await;
+    resize(&action_w).await;
 
     {
         let state = async_std::sync::Arc::clone(&state);
+        let action_w = action_w.clone();
         async_std::task::spawn(async move {
             while let Some(key) = input.read_key().await.unwrap() {
-                state.lock_arc().await.handle_input(key).await;
+                let action = state.lock_arc().await.handle_key(key).await;
+                if let Some(action) = action {
+                    action_w.send(action).await.unwrap();
+                }
             }
         });
     }
@@ -58,7 +75,7 @@ async fn async_main() -> anyhow::Result<()> {
         state
             .lock_arc()
             .await
-            .handle_action(action, &mut output)
+            .handle_action(action, &mut output, &action_w)
             .await;
     }
 

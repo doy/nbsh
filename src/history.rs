@@ -7,21 +7,21 @@ use textmode::Textmode as _;
 pub struct History {
     size: (u16, u16),
     entries: Vec<crate::util::Mutex<HistoryEntry>>,
-    action: async_std::channel::Sender<crate::action::Action>,
 }
 
 impl History {
-    pub fn new(
-        action: async_std::channel::Sender<crate::action::Action>,
-    ) -> Self {
+    pub fn new() -> Self {
         Self {
             size: (24, 80),
             entries: vec![],
-            action,
         }
     }
 
-    pub async fn run(&mut self, cmd: &str) -> anyhow::Result<usize> {
+    pub async fn run(
+        &mut self,
+        cmd: &str,
+        action_w: async_std::channel::Sender<crate::action::Action>,
+    ) -> anyhow::Result<usize> {
         let (exe, args) = crate::parse::cmd(cmd);
         let mut process = async_std::process::Command::new(&exe);
         process.args(&args);
@@ -37,7 +37,6 @@ impl History {
             cmd, self.size, input_w, resize_w,
         ));
         let task_entry = async_std::sync::Arc::clone(&entry);
-        let task_action = self.action.clone();
         async_std::task::spawn(async move {
             loop {
                 enum Res {
@@ -70,7 +69,7 @@ impl History {
                                     Some(ExitInfo::new(
                                         child.status().await.unwrap(),
                                     ));
-                                task_action
+                                action_w
                                     .send(crate::action::Action::UpdateFocus(
                                         crate::state::Focus::Readline,
                                     ))
@@ -79,7 +78,7 @@ impl History {
                                 break;
                             }
                         }
-                        task_action
+                        action_w
                             .send(crate::action::Action::Render)
                             .await
                             .unwrap();
@@ -122,7 +121,7 @@ impl History {
         Ok(self.entries.len() - 1)
     }
 
-    pub async fn handle_key(&mut self, key: textmode::Key, idx: usize) {
+    pub async fn handle_key(&self, key: textmode::Key, idx: usize) {
         let entry = self.entries[idx].lock_arc().await;
         if entry.running() {
             entry.input.send(key.into_bytes()).await.unwrap();

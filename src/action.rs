@@ -4,6 +4,7 @@ pub enum Action {
     ForceRedraw,
     Run(String),
     UpdateFocus(crate::state::Focus),
+    ToggleFullscreen(usize),
     Resize((u16, u16)),
     Quit,
 }
@@ -37,6 +38,7 @@ struct Pending {
     force_redraw: Option<()>,
     run: std::collections::VecDeque<String>,
     focus: Option<crate::state::Focus>,
+    fullscreen: std::collections::VecDeque<usize>,
     size: Option<(u16, u16)>,
     done: bool,
 }
@@ -52,6 +54,7 @@ impl Pending {
             || self.force_redraw.is_some()
             || !self.run.is_empty()
             || self.focus.is_some()
+            || !self.fullscreen.is_empty()
             || self.size.is_some()
     }
 
@@ -64,6 +67,11 @@ impl Pending {
         }
         if self.focus.is_some() {
             return Some(Action::UpdateFocus(self.focus.take().unwrap()));
+        }
+        if !self.fullscreen.is_empty() {
+            return Some(Action::ToggleFullscreen(
+                self.fullscreen.pop_front().unwrap(),
+            ));
         }
         if self.force_redraw.is_some() {
             self.force_redraw.take();
@@ -86,6 +94,9 @@ impl Pending {
             Some(Action::ForceRedraw) => self.force_redraw = Some(()),
             Some(Action::Run(cmd)) => self.run.push_back(cmd.to_string()),
             Some(Action::UpdateFocus(focus)) => self.focus = Some(*focus),
+            Some(Action::ToggleFullscreen(idx)) => {
+                self.fullscreen.push_back(*idx);
+            }
             Some(Action::Resize(size)) => self.size = Some(*size),
             Some(Action::Quit) | None => self.done = true,
         }

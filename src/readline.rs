@@ -6,23 +6,22 @@ pub struct Readline {
     prompt: String,
     input_line: String,
     pos: usize,
-    action: async_std::channel::Sender<crate::action::Action>,
 }
 
 impl Readline {
-    pub fn new(
-        action: async_std::channel::Sender<crate::action::Action>,
-    ) -> Self {
+    pub fn new() -> Self {
         Self {
             size: (24, 80),
             prompt: "$ ".into(),
             input_line: "".into(),
             pos: 0,
-            action,
         }
     }
 
-    pub async fn handle_key(&mut self, key: textmode::Key) {
+    pub async fn handle_key(
+        &mut self,
+        key: textmode::Key,
+    ) -> Option<crate::action::Action> {
         match key {
             textmode::Key::String(s) => self.add_input(&s),
             textmode::Key::Char(c) => {
@@ -30,20 +29,15 @@ impl Readline {
             }
             textmode::Key::Ctrl(b'c') => self.clear_input(),
             textmode::Key::Ctrl(b'd') => {
-                self.action.send(crate::action::Action::Quit).await.unwrap();
+                return Some(crate::action::Action::Quit);
             }
             textmode::Key::Ctrl(b'l') => {
-                self.action
-                    .send(crate::action::Action::ForceRedraw)
-                    .await
-                    .unwrap();
+                return Some(crate::action::Action::ForceRedraw);
             }
             textmode::Key::Ctrl(b'm') => {
-                self.action
-                    .send(crate::action::Action::Run(self.input()))
-                    .await
-                    .unwrap();
+                let cmd = self.input();
                 self.clear_input();
+                return Some(crate::action::Action::Run(cmd));
             }
             textmode::Key::Ctrl(b'u') => self.clear_backwards(),
             textmode::Key::Backspace => self.backspace(),
@@ -51,10 +45,7 @@ impl Readline {
             textmode::Key::Right => self.cursor_right(),
             _ => {}
         }
-        self.action
-            .send(crate::action::Action::Render)
-            .await
-            .unwrap();
+        Some(crate::action::Action::Render)
     }
 
     pub fn lines(&self) -> usize {
