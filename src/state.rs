@@ -140,41 +140,37 @@ impl State {
         out: &mut textmode::Output,
         action_w: &async_std::channel::Sender<crate::action::Action>,
     ) {
+        let mut hard_refresh = false;
         match action {
-            crate::action::Action::Render => {
-                self.render(out, false).await.unwrap();
-            }
+            crate::action::Action::Render => {}
             crate::action::Action::ForceRedraw => {
-                self.render(out, true).await.unwrap();
+                hard_refresh = true;
             }
             crate::action::Action::Run(ref cmd) => {
                 let idx =
                     self.history.run(cmd, action_w.clone()).await.unwrap();
                 self.focus = Focus::History(idx);
                 self.hide_readline = true;
-                self.render(out, false).await.unwrap();
             }
             crate::action::Action::UpdateFocus(new_focus) => {
                 self.focus = new_focus;
                 self.hide_readline = false;
-                self.render(out, false).await.unwrap();
             }
             crate::action::Action::ToggleFullscreen(idx) => {
                 self.history.toggle_fullscreen(idx).await;
-                self.render(out, false).await.unwrap();
             }
             crate::action::Action::Resize(new_size) => {
                 self.readline.resize(new_size).await;
                 self.history.resize(new_size).await;
                 out.set_size(new_size.0, new_size.1);
                 out.hard_refresh().await.unwrap();
-                self.render(out, false).await.unwrap();
             }
             crate::action::Action::Quit => {
                 // the debouncer should return None in this case
                 unreachable!();
             }
         }
+        self.render(out, hard_refresh).await.unwrap();
     }
 }
 
