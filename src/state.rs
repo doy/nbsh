@@ -4,7 +4,6 @@ pub struct State {
     readline: crate::readline::Readline,
     history: crate::history::History,
     focus: Focus,
-    output: textmode::Output,
     escape: bool,
     hide_readline: bool,
     action: async_std::channel::Sender<crate::action::Action>,
@@ -13,7 +12,6 @@ pub struct State {
 impl State {
     pub fn new(
         action: async_std::channel::Sender<crate::action::Action>,
-        output: textmode::Output,
     ) -> Self {
         let readline = crate::readline::Readline::new(action.clone());
         let history = crate::history::History::new(action.clone());
@@ -22,56 +20,57 @@ impl State {
             readline,
             history,
             focus,
-            output,
             escape: false,
             hide_readline: false,
             action,
         }
     }
 
-    pub async fn render(&mut self, hard: bool) -> anyhow::Result<()> {
-        self.output.clear();
+    pub async fn render(
+        &mut self,
+        out: &mut textmode::Output,
+        hard: bool,
+    ) -> anyhow::Result<()> {
+        out.clear();
         match self.focus {
             Focus::Readline => {
                 self.history
-                    .render(&mut self.output, self.readline.lines(), None)
+                    .render(out, self.readline.lines(), None)
                     .await?;
-                self.readline.render(&mut self.output, true).await?;
+                self.readline.render(out, true).await?;
             }
             Focus::History(idx) => {
                 if self.hide_readline {
-                    self.history
-                        .render(&mut self.output, 0, Some(idx))
-                        .await?;
+                    self.history.render(out, 0, Some(idx)).await?;
                 } else {
                     self.history
-                        .render(
-                            &mut self.output,
-                            self.readline.lines(),
-                            Some(idx),
-                        )
+                        .render(out, self.readline.lines(), Some(idx))
                         .await?;
-                    let pos = self.output.screen().cursor_position();
-                    self.readline.render(&mut self.output, false).await?;
-                    self.output.move_to(pos.0, pos.1);
+                    let pos = out.screen().cursor_position();
+                    self.readline.render(out, false).await?;
+                    out.move_to(pos.0, pos.1);
                 }
             }
         }
         if hard {
-            self.output.hard_refresh().await?;
+            out.hard_refresh().await?;
         } else {
-            self.output.refresh().await?;
+            out.refresh().await?;
         }
         Ok(())
     }
 
-    pub async fn handle_action(&mut self, action: crate::action::Action) {
+    pub async fn handle_action(
+        &mut self,
+        action: crate::action::Action,
+        out: &mut textmode::Output,
+    ) {
         match action {
             crate::action::Action::Render => {
-                self.render(false).await.unwrap();
+                self.render(out, false).await.unwrap();
             }
             crate::action::Action::ForceRedraw => {
-                self.render(true).await.unwrap();
+                self.render(out, true).await.unwrap();
             }
             crate::action::Action::Run(ref cmd) => {
                 let idx = self.history.run(cmd).await.unwrap();
@@ -81,14 +80,14 @@ impl State {
             crate::action::Action::UpdateFocus(new_focus) => {
                 self.focus = new_focus;
                 self.hide_readline = false;
-                self.render(false).await.unwrap();
+                self.render(out, false).await.unwrap();
             }
             crate::action::Action::Resize(new_size) => {
                 self.readline.resize(new_size).await;
                 self.history.resize(new_size).await;
-                self.output.set_size(new_size.0, new_size.1);
-                self.output.hard_refresh().await.unwrap();
-                self.render(false).await.unwrap();
+                out.set_size(new_size.0, new_size.1);
+                out.hard_refresh().await.unwrap();
+                self.render(out, false).await.unwrap();
             }
             crate::action::Action::Quit => {
                 // the debouncer should return None in this case
@@ -105,12 +104,18 @@ impl State {
                     fallthrough = true;
                 }
                 textmode::Key::Ctrl(b'l') => {
-                    self.render(true).await.unwrap();
+                    self.action
+                        .send(crate::action::Action::ForceRedraw)
+                        .await
+                        .unwrap();
                 }
                 textmode::Key::Char('f') => {
                     if let Focus::History(idx) = self.focus {
                         self.history.toggle_fullscreen(idx).await;
-                        self.render(false).await.unwrap();
+                        self.action
+                            .send(crate::action::Action::Render)
+                            .await
+                            .unwrap();
                     }
                 }
                 textmode::Key::Char('j') => {
@@ -126,7 +131,10 @@ impl State {
                     };
                     self.focus = new_focus;
                     self.hide_readline = false;
-                    self.render(false).await.unwrap();
+                    self.action
+                        .send(crate::action::Action::Render)
+                        .await
+                        .unwrap();
                 }
                 textmode::Key::Char('k') => {
                     let new_focus = match self.focus {
@@ -143,12 +151,18 @@ impl State {
                     };
                     self.focus = new_focus;
                     self.hide_readline = false;
-                    self.render(false).await.unwrap();
+                    self.action
+                        .send(crate::action::Action::Render)
+                        .await
+                        .unwrap();
                 }
                 textmode::Key::Char('r') => {
                     self.focus = Focus::Readline;
                     self.hide_readline = false;
-                    self.render(false).await.unwrap();
+                    self.action
+                        .send(crate::action::Action::Render)
+                        .await
+                        .unwrap();
                 }
                 _ => {}
             }

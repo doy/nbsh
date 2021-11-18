@@ -25,8 +25,8 @@ async fn async_main() -> anyhow::Result<()> {
 
     let (action_w, action_r) = async_std::channel::unbounded();
 
-    let mut state = state::State::new(action_w, output);
-    state.render(true).await.unwrap();
+    let mut state = state::State::new(action_w);
+    state.render(&mut output, true).await.unwrap();
 
     let state = util::mutex(state);
 
@@ -55,7 +55,11 @@ async fn async_main() -> anyhow::Result<()> {
 
     let debouncer = crate::action::debounce(action_r);
     while let Some(action) = debouncer.recv().await {
-        state.lock_arc().await.handle_action(action).await;
+        state
+            .lock_arc()
+            .await
+            .handle_action(action, &mut output)
+            .await;
     }
 
     Ok(())
