@@ -6,20 +6,20 @@ edition = "2021"
 license = "MIT"
 
 [dependencies]
-anyhow = "1.0.45"
+anyhow = "1.0.51"
 async-std = { version = "1.10.0", features = ["unstable"] }
 chrono = "0.4.19"
 futures-lite = "1.12.0"
 hostname = "0.3.1"
-libc = "0.2.107"
+libc = "0.2.109"
 nix = "0.23.0"
-pty-process = { path = "../pty-process", version = "0.1.1", features = ["backend-async-std"] }
+pty-process = { version = "0.1.1", features = ["backend-async-std"] }
 signal-hook = "0.3.10"
 signal-hook-async-std = "0.2.1"
 terminal_size = "0.1.17"
-textmode = { path = "../textmode", version = "0.2.0", features = ["async"] }
+textmode = { version = "0.2.2", features = ["async"] }
 unicode-width = "0.1.9"
 users = "0.11.0"
-vt100 = { path = "../vt100-rust", version = "0.13.0" }
+vt100 = "0.14.0"
 
 [features]
