@@ -51,12 +51,21 @@ impl State {
                     let new_focus = match self.focus {
                         Focus::History(idx) => {
                             if idx >= self.history.entry_count() - 1 {
-                                Focus::Readline
+                                Focus::Scrolling(None)
                             } else {
-                                Focus::History(idx + 1)
+                                Focus::Scrolling(Some(idx + 1))
                             }
                         }
-                        Focus::Readline => Focus::Readline,
+                        Focus::Readline => Focus::Scrolling(None),
+                        Focus::Scrolling(idx) => {
+                            idx.map_or(Focus::Scrolling(None), |idx| {
+                                if idx >= self.history.entry_count() - 1 {
+                                    Focus::Scrolling(None)
+                                } else {
+                                    Focus::Scrolling(Some(idx + 1))
+                                }
+                            })
+                        }
                     };
                     return Some(crate::action::Action::UpdateFocus(
                         new_focus,
@@ -66,14 +75,26 @@ impl State {
                     let new_focus = match self.focus {
                         Focus::History(idx) => {
                             if idx == 0 {
-                                Focus::History(0)
+                                Focus::Scrolling(Some(0))
                             } else {
-                                Focus::History(idx - 1)
+                                Focus::Scrolling(Some(idx - 1))
                             }
                         }
-                        Focus::Readline => {
-                            Focus::History(self.history.entry_count() - 1)
-                        }
+                        Focus::Readline => Focus::Scrolling(Some(
+                            self.history.entry_count() - 1,
+                        )),
+                        Focus::Scrolling(idx) => idx.map_or(
+                            Focus::Scrolling(Some(
+                                self.history.entry_count() - 1,
+                            )),
+                            |idx| {
+                                if idx == 0 {
+                                    Focus::Scrolling(Some(0))
+                                } else {
+                                    Focus::Scrolling(Some(idx - 1))
+                                }
+                            },
+                        ),
                     };
                     return Some(crate::action::Action::UpdateFocus(
                         new_focus,
@@ -100,6 +121,74 @@ impl State {
                 self.history.handle_key(key, idx).await;
                 None
             }
+            Focus::Scrolling(idx) => match key {
+                textmode::Key::Ctrl(b'm') => {
+                    let focus = if let Some(idx) = idx {
+                        self.history.running(idx).await
+                    } else {
+                        true
+                    };
+                    if focus {
+                        Some(crate::action::Action::UpdateFocus(
+                            idx.map_or(Focus::Readline, |idx| {
+                                Focus::History(idx)
+                            }),
+                        ))
+                    } else {
+                        None
+                    }
+                }
+                textmode::Key::Char('j') => {
+                    let new_focus = match self.focus {
+                        Focus::History(idx) => {
+                            if idx >= self.history.entry_count() - 1 {
+                                Focus::Scrolling(None)
+                            } else {
+                                Focus::Scrolling(Some(idx + 1))
+                            }
+                        }
+                        Focus::Readline => Focus::Scrolling(None),
+                        Focus::Scrolling(idx) => {
+                            idx.map_or(Focus::Scrolling(None), |idx| {
+                                if idx >= self.history.entry_count() - 1 {
+                                    Focus::Scrolling(None)
+                                } else {
+                                    Focus::Scrolling(Some(idx + 1))
+                                }
+                            })
+                        }
+                    };
+                    Some(crate::action::Action::UpdateFocus(new_focus))
+                }
+                textmode::Key::Char('k') => {
+                    let new_focus = match self.focus {
+                        Focus::History(idx) => {
+                            if idx == 0 {
+                                Focus::Scrolling(Some(0))
+                            } else {
+                                Focus::Scrolling(Some(idx - 1))
+                            }
+                        }
+                        Focus::Readline => Focus::Scrolling(Some(
+                            self.history.entry_count() - 1,
+                        )),
+                        Focus::Scrolling(idx) => idx.map_or(
+                            Focus::Scrolling(Some(
+                                self.history.entry_count() - 1,
+                            )),
+                            |idx| {
+                                if idx == 0 {
+                                    Focus::Scrolling(Some(0))
+                                } else {
+                                    Focus::Scrolling(Some(idx - 1))
+                                }
+                            },
+                        ),
+                    };
+                    Some(crate::action::Action::UpdateFocus(new_focus))
+                }
+                _ => None,
+            },
         }
     }
 
@@ -135,6 +224,15 @@ impl State {
                         self.readline.render(out, false, self.offset).await?;
                         out.move_to(pos.0, pos.1);
                     }
+                }
+                Focus::Scrolling(idx) => {
+                    self.history
+                        .render(out, self.readline.lines(), idx, self.offset)
+                        .await?;
+                    self.readline
+                        .render(out, idx.is_none(), self.offset)
+                        .await?;
+                    out.write(b"\x1b[?25l");
                 }
             },
             Scene::Fullscreen => {
@@ -198,7 +296,7 @@ impl State {
 
     async fn default_scene(&self, focus: Focus) -> Scene {
         match focus {
-            Focus::Readline => Scene::Readline,
+            Focus::Readline | Focus::Scrolling(_) => Scene::Readline,
             Focus::History(idx) => {
                 if self.history.should_fullscreen(idx).await {
                     Scene::Fullscreen
@@ -214,6 +312,7 @@ impl State {
 pub enum Focus {
     Readline,
     History(usize),
+    Scrolling(Option<usize>),
 }
 
 #[derive(Copy, Clone, Debug)]

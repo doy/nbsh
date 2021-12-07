@@ -129,6 +129,10 @@ impl History {
         self.entries[idx].lock_arc().await.should_fullscreen()
     }
 
+    pub async fn running(&self, idx: usize) -> bool {
+        self.entries[idx].lock_arc().await.running()
+    }
+
     pub fn entry_count(&self) -> usize {
         self.entries.len()
     }
