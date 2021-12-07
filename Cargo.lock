@@ -603,8 +603,6 @@ dependencies = [
 [[package]]
 name = "textmode"
 version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b3f31cee8570f79f5d8cbf6f375e1379f55551015d48dafbde9a974df1b3987"
 dependencies = [
  "blocking",
  "futures-lite",
@@ -693,8 +691,6 @@ checksum = "5fecdca9a5291cc2b8dcf7dc02453fee791a280f3743cb0905f8822ae463b3fe"
 [[package]]
 name = "vt100"
 version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "355ca5788c590a972ec74d0d8a2b7174919d7d6c149c9a481822eb8e99b5ac9b"
 dependencies = [
  "itoa",
  "log",

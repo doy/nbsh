@@ -218,46 +218,60 @@ impl HistoryEntry {
         out.write_str(&time);
         out.write_str(" ");
         out.reset_attributes();
-        let last_row = self.lines(width, focused);
-        if last_row > 5 {
-            out.write(b"\r\n");
-            out.set_fgcolor(textmode::color::BLUE);
-            out.write(b"...");
+
+        if self.binary() {
+            let msg = b"This appears to be binary data. Fullscreen this entry to view anyway.";
+            let len: u16 = msg.len().try_into().unwrap();
+            out.move_to(
+                out.screen().cursor_position().0 + 1,
+                (width - len) / 2,
+            );
+            out.set_fgcolor(textmode::color::RED);
+            out.write(msg);
+            out.write(b"\x1b[?25l");
             out.reset_attributes();
-        }
-        let mut out_row = out.screen().cursor_position().0 + 1;
-        let screen = self.vt.screen();
-        let pos = screen.cursor_position();
-        let mut wrapped = false;
-        let mut cursor_found = None;
-        for (idx, row) in screen
-            .rows_formatted(0, width)
-            .enumerate()
-            .take(last_row)
-            .skip(last_row.saturating_sub(5))
-        {
-            let idx: u16 = idx.try_into().unwrap();
-            out.write(b"\x1b[m");
-            if !wrapped {
-                out.write(format!("\x1b[{}H", out_row + 1).as_bytes());
+        } else {
+            let last_row = self.lines(width, focused);
+            if last_row > 5 {
+                out.write(b"\r\n");
+                out.set_fgcolor(textmode::color::BLUE);
+                out.write(b"...");
+                out.reset_attributes();
             }
-            out.write(&row);
-            wrapped = screen.row_wrapped(idx);
-            if pos.0 == idx {
-                cursor_found = Some(out_row);
-            }
-            out_row += 1;
-        }
-        if focused {
-            if let Some(row) = cursor_found {
-                if screen.hide_cursor() {
-                    out.write(b"\x1b[?25l");
-                } else {
-                    out.write(b"\x1b[?25h");
-                    out.move_to(row, pos.1);
+            let mut out_row = out.screen().cursor_position().0 + 1;
+            let screen = self.vt.screen();
+            let pos = screen.cursor_position();
+            let mut wrapped = false;
+            let mut cursor_found = None;
+            for (idx, row) in screen
+                .rows_formatted(0, width)
+                .enumerate()
+                .take(last_row)
+                .skip(last_row.saturating_sub(5))
+            {
+                let idx: u16 = idx.try_into().unwrap();
+                out.write(b"\x1b[m");
+                if !wrapped {
+                    out.write(format!("\x1b[{}H", out_row + 1).as_bytes());
                 }
-            } else {
-                out.write(b"\x1b[?25l");
+                out.write(&row);
+                wrapped = screen.row_wrapped(idx);
+                if pos.0 == idx {
+                    cursor_found = Some(out_row);
+                }
+                out_row += 1;
+            }
+            if focused {
+                if let Some(row) = cursor_found {
+                    if screen.hide_cursor() {
+                        out.write(b"\x1b[?25l");
+                    } else {
+                        out.write(b"\x1b[?25h");
+                        out.move_to(row, pos.1);
+                    }
+                } else {
+                    out.write(b"\x1b[?25l");
+                }
             }
         }
         out.reset_attributes();
@@ -295,7 +309,15 @@ impl HistoryEntry {
         self.exit_info.is_none()
     }
 
+    fn binary(&self) -> bool {
+        self.vt.screen().errors() > 5
+    }
+
     fn lines(&self, width: u16, focused: bool) -> usize {
+        if self.binary() {
+            return 1;
+        }
+
         let screen = self.vt.screen();
         let mut last_row = 0;
         for (idx, row) in screen.rows(0, width).enumerate() {
