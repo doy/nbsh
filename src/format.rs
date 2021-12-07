@@ -12,6 +12,12 @@ pub fn exit_status(status: std::process::ExitStatus) -> String {
     }
 }
 
+pub fn time(time: time::OffsetDateTime) -> String {
+    let format =
+        time::format_description::parse("[hour]:[minute]:[second]").unwrap();
+    time.format(&format).unwrap()
+}
+
 pub fn duration(dur: std::time::Duration) -> String {
     let secs = dur.as_secs();
     let nanos = dur.subsec_nanos();

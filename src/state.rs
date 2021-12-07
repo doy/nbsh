@@ -7,10 +7,11 @@ pub struct State {
     scene: Scene,
     escape: bool,
     hide_readline: bool,
+    offset: time::UtcOffset,
 }
 
 impl State {
-    pub fn new() -> Self {
+    pub fn new(offset: time::UtcOffset) -> Self {
         let readline = crate::readline::Readline::new();
         let history = crate::history::History::new();
         let focus = Focus::Readline;
@@ -22,6 +23,7 @@ impl State {
             scene,
             escape: false,
             hide_readline: false,
+            offset,
         }
     }
 
@@ -111,19 +113,26 @@ impl State {
             Scene::Readline => match self.focus {
                 Focus::Readline => {
                     self.history
-                        .render(out, self.readline.lines(), None)
+                        .render(out, self.readline.lines(), None, self.offset)
                         .await?;
-                    self.readline.render(out, true).await?;
+                    self.readline.render(out, true, self.offset).await?;
                 }
                 Focus::History(idx) => {
                     if self.hide_readline {
-                        self.history.render(out, 0, Some(idx)).await?;
+                        self.history
+                            .render(out, 0, Some(idx), self.offset)
+                            .await?;
                     } else {
                         self.history
-                            .render(out, self.readline.lines(), Some(idx))
+                            .render(
+                                out,
+                                self.readline.lines(),
+                                Some(idx),
+                                self.offset,
+                            )
                             .await?;
                         let pos = out.screen().cursor_position();
-                        self.readline.render(out, false).await?;
+                        self.readline.render(out, false, self.offset).await?;
                         out.move_to(pos.0, pos.1);
                     }
                 }

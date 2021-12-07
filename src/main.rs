@@ -15,6 +15,26 @@ mod util;
 
 use async_std::stream::StreamExt as _;
 
+// the time crate is currently unable to get the local offset on unix due to
+// soundness concerns, so we have to do it manually/:
+//
+// https://github.com/time-rs/time/issues/380
+fn get_offset() -> time::UtcOffset {
+    let offset_str =
+        std::process::Command::new("date").args(&["+%:z"]).output();
+    if let Ok(offset_str) = offset_str {
+        let offset_str = String::from_utf8(offset_str.stdout).unwrap();
+        time::UtcOffset::parse(
+            offset_str.trim(),
+            &time::format_description::parse("[offset_hour]:[offset_minute]")
+                .unwrap(),
+        )
+        .unwrap_or(time::UtcOffset::UTC)
+    } else {
+        time::UtcOffset::UTC
+    }
+}
+
 async fn resize(
     action_w: &async_std::channel::Sender<crate::action::Action>,
 ) {
@@ -39,7 +59,7 @@ async fn async_main() -> anyhow::Result<()> {
 
     let (action_w, action_r) = async_std::channel::unbounded();
 
-    let state = state::State::new();
+    let state = state::State::new(get_offset());
     state.render(&mut output, true).await.unwrap();
 
     let state = util::mutex(state);
@@ -77,7 +97,7 @@ async fn async_main() -> anyhow::Result<()> {
         let action_w = action_w.clone();
         async_std::task::spawn(async move {
             let first_sleep = 1_000_000_000_u64.saturating_sub(
-                chrono::Local::now().timestamp_subsec_nanos().into(),
+                time::OffsetDateTime::now_utc().nanosecond().into(),
             );
             async_std::task::sleep(std::time::Duration::from_nanos(
                 first_sleep,

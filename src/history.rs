@@ -29,6 +29,7 @@ impl History {
         out: &mut textmode::Output,
         repl_lines: usize,
         focus: Option<usize>,
+        offset: time::UtcOffset,
     ) -> anyhow::Result<()> {
         let mut used_lines = repl_lines;
         let mut pos = None;
@@ -47,7 +48,7 @@ impl History {
                 (self.size.0 as usize - used_lines).try_into().unwrap(),
                 0,
             );
-            entry.render(out, self.size.1, focused);
+            entry.render(out, self.size.1, focused, offset);
             if focused {
                 pos = Some(out.screen().cursor_position());
             }
@@ -141,7 +142,7 @@ struct HistoryEntry {
     fullscreen: Option<bool>,
     input: async_std::channel::Sender<Vec<u8>>,
     resize: async_std::channel::Sender<(u16, u16)>,
-    start_time: chrono::DateTime<chrono::Local>,
+    start_time: time::OffsetDateTime,
     start_instant: std::time::Instant,
     exit_info: Option<ExitInfo>,
 }
@@ -161,7 +162,7 @@ impl HistoryEntry {
             input,
             resize,
             fullscreen: None,
-            start_time: chrono::Local::now(),
+            start_time: time::OffsetDateTime::now_utc(),
             start_instant: std::time::Instant::now(),
             exit_info: None,
         }
@@ -172,6 +173,7 @@ impl HistoryEntry {
         out: &mut textmode::Output,
         width: u16,
         focused: bool,
+        offset: time::UtcOffset,
     ) {
         out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
         if let Some(info) = self.exit_info {
@@ -205,11 +207,14 @@ impl HistoryEntry {
         let time = if let Some(info) = self.exit_info {
             format!(
                 "[{} ({:6})]",
-                self.start_time.time().format("%H:%M:%S"),
+                crate::format::time(self.start_time.to_offset(offset)),
                 crate::format::duration(info.instant - self.start_instant)
             )
         } else {
-            format!("[{}]", self.start_time.time().format("%H:%M:%S"))
+            format!(
+                "[{}]",
+                crate::format::time(self.start_time.to_offset(offset))
+            )
         };
         let cur_pos = out.screen().cursor_position();
         out.write_str(

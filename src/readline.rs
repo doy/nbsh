@@ -57,6 +57,7 @@ impl Readline {
         &self,
         out: &mut textmode::Output,
         focus: bool,
+        offset: time::UtcOffset,
     ) -> anyhow::Result<()> {
         let mut pwd = std::env::current_dir()?.display().to_string();
         let home = std::env::var("HOME")?;
@@ -74,7 +75,9 @@ impl Readline {
         }
         let id = format!("{}@{}", user, hostname);
         let idlen: u16 = id.len().try_into().unwrap();
-        let time = chrono::Local::now().format("%H:%M:%S").to_string();
+        let time = crate::format::time(
+            time::OffsetDateTime::now_utc().to_offset(offset),
+        );
         let timelen: u16 = time.len().try_into().unwrap();
 
         out.move_to(self.size.0 - 2, 0);
