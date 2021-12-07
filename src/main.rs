@@ -93,8 +93,8 @@ async fn async_main() -> anyhow::Result<()> {
         });
     }
 
-    let debouncer = crate::action::debounce(action_r);
-    while let Some(action) = debouncer.recv().await {
+    let action_reader = action::Reader::new(action_r);
+    while let Some(action) = action_reader.recv().await {
         state
             .lock_arc()
             .await

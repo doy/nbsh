@@ -10,25 +10,44 @@ pub enum Action {
     Quit,
 }
 
-pub struct Debouncer {
+pub struct Reader {
     pending: async_std::sync::Mutex<Pending>,
     cvar: async_std::sync::Condvar,
 }
 
-impl Debouncer {
+impl Reader {
+    pub fn new(
+        input: async_std::channel::Receiver<Action>,
+    ) -> async_std::sync::Arc<Self> {
+        let this = std::sync::Arc::new(Self {
+            pending: async_std::sync::Mutex::new(Pending::new()),
+            cvar: async_std::sync::Condvar::new(),
+        });
+        {
+            let this = std::sync::Arc::clone(&this);
+            async_std::task::spawn(async move {
+                while let Ok(action) = input.recv().await {
+                    this.new_action(Some(action)).await;
+                }
+                this.new_action(None).await;
+            });
+        }
+        this
+    }
+
     pub async fn recv(&self) -> Option<Action> {
         let mut pending = self
             .cvar
             .wait_until(self.pending.lock().await, |pending| {
-                pending.has_event()
+                pending.has_action()
             })
             .await;
-        pending.get_event()
+        pending.get_action()
     }
 
-    async fn send(&self, action: Option<Action>) {
+    async fn new_action(&self, action: Option<Action>) {
         let mut pending = self.pending.lock().await;
-        pending.new_event(&action);
+        pending.new_action(&action);
         self.cvar.notify_one();
     }
 }
@@ -50,7 +69,7 @@ impl Pending {
         Self::default()
     }
 
-    fn has_event(&self) -> bool {
+    fn has_action(&self) -> bool {
         self.done
             || self.render.is_some()
             || self.force_redraw.is_some()
@@ -61,7 +80,7 @@ impl Pending {
             || self.size.is_some()
     }
 
-    fn get_event(&mut self) -> Option<Action> {
+    fn get_action(&mut self) -> Option<Action> {
         if self.size.is_some() {
             return Some(Action::Resize(self.size.take().unwrap()));
         }
@@ -90,7 +109,7 @@ impl Pending {
         unreachable!()
     }
 
-    fn new_event(&mut self, action: &Option<Action>) {
+    fn new_action(&mut self, action: &Option<Action>) {
         match action {
             Some(Action::Render) => self.render = Some(()),
             Some(Action::ForceRedraw) => self.force_redraw = Some(()),
@@ -102,23 +121,4 @@ impl Pending {
             Some(Action::Quit) | None => self.done = true,
         }
     }
-}
-
-pub fn debounce(
-    input: async_std::channel::Receiver<Action>,
-) -> async_std::sync::Arc<Debouncer> {
-    let debouncer = std::sync::Arc::new(Debouncer {
-        pending: async_std::sync::Mutex::new(Pending::new()),
-        cvar: async_std::sync::Condvar::new(),
-    });
-    {
-        let debouncer = std::sync::Arc::clone(&debouncer);
-        async_std::task::spawn(async move {
-            while let Ok(action) = input.recv().await {
-                debouncer.send(Some(action)).await;
-            }
-            debouncer.send(None).await;
-        });
-    }
-    debouncer
 }
