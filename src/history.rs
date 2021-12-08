@@ -29,32 +29,41 @@ impl History {
         out: &mut textmode::Output,
         repl_lines: usize,
         focus: Option<usize>,
+        scrolling: bool,
         offset: time::UtcOffset,
     ) -> anyhow::Result<()> {
         let mut used_lines = repl_lines;
-        let mut pos = None;
+        let mut cursor = None;
         for (idx, entry) in self.entries.iter().enumerate().rev() {
             let mut entry = entry.lock_arc().await;
             let focused = focus.map_or(false, |focus| idx == focus);
-            let last_row = entry.lines(self.size.1, focused);
+            let last_row = entry.lines(self.size.1, focused && !scrolling);
             used_lines += 1 + std::cmp::min(6, last_row);
             if used_lines > self.size.0 as usize {
                 break;
             }
-            if focused && used_lines == 1 && entry.running() {
+            if focused && !scrolling && used_lines == 1 && entry.running() {
                 used_lines = 2;
             }
             out.move_to(
                 (self.size.0 as usize - used_lines).try_into().unwrap(),
                 0,
             );
-            entry.render(out, self.size.1, focused, offset);
-            if focused {
-                pos = Some(out.screen().cursor_position());
+            entry.render(out, self.size.1, focused, scrolling, offset);
+            if focused && !scrolling {
+                cursor = Some((
+                    out.screen().cursor_position(),
+                    out.screen().hide_cursor(),
+                ));
             }
         }
-        if let Some(pos) = pos {
+        if let Some((pos, hide)) = cursor {
             out.move_to(pos.0, pos.1);
+            if hide {
+                out.write(b"\x1b[?25l");
+            } else {
+                out.write(b"\x1b[?25h");
+            }
         }
         Ok(())
     }
@@ -177,6 +186,7 @@ impl HistoryEntry {
         out: &mut textmode::Output,
         width: u16,
         focused: bool,
+        scrolling: bool,
         offset: time::UtcOffset,
     ) {
         out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
@@ -240,7 +250,7 @@ impl HistoryEntry {
             out.write(b"\x1b[?25l");
             out.reset_attributes();
         } else {
-            let last_row = self.lines(width, focused);
+            let last_row = self.lines(width, focused && !scrolling);
             if last_row > 5 {
                 out.write(b"\r\n");
                 out.set_fgcolor(textmode::color::BLUE);
@@ -270,7 +280,7 @@ impl HistoryEntry {
                 }
                 out_row += 1;
             }
-            if focused {
+            if focused && !scrolling {
                 if let Some(row) = cursor_found {
                     if screen.hide_cursor() {
                         out.write(b"\x1b[?25l");

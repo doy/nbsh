@@ -202,14 +202,20 @@ impl State {
             Scene::Readline => match self.focus {
                 Focus::Readline => {
                     self.history
-                        .render(out, self.readline.lines(), None, self.offset)
+                        .render(
+                            out,
+                            self.readline.lines(),
+                            None,
+                            false,
+                            self.offset,
+                        )
                         .await?;
                     self.readline.render(out, true, self.offset).await?;
                 }
                 Focus::History(idx) => {
                     if self.hide_readline {
                         self.history
-                            .render(out, 0, Some(idx), self.offset)
+                            .render(out, 0, Some(idx), false, self.offset)
                             .await?;
                     } else {
                         self.history
@@ -217,6 +223,7 @@ impl State {
                                 out,
                                 self.readline.lines(),
                                 Some(idx),
+                                false,
                                 self.offset,
                             )
                             .await?;
@@ -227,7 +234,13 @@ impl State {
                 }
                 Focus::Scrolling(idx) => {
                     self.history
-                        .render(out, self.readline.lines(), idx, self.offset)
+                        .render(
+                            out,
+                            self.readline.lines(),
+                            idx,
+                            true,
+                            self.offset,
+                        )
                         .await?;
                     self.readline
                         .render(out, idx.is_none(), self.offset)
