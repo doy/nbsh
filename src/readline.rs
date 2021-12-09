@@ -59,25 +59,13 @@ impl Readline {
         focus: bool,
         offset: time::UtcOffset,
     ) -> anyhow::Result<()> {
-        let mut pwd = std::env::current_dir()?.display().to_string();
-        let home = std::env::var("HOME")?;
-        if pwd.starts_with(&home) {
-            pwd.replace_range(..home.len(), "~");
-        }
-        let user = users::get_current_username()
-            .unwrap()
-            .to_string_lossy()
-            .into_owned();
-        let mut hostname =
-            hostname::get().unwrap().to_string_lossy().into_owned();
-        if let Some(idx) = hostname.find('.') {
-            hostname.truncate(idx);
-        }
+        let pwd = crate::env::pwd()?;
+        let user = crate::env::user()?;
+        let hostname = crate::env::hostname()?;
+        let time = crate::env::time(offset)?;
+
         let id = format!("{}@{}", user, hostname);
         let idlen: u16 = id.len().try_into().unwrap();
-        let time = crate::format::time(
-            time::OffsetDateTime::now_utc().to_offset(offset),
-        );
         let timelen: u16 = time.len().try_into().unwrap();
 
         out.move_to(self.size.0 - 2, 0);

@@ -6,6 +6,7 @@
 
 mod action;
 mod builtins;
+mod env;
 mod format;
 mod history;
 mod parse;
