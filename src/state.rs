@@ -175,7 +175,7 @@ impl State {
                     self.readline
                         .render(out, idx.is_none(), self.offset)
                         .await?;
-                    out.write(b"\x1b[?25l");
+                    out.hide_cursor(true);
                 }
             },
             Scene::Fullscreen => {

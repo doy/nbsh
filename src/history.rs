@@ -59,11 +59,7 @@ impl History {
         }
         if let Some((pos, hide)) = cursor {
             out.move_to(pos.0, pos.1);
-            if hide {
-                out.write(b"\x1b[?25l");
-            } else {
-                out.write(b"\x1b[?25h");
-            }
+            out.hide_cursor(hide);
         }
         Ok(())
     }
@@ -239,22 +235,22 @@ impl HistoryEntry {
         out.reset_attributes();
 
         if self.binary() {
-            let msg = b"This appears to be binary data. Fullscreen this entry to view anyway.";
+            let msg = "This appears to be binary data. Fullscreen this entry to view anyway.";
             let len: u16 = msg.len().try_into().unwrap();
             out.move_to(
                 out.screen().cursor_position().0 + 1,
                 (width - len) / 2,
             );
             out.set_fgcolor(textmode::color::RED);
-            out.write(msg);
-            out.write(b"\x1b[?25l");
+            out.write_str(msg);
+            out.hide_cursor(true);
             out.reset_attributes();
         } else {
             let last_row = self.lines(width, focused && !scrolling);
             if last_row > 5 {
                 out.write(b"\r\n");
                 out.set_fgcolor(textmode::color::BLUE);
-                out.write(b"...");
+                out.write_str("...");
                 out.reset_attributes();
             }
             let mut out_row = out.screen().cursor_position().0 + 1;
@@ -269,9 +265,9 @@ impl HistoryEntry {
                 .skip(last_row.saturating_sub(5))
             {
                 let idx: u16 = idx.try_into().unwrap();
-                out.write(b"\x1b[m");
+                out.reset_attributes();
                 if !wrapped {
-                    out.write(format!("\x1b[{}H", out_row + 1).as_bytes());
+                    out.move_to(out_row, 0);
                 }
                 out.write(&row);
                 wrapped = screen.row_wrapped(idx);
@@ -282,14 +278,10 @@ impl HistoryEntry {
             }
             if focused && !scrolling {
                 if let Some(row) = cursor_found {
-                    if screen.hide_cursor() {
-                        out.write(b"\x1b[?25l");
-                    } else {
-                        out.write(b"\x1b[?25h");
-                        out.move_to(row, pos.1);
-                    }
+                    out.hide_cursor(screen.hide_cursor());
+                    out.move_to(row, pos.1);
                 } else {
-                    out.write(b"\x1b[?25l");
+                    out.hide_cursor(true);
                 }
             }
         }

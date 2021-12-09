@@ -83,9 +83,9 @@ impl Readline {
         out.move_to(self.size.0 - 2, 0);
         out.set_bgcolor(textmode::Color::Rgb(32, 32, 64));
         out.write(b"\x1b[K");
-        out.write(b" (");
+        out.write_str(" (");
         out.write_str(&pwd);
-        out.write(b")");
+        out.write_str(")");
         out.move_to(self.size.0 - 2, self.size.1 - 4 - idlen - timelen);
         out.write_str(&id);
         out.write_str(" [");
@@ -107,7 +107,7 @@ impl Readline {
         out.reset_attributes();
         out.move_to(self.size.0 - 1, self.prompt_width() + self.pos_width());
         if focus {
-            out.write(b"\x1b[?25h");
+            out.hide_cursor(false);
         }
         Ok(())
     }
