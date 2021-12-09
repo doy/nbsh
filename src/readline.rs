@@ -63,7 +63,11 @@ impl Readline {
         let timelen: u16 = time.len().try_into().unwrap();
 
         out.move_to(self.size.0 - 2, 0);
-        out.set_bgcolor(textmode::Color::Rgb(32, 32, 64));
+        if focus {
+            out.set_bgcolor(textmode::Color::Rgb(32, 32, 64));
+        } else {
+            out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
+        }
         out.write(b"\x1b[K");
         out.write_str(" (");
         out.write_str(&pwd);
@@ -75,16 +79,10 @@ impl Readline {
         out.write_str("]");
 
         out.move_to(self.size.0 - 1, 0);
-        if focus {
-            out.set_fgcolor(textmode::color::BLACK);
-            out.set_bgcolor(textmode::color::CYAN);
-        } else {
-            out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
-        }
+        out.reset_attributes();
         out.write_str(&prompt_char);
         out.write_str(" ");
         out.reset_attributes();
-        out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
         out.write(b"\x1b[K");
         out.write_str(&self.input_line);
         out.reset_attributes();

@@ -185,7 +185,7 @@ impl HistoryEntry {
         scrolling: bool,
         offset: time::UtcOffset,
     ) {
-        out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
+        self.set_bgcolor(out, focused);
         if let Some(info) = self.exit_info {
             if info.status.signal().is_some() {
                 out.set_fgcolor(textmode::color::MAGENTA);
@@ -199,21 +199,14 @@ impl HistoryEntry {
             out.write_str("     ");
         }
         out.reset_attributes();
-        if focused {
-            out.set_fgcolor(textmode::color::BLACK);
-            out.set_bgcolor(textmode::color::CYAN);
-        } else {
-            out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
-        }
+        self.set_bgcolor(out, focused);
         out.write_str("$ ");
-        out.reset_attributes();
-        out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
         if self.running() {
             out.set_bgcolor(textmode::Color::Rgb(16, 64, 16));
         }
         out.write_str(&self.cmd);
         out.reset_attributes();
-        out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
+        self.set_bgcolor(out, focused);
         let time = if let Some(info) = self.exit_info {
             format!(
                 "[{} ({:6})]",
@@ -306,6 +299,14 @@ impl HistoryEntry {
         }
 
         out.reset_attributes();
+    }
+
+    fn set_bgcolor(&self, out: &mut textmode::Output, focus: bool) {
+        if focus {
+            out.set_bgcolor(textmode::Color::Rgb(32, 32, 64));
+        } else {
+            out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
+        }
     }
 
     fn toggle_fullscreen(&mut self) {
