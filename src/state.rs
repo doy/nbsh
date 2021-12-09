@@ -12,15 +12,11 @@ pub struct State {
 
 impl State {
     pub fn new(offset: time::UtcOffset) -> Self {
-        let readline = crate::readline::Readline::new();
-        let history = crate::history::History::new();
-        let focus = Focus::Readline;
-        let scene = Scene::Readline;
         Self {
-            readline,
-            history,
-            focus,
-            scene,
+            readline: crate::readline::Readline::new(),
+            history: crate::history::History::new(),
+            focus: Focus::Readline,
+            scene: Scene::Readline,
             escape: false,
             hide_readline: false,
             offset,
