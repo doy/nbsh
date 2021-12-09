@@ -33,80 +33,96 @@ impl State {
     ) -> Option<crate::action::Action> {
         if self.escape {
             self.escape = false;
-            let mut fallthrough = false;
-            match key {
-                textmode::Key::Ctrl(b'e') => {
-                    fallthrough = true;
-                }
-                textmode::Key::Ctrl(b'l') => {
-                    return Some(crate::action::Action::ForceRedraw);
-                }
-                textmode::Key::Char('f') => {
-                    if let Focus::History(idx) = self.focus {
-                        self.history.toggle_fullscreen(idx).await;
-                        return Some(crate::action::Action::CheckUpdateScene);
-                    }
-                }
-                textmode::Key::Char('j') => {
-                    return Some(crate::action::Action::UpdateFocus(
-                        Focus::Scrolling(self.scroll_down(self.focus_idx())),
-                    ));
-                }
-                textmode::Key::Char('k') => {
-                    return Some(crate::action::Action::UpdateFocus(
-                        Focus::Scrolling(self.scroll_up(self.focus_idx())),
-                    ));
-                }
-                textmode::Key::Char('r') => {
-                    return Some(crate::action::Action::UpdateFocus(
-                        Focus::Readline,
-                    ));
-                }
-                _ => {}
-            }
-            if !fallthrough {
-                return None;
-            }
+            self.handle_key_escape(key).await
         } else if key == textmode::Key::Ctrl(b'e') {
             self.escape = true;
-            return None;
+            None
+        } else {
+            match self.focus {
+                Focus::Readline => self.readline.handle_key(key).await,
+                Focus::History(idx) => {
+                    self.history.handle_key(key, idx).await;
+                    None
+                }
+                Focus::Scrolling(idx) => {
+                    self.handle_key_scrolling(key, idx).await
+                }
+            }
         }
+    }
 
-        match self.focus {
-            Focus::Readline => self.readline.handle_key(key).await,
-            Focus::History(idx) => {
-                self.history.handle_key(key, idx).await;
+    async fn handle_key_escape(
+        &mut self,
+        key: textmode::Key,
+    ) -> Option<crate::action::Action> {
+        match key {
+            textmode::Key::Ctrl(b'e') => {
+                if let Focus::History(idx) = self.focus {
+                    self.history.handle_key(key, idx).await;
+                }
                 None
             }
-            Focus::Scrolling(idx) => match key {
-                textmode::Key::Ctrl(b'm') => {
-                    let focus = if let Some(idx) = idx {
-                        self.history.running(idx).await
-                    } else {
-                        true
-                    };
-                    if focus {
-                        Some(crate::action::Action::UpdateFocus(
-                            idx.map_or(Focus::Readline, |idx| {
-                                Focus::History(idx)
-                            }),
-                        ))
-                    } else {
-                        None
-                    }
+            textmode::Key::Ctrl(b'l') => {
+                Some(crate::action::Action::ForceRedraw)
+            }
+            textmode::Key::Char('f') => {
+                if let Focus::History(idx) = self.focus {
+                    self.history.toggle_fullscreen(idx).await;
+                    Some(crate::action::Action::CheckUpdateScene)
+                } else {
+                    None
                 }
-                textmode::Key::Char('j') => {
+            }
+            textmode::Key::Char('j') => {
+                Some(crate::action::Action::UpdateFocus(Focus::Scrolling(
+                    self.scroll_down(self.focus_idx()),
+                )))
+            }
+            textmode::Key::Char('k') => {
+                Some(crate::action::Action::UpdateFocus(Focus::Scrolling(
+                    self.scroll_up(self.focus_idx()),
+                )))
+            }
+            textmode::Key::Char('r') => {
+                Some(crate::action::Action::UpdateFocus(Focus::Readline))
+            }
+            _ => None,
+        }
+    }
+
+    async fn handle_key_scrolling(
+        &mut self,
+        key: textmode::Key,
+        idx: Option<usize>,
+    ) -> Option<crate::action::Action> {
+        match key {
+            textmode::Key::Ctrl(b'm') => {
+                let focus = if let Some(idx) = idx {
+                    self.history.running(idx).await
+                } else {
+                    true
+                };
+                if focus {
                     Some(crate::action::Action::UpdateFocus(
-                        Focus::Scrolling(self.scroll_down(self.focus_idx())),
+                        idx.map_or(Focus::Readline, |idx| {
+                            Focus::History(idx)
+                        }),
                     ))
+                } else {
+                    None
                 }
-                textmode::Key::Char('k') => {
-                    Some(crate::action::Action::UpdateFocus(
-                        Focus::Scrolling(self.scroll_up(self.focus_idx())),
-                    ))
-                }
-                _ => None,
-            },
+            }
+            textmode::Key::Char('j') => {
+                Some(crate::action::Action::UpdateFocus(Focus::Scrolling(
+                    self.scroll_down(self.focus_idx()),
+                )))
+            }
+            textmode::Key::Char('k') => {
+                Some(crate::action::Action::UpdateFocus(Focus::Scrolling(
+                    self.scroll_up(self.focus_idx()),
+                )))
+            }
+            _ => None,
         }
     }
 
