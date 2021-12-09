@@ -48,56 +48,13 @@ impl State {
                     }
                 }
                 textmode::Key::Char('j') => {
-                    let new_focus = match self.focus {
-                        Focus::History(idx) => {
-                            if idx >= self.history.entry_count() - 1 {
-                                Focus::Scrolling(None)
-                            } else {
-                                Focus::Scrolling(Some(idx + 1))
-                            }
-                        }
-                        Focus::Readline => Focus::Scrolling(None),
-                        Focus::Scrolling(idx) => {
-                            idx.map_or(Focus::Scrolling(None), |idx| {
-                                if idx >= self.history.entry_count() - 1 {
-                                    Focus::Scrolling(None)
-                                } else {
-                                    Focus::Scrolling(Some(idx + 1))
-                                }
-                            })
-                        }
-                    };
                     return Some(crate::action::Action::UpdateFocus(
-                        new_focus,
+                        Focus::Scrolling(self.scroll_down(self.focus_idx())),
                     ));
                 }
                 textmode::Key::Char('k') => {
-                    let new_focus = match self.focus {
-                        Focus::History(idx) => {
-                            if idx == 0 {
-                                Focus::Scrolling(Some(0))
-                            } else {
-                                Focus::Scrolling(Some(idx - 1))
-                            }
-                        }
-                        Focus::Readline => Focus::Scrolling(Some(
-                            self.history.entry_count() - 1,
-                        )),
-                        Focus::Scrolling(idx) => idx.map_or(
-                            Focus::Scrolling(Some(
-                                self.history.entry_count() - 1,
-                            )),
-                            |idx| {
-                                if idx == 0 {
-                                    Focus::Scrolling(Some(0))
-                                } else {
-                                    Focus::Scrolling(Some(idx - 1))
-                                }
-                            },
-                        ),
-                    };
                     return Some(crate::action::Action::UpdateFocus(
-                        new_focus,
+                        Focus::Scrolling(self.scroll_up(self.focus_idx())),
                     ));
                 }
                 textmode::Key::Char('r') => {
@@ -139,53 +96,14 @@ impl State {
                     }
                 }
                 textmode::Key::Char('j') => {
-                    let new_focus = match self.focus {
-                        Focus::History(idx) => {
-                            if idx >= self.history.entry_count() - 1 {
-                                Focus::Scrolling(None)
-                            } else {
-                                Focus::Scrolling(Some(idx + 1))
-                            }
-                        }
-                        Focus::Readline => Focus::Scrolling(None),
-                        Focus::Scrolling(idx) => {
-                            idx.map_or(Focus::Scrolling(None), |idx| {
-                                if idx >= self.history.entry_count() - 1 {
-                                    Focus::Scrolling(None)
-                                } else {
-                                    Focus::Scrolling(Some(idx + 1))
-                                }
-                            })
-                        }
-                    };
-                    Some(crate::action::Action::UpdateFocus(new_focus))
+                    Some(crate::action::Action::UpdateFocus(
+                        Focus::Scrolling(self.scroll_down(self.focus_idx())),
+                    ))
                 }
                 textmode::Key::Char('k') => {
-                    let new_focus = match self.focus {
-                        Focus::History(idx) => {
-                            if idx == 0 {
-                                Focus::Scrolling(Some(0))
-                            } else {
-                                Focus::Scrolling(Some(idx - 1))
-                            }
-                        }
-                        Focus::Readline => Focus::Scrolling(Some(
-                            self.history.entry_count() - 1,
-                        )),
-                        Focus::Scrolling(idx) => idx.map_or(
-                            Focus::Scrolling(Some(
-                                self.history.entry_count() - 1,
-                            )),
-                            |idx| {
-                                if idx == 0 {
-                                    Focus::Scrolling(Some(0))
-                                } else {
-                                    Focus::Scrolling(Some(idx - 1))
-                                }
-                            },
-                        ),
-                    };
-                    Some(crate::action::Action::UpdateFocus(new_focus))
+                    Some(crate::action::Action::UpdateFocus(
+                        Focus::Scrolling(self.scroll_up(self.focus_idx())),
+                    ))
                 }
                 _ => None,
             },
@@ -318,6 +236,31 @@ impl State {
                 }
             }
         }
+    }
+
+    fn focus_idx(&self) -> Option<usize> {
+        match self.focus {
+            Focus::History(idx) => Some(idx),
+            Focus::Readline => None,
+            Focus::Scrolling(idx) => idx,
+        }
+    }
+
+    fn scroll_up(&self, idx: Option<usize>) -> Option<usize> {
+        idx.map_or_else(
+            || Some(self.history.entry_count() - 1),
+            |idx| Some(idx.saturating_sub(1)),
+        )
+    }
+
+    fn scroll_down(&self, idx: Option<usize>) -> Option<usize> {
+        idx.and_then(|idx| {
+            if idx >= self.history.entry_count() - 1 {
+                None
+            } else {
+                Some(idx + 1)
+            }
+        })
     }
 }
 
