@@ -3,7 +3,6 @@ use unicode_width::{UnicodeWidthChar as _, UnicodeWidthStr as _};
 
 pub struct Readline {
     size: (u16, u16),
-    prompt: String,
     input_line: String,
     pos: usize,
 }
@@ -12,12 +11,6 @@ impl Readline {
     pub fn new() -> Self {
         Self {
             size: (24, 80),
-            prompt: if users::get_current_uid() == 0 {
-                "# "
-            } else {
-                "$ "
-            }
-            .into(),
             input_line: "".into(),
             pos: 0,
         }
@@ -63,6 +56,7 @@ impl Readline {
         let user = crate::env::user()?;
         let hostname = crate::env::hostname()?;
         let time = crate::env::time(offset)?;
+        let prompt_char = crate::env::prompt_char()?;
 
         let id = format!("{}@{}", user, hostname);
         let idlen: u16 = id.len().try_into().unwrap();
@@ -87,13 +81,14 @@ impl Readline {
         } else {
             out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
         }
-        out.write_str(&self.prompt);
+        out.write_str(&prompt_char);
+        out.write_str(" ");
         out.reset_attributes();
         out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
         out.write(b"\x1b[K");
         out.write_str(&self.input_line);
         out.reset_attributes();
-        out.move_to(self.size.0 - 1, self.prompt_width() + self.pos_width());
+        out.move_to(self.size.0 - 1, 2 + self.pos_width());
         if focus {
             out.hide_cursor(false);
         }
@@ -164,10 +159,6 @@ impl Readline {
                 break;
             }
         }
-    }
-
-    fn prompt_width(&self) -> u16 {
-        self.prompt.width().try_into().unwrap()
     }
 
     fn pos_width(&self) -> u16 {

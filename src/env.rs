@@ -15,6 +15,14 @@ pub fn user() -> anyhow::Result<String> {
         .into_owned())
 }
 
+pub fn prompt_char() -> anyhow::Result<String> {
+    if users::get_current_uid() == 0 {
+        Ok("#".into())
+    } else {
+        Ok("$".into())
+    }
+}
+
 pub fn hostname() -> anyhow::Result<String> {
     let mut hostname = hostname::get()?.to_string_lossy().into_owned();
     if let Some(idx) = hostname.find('.') {
