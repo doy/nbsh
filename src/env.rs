@@ -15,6 +15,7 @@ pub fn user() -> anyhow::Result<String> {
         .into_owned())
 }
 
+#[allow(clippy::unnecessary_wraps)]
 pub fn prompt_char() -> anyhow::Result<String> {
     if users::get_current_uid() == 0 {
         Ok("#".into())
