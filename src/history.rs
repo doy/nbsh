@@ -101,7 +101,7 @@ impl History {
             ));
             action_w
                 .send(crate::action::Action::UpdateFocus(
-                    crate::state::Focus::Readline,
+                    crate::action::Focus::Readline,
                 ))
                 .await
                 .unwrap();
@@ -419,7 +419,7 @@ fn run_process(
                         );
                         action_w
                             .send(crate::action::Action::UpdateFocus(
-                                crate::state::Focus::Readline,
+                                crate::action::Focus::Readline,
                             ))
                             .await
                             .unwrap();

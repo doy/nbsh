@@ -3,8 +3,8 @@ use textmode::Textmode as _;
 pub struct State {
     readline: crate::readline::Readline,
     history: crate::history::History,
-    focus: Focus,
-    scene: Scene,
+    focus: crate::action::Focus,
+    scene: crate::action::Scene,
     escape: bool,
     hide_readline: bool,
     offset: time::UtcOffset,
@@ -15,8 +15,8 @@ impl State {
         Self {
             readline: crate::readline::Readline::new(),
             history: crate::history::History::new(),
-            focus: Focus::Readline,
-            scene: Scene::Readline,
+            focus: crate::action::Focus::Readline,
+            scene: crate::action::Scene::Readline,
             escape: false,
             hide_readline: false,
             offset,
@@ -35,12 +35,14 @@ impl State {
             None
         } else {
             match self.focus {
-                Focus::Readline => self.readline.handle_key(key).await,
-                Focus::History(idx) => {
+                crate::action::Focus::Readline => {
+                    self.readline.handle_key(key).await
+                }
+                crate::action::Focus::History(idx) => {
                     self.history.handle_key(key, idx).await;
                     None
                 }
-                Focus::Scrolling(idx) => {
+                crate::action::Focus::Scrolling(idx) => {
                     self.handle_key_scrolling(key, idx).await
                 }
             }
@@ -53,7 +55,7 @@ impl State {
     ) -> Option<crate::action::Action> {
         match key {
             textmode::Key::Ctrl(b'e') => {
-                if let Focus::History(idx) = self.focus {
+                if let crate::action::Focus::History(idx) = self.focus {
                     self.history.handle_key(key, idx).await;
                 }
                 None
@@ -62,7 +64,7 @@ impl State {
                 Some(crate::action::Action::ForceRedraw)
             }
             textmode::Key::Char('f') => {
-                if let Focus::History(idx) = self.focus {
+                if let crate::action::Focus::History(idx) = self.focus {
                     self.history.toggle_fullscreen(idx).await;
                     Some(crate::action::Action::CheckUpdateScene)
                 } else {
@@ -70,17 +72,23 @@ impl State {
                 }
             }
             textmode::Key::Char('j') | textmode::Key::Down => {
-                Some(crate::action::Action::UpdateFocus(Focus::Scrolling(
-                    self.scroll_down(self.focus_idx()),
-                )))
+                Some(crate::action::Action::UpdateFocus(
+                    crate::action::Focus::Scrolling(
+                        self.scroll_down(self.focus_idx()),
+                    ),
+                ))
             }
             textmode::Key::Char('k') | textmode::Key::Up => {
-                Some(crate::action::Action::UpdateFocus(Focus::Scrolling(
-                    self.scroll_up(self.focus_idx()),
-                )))
+                Some(crate::action::Action::UpdateFocus(
+                    crate::action::Focus::Scrolling(
+                        self.scroll_up(self.focus_idx()),
+                    ),
+                ))
             }
             textmode::Key::Char('r') => {
-                Some(crate::action::Action::UpdateFocus(Focus::Readline))
+                Some(crate::action::Action::UpdateFocus(
+                    crate::action::Focus::Readline,
+                ))
             }
             _ => None,
         }
@@ -100,8 +108,8 @@ impl State {
                 };
                 if focus {
                     Some(crate::action::Action::UpdateFocus(
-                        idx.map_or(Focus::Readline, |idx| {
-                            Focus::History(idx)
+                        idx.map_or(crate::action::Focus::Readline, |idx| {
+                            crate::action::Focus::History(idx)
                         }),
                     ))
                 } else {
@@ -109,14 +117,18 @@ impl State {
                 }
             }
             textmode::Key::Char('j') | textmode::Key::Down => {
-                Some(crate::action::Action::UpdateFocus(Focus::Scrolling(
-                    self.scroll_down(self.focus_idx()),
-                )))
+                Some(crate::action::Action::UpdateFocus(
+                    crate::action::Focus::Scrolling(
+                        self.scroll_down(self.focus_idx()),
+                    ),
+                ))
             }
             textmode::Key::Char('k') | textmode::Key::Up => {
-                Some(crate::action::Action::UpdateFocus(Focus::Scrolling(
-                    self.scroll_up(self.focus_idx()),
-                )))
+                Some(crate::action::Action::UpdateFocus(
+                    crate::action::Focus::Scrolling(
+                        self.scroll_up(self.focus_idx()),
+                    ),
+                ))
             }
             _ => None,
         }
@@ -129,8 +141,8 @@ impl State {
     ) -> anyhow::Result<()> {
         out.clear();
         match self.scene {
-            Scene::Readline => match self.focus {
-                Focus::Readline => {
+            crate::action::Scene::Readline => match self.focus {
+                crate::action::Focus::Readline => {
                     self.history
                         .render(
                             out,
@@ -142,7 +154,7 @@ impl State {
                         .await?;
                     self.readline.render(out, true, self.offset).await?;
                 }
-                Focus::History(idx) => {
+                crate::action::Focus::History(idx) => {
                     if self.hide_readline {
                         self.history
                             .render(out, 0, Some(idx), false, self.offset)
@@ -162,7 +174,7 @@ impl State {
                         out.move_to(pos.0, pos.1);
                     }
                 }
-                Focus::Scrolling(idx) => {
+                crate::action::Focus::Scrolling(idx) => {
                     self.history
                         .render(
                             out,
@@ -178,8 +190,8 @@ impl State {
                     out.hide_cursor(true);
                 }
             },
-            Scene::Fullscreen => {
-                if let Focus::History(idx) = self.focus {
+            crate::action::Scene::Fullscreen => {
+                if let crate::action::Focus::History(idx) = self.focus {
                     self.history.render_fullscreen(out, idx).await;
                 } else {
                     unreachable!();
@@ -209,14 +221,15 @@ impl State {
             crate::action::Action::Run(ref cmd) => {
                 let idx =
                     self.history.run(cmd, action_w.clone()).await.unwrap();
-                self.focus = Focus::History(idx);
+                self.focus = crate::action::Focus::History(idx);
                 self.hide_readline = true;
             }
             crate::action::Action::UpdateFocus(mut new_focus) => {
                 match new_focus {
-                    Focus::Readline | Focus::Scrolling(None) => {}
-                    Focus::History(ref mut idx)
-                    | Focus::Scrolling(Some(ref mut idx)) => {
+                    crate::action::Focus::Readline
+                    | crate::action::Focus::Scrolling(None) => {}
+                    crate::action::Focus::History(ref mut idx)
+                    | crate::action::Focus::Scrolling(Some(ref mut idx)) => {
                         if *idx >= self.history.entry_count() {
                             *idx = self.history.entry_count() - 1;
                         }
@@ -246,14 +259,20 @@ impl State {
         self.render(out, hard_refresh).await.unwrap();
     }
 
-    async fn default_scene(&self, focus: Focus) -> Scene {
+    async fn default_scene(
+        &self,
+        focus: crate::action::Focus,
+    ) -> crate::action::Scene {
         match focus {
-            Focus::Readline | Focus::Scrolling(_) => Scene::Readline,
-            Focus::History(idx) => {
+            crate::action::Focus::Readline
+            | crate::action::Focus::Scrolling(_) => {
+                crate::action::Scene::Readline
+            }
+            crate::action::Focus::History(idx) => {
                 if self.history.should_fullscreen(idx).await {
-                    Scene::Fullscreen
+                    crate::action::Scene::Fullscreen
                 } else {
-                    Scene::Readline
+                    crate::action::Scene::Readline
                 }
             }
         }
@@ -261,9 +280,9 @@ impl State {
 
     fn focus_idx(&self) -> Option<usize> {
         match self.focus {
-            Focus::History(idx) => Some(idx),
-            Focus::Readline => None,
-            Focus::Scrolling(idx) => idx,
+            crate::action::Focus::History(idx) => Some(idx),
+            crate::action::Focus::Readline => None,
+            crate::action::Focus::Scrolling(idx) => idx,
         }
     }
 
@@ -283,17 +302,4 @@ impl State {
             }
         })
     }
-}
-
-#[derive(Copy, Clone, Debug)]
-pub enum Focus {
-    Readline,
-    History(usize),
-    Scrolling(Option<usize>),
-}
-
-#[derive(Copy, Clone, Debug)]
-pub enum Scene {
-    Readline,
-    Fullscreen,
 }

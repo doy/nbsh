@@ -3,11 +3,24 @@ pub enum Action {
     Render,
     ForceRedraw,
     Run(String),
-    UpdateFocus(crate::state::Focus),
-    UpdateScene(crate::state::Scene),
+    UpdateFocus(Focus),
+    UpdateScene(Scene),
     CheckUpdateScene,
     Resize((u16, u16)),
     Quit,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum Focus {
+    Readline,
+    History(usize),
+    Scrolling(Option<usize>),
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum Scene {
+    Readline,
+    Fullscreen,
 }
 
 pub struct Reader {
@@ -57,8 +70,8 @@ struct Pending {
     render: Option<()>,
     force_redraw: Option<()>,
     run: std::collections::VecDeque<String>,
-    focus: Option<crate::state::Focus>,
-    scene: Option<crate::state::Scene>,
+    focus: Option<Focus>,
+    scene: Option<Scene>,
     check_scene: Option<()>,
     size: Option<(u16, u16)>,
     done: bool,

@@ -43,7 +43,7 @@ impl Readline {
             textmode::Key::Right => self.cursor_right(),
             textmode::Key::Up => {
                 return Some(crate::action::Action::UpdateFocus(
-                    crate::state::Focus::Scrolling(Some(usize::MAX)),
+                    crate::action::Focus::Scrolling(Some(usize::MAX)),
                 ))
             }
             _ => {}
