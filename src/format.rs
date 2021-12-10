@@ -1,15 +1,15 @@
 use std::os::unix::process::ExitStatusExt as _;
 
 pub fn exit_status(status: std::process::ExitStatus) -> String {
-    if let Some(sig) = status.signal() {
-        if let Some(name) = signal_hook::low_level::signal_name(sig) {
-            format!("{:4} ", &name[3..])
-        } else {
-            format!("SIG{} ", sig)
-        }
-    } else {
-        format!("{:03}  ", status.code().unwrap())
-    }
+    status.signal().map_or_else(
+        || format!("{:03}  ", status.code().unwrap()),
+        |sig| {
+            signal_hook::low_level::signal_name(sig).map_or_else(
+                || format!("SIG{} ", sig),
+                |name| format!("{:4} ", &name[3..]),
+            )
+        },
+    )
 }
 
 pub fn time(time: time::OffsetDateTime) -> String {

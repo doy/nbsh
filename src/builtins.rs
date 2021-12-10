@@ -4,9 +4,12 @@ pub fn is(exe: &str) -> bool {
 
 pub fn run(exe: &str, args: &[String]) -> u8 {
     match exe {
-        "cd" => {
-            impls::cd(args.iter().map(|s| s.as_ref()).next().unwrap_or(""))
-        }
+        "cd" => impls::cd(
+            args.iter()
+                .map(std::convert::AsRef::as_ref)
+                .next()
+                .unwrap_or(""),
+        ),
         _ => unreachable!(),
     }
 }
