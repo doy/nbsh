@@ -41,6 +41,11 @@ impl Readline {
             textmode::Key::Backspace => self.backspace(),
             textmode::Key::Left => self.cursor_left(),
             textmode::Key::Right => self.cursor_right(),
+            textmode::Key::Up => {
+                return Some(crate::action::Action::UpdateFocus(
+                    crate::state::Focus::Scrolling(Some(usize::MAX)),
+                ))
+            }
             _ => {}
         }
         Some(crate::action::Action::Render)

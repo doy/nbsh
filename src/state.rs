@@ -69,12 +69,12 @@ impl State {
                     None
                 }
             }
-            textmode::Key::Char('j') => {
+            textmode::Key::Char('j') | textmode::Key::Down => {
                 Some(crate::action::Action::UpdateFocus(Focus::Scrolling(
                     self.scroll_down(self.focus_idx()),
                 )))
             }
-            textmode::Key::Char('k') => {
+            textmode::Key::Char('k') | textmode::Key::Up => {
                 Some(crate::action::Action::UpdateFocus(Focus::Scrolling(
                     self.scroll_up(self.focus_idx()),
                 )))
@@ -108,12 +108,12 @@ impl State {
                     None
                 }
             }
-            textmode::Key::Char('j') => {
+            textmode::Key::Char('j') | textmode::Key::Down => {
                 Some(crate::action::Action::UpdateFocus(Focus::Scrolling(
                     self.scroll_down(self.focus_idx()),
                 )))
             }
-            textmode::Key::Char('k') => {
+            textmode::Key::Char('k') | textmode::Key::Up => {
                 Some(crate::action::Action::UpdateFocus(Focus::Scrolling(
                     self.scroll_up(self.focus_idx()),
                 )))
@@ -212,7 +212,16 @@ impl State {
                 self.focus = Focus::History(idx);
                 self.hide_readline = true;
             }
-            crate::action::Action::UpdateFocus(new_focus) => {
+            crate::action::Action::UpdateFocus(mut new_focus) => {
+                match new_focus {
+                    Focus::Readline | Focus::Scrolling(None) => {}
+                    Focus::History(ref mut idx)
+                    | Focus::Scrolling(Some(ref mut idx)) => {
+                        if *idx >= self.history.entry_count() {
+                            *idx = self.history.entry_count() - 1;
+                        }
+                    }
+                }
                 self.focus = new_focus;
                 self.hide_readline = false;
                 self.scene = self.default_scene(new_focus).await;
