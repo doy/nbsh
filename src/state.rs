@@ -119,9 +119,6 @@ impl State {
                         }
                     }
                     self.set_focus(focus, Some(&mut entry)).await;
-                    self.scene = self
-                        .default_scene(self.focus, Some(&mut entry))
-                        .await;
                 }
             }
             textmode::Key::Char('j') | textmode::Key::Down => {
