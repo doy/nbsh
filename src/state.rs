@@ -54,9 +54,11 @@ impl State {
         key: textmode::Key,
     ) -> Option<crate::action::Action> {
         match key {
-            textmode::Key::Ctrl(b'e') => {
+            textmode::Key::Char('e') => {
                 if let crate::action::Focus::History(idx) = self.focus {
-                    self.history.handle_key(key, idx).await;
+                    self.history
+                        .handle_key(textmode::Key::Ctrl(b'e'), idx)
+                        .await;
                 }
                 None
             }
