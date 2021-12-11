@@ -45,7 +45,15 @@ impl History {
                 (self.size.0 as usize - used_lines).try_into().unwrap(),
                 0,
             );
-            entry.render(out, self.size.1, focused, scrolling, offset);
+            entry.render(
+                out,
+                idx,
+                self.entry_count(),
+                self.size.1,
+                focused,
+                scrolling,
+                offset,
+            );
             if focused && !scrolling {
                 cursor = Some((
                     out.screen().cursor_position(),
@@ -273,6 +281,8 @@ impl Entry {
     fn render(
         &mut self,
         out: &mut textmode::Output,
+        idx: usize,
+        entry_count: usize,
         width: u16,
         focused: bool,
         scrolling: bool,
@@ -293,6 +303,12 @@ impl Entry {
         }
         out.reset_attributes();
         self.set_bgcolor(out, focused);
+        let entry_count_width = format!("{}", entry_count).len();
+        let idx_str = format!("{}", idx + 1);
+        out.write_str(&" ".repeat(entry_count_width - idx_str.len()));
+        out.write_str("[");
+        out.write_str(&idx_str);
+        out.write_str("]");
         out.write_str("$ ");
         if self.running() {
             out.set_bgcolor(textmode::Color::Rgb(16, 64, 16));

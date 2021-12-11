@@ -165,7 +165,14 @@ impl State {
                             self.offset,
                         )
                         .await?;
-                    self.readline.render(out, true, self.offset).await?;
+                    self.readline
+                        .render(
+                            out,
+                            self.history.entry_count(),
+                            true,
+                            self.offset,
+                        )
+                        .await?;
                 }
                 crate::action::Focus::History(idx) => {
                     if self.hide_readline {
@@ -183,7 +190,14 @@ impl State {
                             )
                             .await?;
                         let pos = out.screen().cursor_position();
-                        self.readline.render(out, false, self.offset).await?;
+                        self.readline
+                            .render(
+                                out,
+                                self.history.entry_count(),
+                                false,
+                                self.offset,
+                            )
+                            .await?;
                         out.move_to(pos.0, pos.1);
                     }
                 }
@@ -198,7 +212,12 @@ impl State {
                         )
                         .await?;
                     self.readline
-                        .render(out, idx.is_none(), self.offset)
+                        .render(
+                            out,
+                            self.history.entry_count(),
+                            idx.is_none(),
+                            self.offset,
+                        )
                         .await?;
                     out.hide_cursor(true);
                 }
