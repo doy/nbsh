@@ -71,7 +71,7 @@ impl State {
             textmode::Key::Ctrl(b'm') => {
                 let idx = self.focus_idx();
                 let focus = if let Some(idx) = idx {
-                    self.history.running(idx).await
+                    self.history.entry(idx).await.running()
                 } else {
                     true
                 };
@@ -87,7 +87,7 @@ impl State {
             textmode::Key::Char(' ') => {
                 if let Some(idx) = self.focus_idx() {
                     self.readline
-                        .set_input(&self.history.history_cmd(idx).await);
+                        .set_input(&self.history.entry(idx).await.cmd());
                     self.set_focus(crate::action::Focus::Readline).await;
                 }
             }
@@ -100,14 +100,13 @@ impl State {
             }
             textmode::Key::Char('f') => {
                 if let Some(idx) = self.focus_idx() {
+                    let mut entry = self.history.entry(idx).await;
                     let mut focus = crate::action::Focus::History(idx);
                     if let crate::action::Focus::Scrolling(_) = self.focus {
-                        self.history.set_fullscreen(idx, true).await;
+                        entry.set_fullscreen(true);
                     } else {
-                        self.history.toggle_fullscreen(idx).await;
-                        if !self.history.should_fullscreen(idx).await
-                            && !self.history.running(idx).await
-                        {
+                        entry.toggle_fullscreen();
+                        if !entry.should_fullscreen() && !entry.running() {
                             focus =
                                 crate::action::Focus::Scrolling(Some(idx));
                         }
@@ -259,7 +258,7 @@ impl State {
                 crate::action::Scene::Readline
             }
             crate::action::Focus::History(idx) => {
-                if self.history.should_fullscreen(idx).await {
+                if self.history.entry(idx).await.should_fullscreen() {
                     crate::action::Scene::Fullscreen
                 } else {
                     crate::action::Scene::Readline

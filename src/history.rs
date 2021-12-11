@@ -126,27 +126,11 @@ impl History {
         Ok(self.entries.len() - 1)
     }
 
-    pub async fn toggle_fullscreen(&mut self, idx: usize) {
-        self.entries[idx].lock_arc().await.toggle_fullscreen();
-    }
-
-    pub async fn set_fullscreen(&mut self, idx: usize, fullscreen: bool) {
-        self.entries[idx]
-            .lock_arc()
-            .await
-            .set_fullscreen(fullscreen);
-    }
-
-    pub async fn should_fullscreen(&self, idx: usize) -> bool {
-        self.entries[idx].lock_arc().await.should_fullscreen()
-    }
-
-    pub async fn running(&self, idx: usize) -> bool {
-        self.entries[idx].lock_arc().await.running()
-    }
-
-    pub async fn history_cmd(&self, idx: usize) -> String {
-        self.entries[idx].lock_arc().await.cmd.clone()
+    pub async fn entry(
+        &self,
+        idx: usize,
+    ) -> async_std::sync::MutexGuardArc<HistoryEntry> {
+        self.entries[idx].lock_arc().await
     }
 
     pub fn entry_count(&self) -> usize {
@@ -154,7 +138,7 @@ impl History {
     }
 }
 
-struct HistoryEntry {
+pub struct HistoryEntry {
     cmd: String,
     vt: vt100::Parser,
     audible_bell_state: usize,
@@ -320,7 +304,11 @@ impl HistoryEntry {
         }
     }
 
-    fn toggle_fullscreen(&mut self) {
+    pub fn cmd(&self) -> String {
+        self.cmd.clone()
+    }
+
+    pub fn toggle_fullscreen(&mut self) {
         if let Some(fullscreen) = self.fullscreen {
             self.fullscreen = Some(!fullscreen);
         } else {
@@ -328,19 +316,19 @@ impl HistoryEntry {
         }
     }
 
-    fn set_fullscreen(&mut self, fullscreen: bool) {
+    pub fn set_fullscreen(&mut self, fullscreen: bool) {
         self.fullscreen = Some(fullscreen);
     }
 
-    fn running(&self) -> bool {
+    pub fn running(&self) -> bool {
         self.exit_info.is_none()
     }
 
-    fn binary(&self) -> bool {
+    pub fn binary(&self) -> bool {
         self.vt.screen().errors() > 5
     }
 
-    fn lines(&self, width: u16, focused: bool) -> usize {
+    pub fn lines(&self, width: u16, focused: bool) -> usize {
         if self.binary() {
             return 1;
         }
@@ -361,7 +349,7 @@ impl HistoryEntry {
         last_row
     }
 
-    fn should_fullscreen(&self) -> bool {
+    pub fn should_fullscreen(&self) -> bool {
         self.fullscreen
             .unwrap_or_else(|| self.vt.screen().alternate_screen())
     }
