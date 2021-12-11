@@ -332,7 +332,7 @@ impl Entry {
             out.hide_cursor(true);
             out.reset_attributes();
         } else {
-            let last_row = self.lines(width, focused && !scrolling);
+            let last_row = self.output_lines(width, focused && !scrolling);
             if last_row > 5 {
                 out.write(b"\r\n");
                 out.set_fgcolor(textmode::color::BLUE);
