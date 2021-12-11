@@ -44,8 +44,8 @@ impl State {
                     self.history.handle_key(key, idx).await;
                     None
                 }
-                crate::action::Focus::Scrolling(idx) => {
-                    self.handle_key_scrolling(key, idx).await
+                crate::action::Focus::Scrolling(_) => {
+                    self.handle_key_escape(key).await
                 }
             }
         }
@@ -56,15 +56,8 @@ impl State {
         key: textmode::Key,
     ) -> Option<crate::action::Action> {
         match key {
-            textmode::Key::Ctrl(b'l') => {
-                return Some(crate::action::Action::ForceRedraw);
-            }
-            textmode::Key::Char('e') => {
-                if let crate::action::Focus::History(idx) = self.focus {
-                    self.history
-                        .handle_key(textmode::Key::Ctrl(b'e'), idx)
-                        .await;
-                }
+            textmode::Key::Ctrl(b'd') => {
+                return Some(crate::action::Action::Quit);
             }
             textmode::Key::Ctrl(b'e') => {
                 self.set_focus(crate::action::Focus::Scrolling(
@@ -72,38 +65,11 @@ impl State {
                 ))
                 .await;
             }
-            textmode::Key::Char('r') => {
-                self.set_focus(crate::action::Focus::Readline).await;
-            }
-            textmode::Key::Char('f') => {
-                if let Some(idx) = self.focus_idx() {
-                    if let crate::action::Focus::Scrolling(_) = self.focus {
-                        self.history.set_fullscreen(idx, true).await;
-                    } else {
-                        self.history.toggle_fullscreen(idx).await;
-                    }
-                    self.set_focus(crate::action::Focus::History(idx)).await;
-                    self.scene = self.default_scene(self.focus).await;
-                }
-            }
-            _ => {}
-        }
-        Some(crate::action::Action::Render)
-    }
-
-    async fn handle_key_scrolling(
-        &mut self,
-        key: textmode::Key,
-        idx: Option<usize>,
-    ) -> Option<crate::action::Action> {
-        match key {
-            textmode::Key::Ctrl(b'd') => {
-                return Some(crate::action::Action::Quit);
-            }
             textmode::Key::Ctrl(b'l') => {
                 return Some(crate::action::Action::ForceRedraw);
             }
             textmode::Key::Ctrl(b'm') => {
+                let idx = self.focus_idx();
                 let focus = if let Some(idx) = idx {
                     self.history.running(idx).await
                 } else {
@@ -118,10 +84,35 @@ impl State {
                     .await;
                 }
             }
+            textmode::Key::Char(' ') => {
+                if let Some(idx) = self.focus_idx() {
+                    self.readline
+                        .set_input(&self.history.history_cmd(idx).await);
+                    self.set_focus(crate::action::Focus::Readline).await;
+                }
+            }
+            textmode::Key::Char('e') => {
+                if let crate::action::Focus::History(idx) = self.focus {
+                    self.history
+                        .handle_key(textmode::Key::Ctrl(b'e'), idx)
+                        .await;
+                }
+            }
             textmode::Key::Char('f') => {
-                if let Some(idx) = idx {
-                    self.set_focus(crate::action::Focus::History(idx)).await;
-                    self.history.set_fullscreen(idx, true).await;
+                if let Some(idx) = self.focus_idx() {
+                    let mut focus = crate::action::Focus::History(idx);
+                    if let crate::action::Focus::Scrolling(_) = self.focus {
+                        self.history.set_fullscreen(idx, true).await;
+                    } else {
+                        self.history.toggle_fullscreen(idx).await;
+                        if !self.history.should_fullscreen(idx).await
+                            && !self.history.running(idx).await
+                        {
+                            focus =
+                                crate::action::Focus::Scrolling(Some(idx));
+                        }
+                    }
+                    self.set_focus(focus).await;
                     self.scene = self.default_scene(self.focus).await;
                 }
             }
@@ -137,12 +128,8 @@ impl State {
                 ))
                 .await;
             }
-            textmode::Key::Char(' ') => {
-                if let Some(idx) = self.focus_idx() {
-                    self.readline
-                        .set_input(&self.history.history_cmd(idx).await);
-                    self.set_focus(crate::action::Focus::Readline).await;
-                }
+            textmode::Key::Char('r') => {
+                self.set_focus(crate::action::Focus::Readline).await;
             }
             _ => {}
         }
