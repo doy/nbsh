@@ -227,7 +227,22 @@ impl State {
     ) {
         let mut hard_refresh = false;
         match action {
-            crate::action::Action::Render => {}
+            crate::action::Action::Render => {
+                // for instance, if we are rerendering because of command
+                // output, that output could increase the number of lines of
+                // output of a command, pushing the currently focused entry
+                // off the top of the screen
+                self.history
+                    .make_focus_visible(
+                        self.readline.lines(),
+                        self.focus_idx(),
+                        matches!(
+                            self.focus,
+                            crate::action::Focus::Scrolling(_)
+                        ),
+                    )
+                    .await;
+            }
             crate::action::Action::ForceRedraw => {
                 hard_refresh = true;
             }
