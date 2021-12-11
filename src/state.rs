@@ -71,7 +71,7 @@ impl State {
             }
             textmode::Key::Ctrl(b'm') => {
                 let idx = self.focus_idx();
-                let (focus, mut entry) = if let Some(idx) = idx {
+                let (focus, entry) = if let Some(idx) = idx {
                     let entry = self.history.entry(idx).await;
                     (entry.running(), Some(entry))
                 } else {
@@ -82,18 +82,18 @@ impl State {
                         idx.map_or(crate::action::Focus::Readline, |idx| {
                             crate::action::Focus::History(idx)
                         }),
-                        entry.as_mut(),
+                        entry,
                     )
                     .await;
                 }
             }
             textmode::Key::Char(' ') => {
                 if let Some(idx) = self.focus_idx() {
-                    let mut entry = self.history.entry(idx).await;
+                    let entry = self.history.entry(idx).await;
                     self.readline.set_input(&entry.cmd());
                     self.set_focus(
                         crate::action::Focus::Readline,
-                        Some(&mut entry),
+                        Some(entry),
                     )
                     .await;
                 }
@@ -118,7 +118,7 @@ impl State {
                                 crate::action::Focus::Scrolling(Some(idx));
                         }
                     }
-                    self.set_focus(focus, Some(&mut entry)).await;
+                    self.set_focus(focus, Some(entry)).await;
                 }
             }
             textmode::Key::Char('j') | textmode::Key::Down => {
@@ -264,9 +264,7 @@ impl State {
     async fn default_scene(
         &self,
         focus: crate::action::Focus,
-        entry: Option<
-            &mut async_std::sync::MutexGuardArc<crate::history::Entry>,
-        >,
+        entry: Option<async_std::sync::MutexGuardArc<crate::history::Entry>>,
     ) -> crate::action::Scene {
         match focus {
             crate::action::Focus::Readline
@@ -291,13 +289,15 @@ impl State {
     async fn set_focus(
         &mut self,
         new_focus: crate::action::Focus,
-        entry: Option<
-            &mut async_std::sync::MutexGuardArc<crate::history::Entry>,
-        >,
+        entry: Option<async_std::sync::MutexGuardArc<crate::history::Entry>>,
     ) {
         self.focus = new_focus;
         self.hide_readline = false;
         self.scene = self.default_scene(new_focus, entry).await;
+        // passing entry into default_scene above consumes it, which means
+        // that the mutex lock will be dropped before we call into
+        // make_focus_visible, which is important because otherwise we might
+        // get a deadlock depending on what is visible
         self.history
             .make_focus_visible(
                 self.readline.lines(),
