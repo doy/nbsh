@@ -130,6 +130,13 @@ impl History {
         self.entries[idx].lock_arc().await.toggle_fullscreen();
     }
 
+    pub async fn set_fullscreen(&mut self, idx: usize, fullscreen: bool) {
+        self.entries[idx]
+            .lock_arc()
+            .await
+            .set_fullscreen(fullscreen);
+    }
+
     pub async fn should_fullscreen(&self, idx: usize) -> bool {
         self.entries[idx].lock_arc().await.should_fullscreen()
     }
@@ -319,6 +326,10 @@ impl HistoryEntry {
         } else {
             self.fullscreen = Some(!self.vt.screen().alternate_screen());
         }
+    }
+
+    fn set_fullscreen(&mut self, fullscreen: bool) {
+        self.fullscreen = Some(fullscreen);
     }
 
     fn running(&self) -> bool {
