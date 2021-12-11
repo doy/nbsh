@@ -289,6 +289,15 @@ impl Entry {
         offset: time::UtcOffset,
     ) {
         self.set_bgcolor(out, focused);
+        out.set_fgcolor(textmode::color::YELLOW);
+        let entry_count_width = format!("{}", entry_count + 1).len();
+        let idx_str = format!("{}", idx + 1);
+        out.write_str(&" ".repeat(entry_count_width - idx_str.len()));
+        out.write_str(&idx_str);
+        out.write_str(" ");
+        out.reset_attributes();
+
+        self.set_bgcolor(out, focused);
         if let Some(info) = self.exit_info {
             if info.status.signal().is_some() {
                 out.set_fgcolor(textmode::color::MAGENTA);
@@ -302,25 +311,21 @@ impl Entry {
             out.write_str("     ");
         }
         out.reset_attributes();
+
         self.set_bgcolor(out, focused);
-        let entry_count_width = format!("{}", entry_count).len();
-        let idx_str = format!("{}", idx + 1);
-        out.write_str(&" ".repeat(entry_count_width - idx_str.len()));
-        out.write_str("[");
-        out.write_str(&idx_str);
-        out.write_str("]");
         out.write_str("$ ");
         if self.running() {
             out.set_bgcolor(textmode::Color::Rgb(16, 64, 16));
         }
         out.write_str(&self.cmd);
         out.reset_attributes();
+
         self.set_bgcolor(out, focused);
         let time = if let Some(info) = self.exit_info {
             format!(
-                "[{} ({:6})]",
+                "({}) [{}]",
+                crate::format::duration(info.instant - self.start_instant),
                 crate::format::time(self.start_time.to_offset(offset)),
-                crate::format::duration(info.instant - self.start_instant)
             )
         } else {
             format!(

@@ -80,6 +80,14 @@ impl Readline {
             out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
         }
         out.write(b"\x1b[K");
+        out.set_fgcolor(textmode::color::YELLOW);
+        out.write_str(&format!("{}", entry_count + 1));
+        out.reset_attributes();
+        if focus {
+            out.set_bgcolor(textmode::Color::Rgb(32, 32, 64));
+        } else {
+            out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
+        }
         out.write_str(" (");
         out.write_str(&pwd);
         out.write_str(")");
@@ -91,16 +99,13 @@ impl Readline {
 
         out.move_to(self.size.0 - 1, 0);
         out.reset_attributes();
-        let idx_str = format!("[{}]", entry_count + 1);
-        let idx_str_len: u16 = idx_str.len().try_into().unwrap();
-        out.write_str(&idx_str);
         out.write_str(&prompt_char);
         out.write_str(" ");
         out.reset_attributes();
         out.write(b"\x1b[K");
         out.write_str(&self.input_line);
         out.reset_attributes();
-        out.move_to(self.size.0 - 1, idx_str_len + 2 + self.pos_width());
+        out.move_to(self.size.0 - 1, 2 + self.pos_width());
         if focus {
             out.hide_cursor(false);
         }
