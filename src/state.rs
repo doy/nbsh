@@ -60,9 +60,10 @@ impl State {
                 return Some(crate::action::Action::Quit);
             }
             textmode::Key::Ctrl(b'e') => {
-                self.set_focus(crate::action::Focus::Scrolling(
-                    self.focus_idx(),
-                ))
+                self.set_focus(
+                    crate::action::Focus::Scrolling(self.focus_idx()),
+                    None,
+                )
                 .await;
             }
             textmode::Key::Ctrl(b'l') => {
@@ -70,25 +71,31 @@ impl State {
             }
             textmode::Key::Ctrl(b'm') => {
                 let idx = self.focus_idx();
-                let focus = if let Some(idx) = idx {
-                    self.history.entry(idx).await.running()
+                let (focus, mut entry) = if let Some(idx) = idx {
+                    let entry = self.history.entry(idx).await;
+                    (entry.running(), Some(entry))
                 } else {
-                    true
+                    (true, None)
                 };
                 if focus {
                     self.set_focus(
                         idx.map_or(crate::action::Focus::Readline, |idx| {
                             crate::action::Focus::History(idx)
                         }),
+                        entry.as_mut(),
                     )
                     .await;
                 }
             }
             textmode::Key::Char(' ') => {
                 if let Some(idx) = self.focus_idx() {
-                    self.readline
-                        .set_input(&self.history.entry(idx).await.cmd());
-                    self.set_focus(crate::action::Focus::Readline).await;
+                    let mut entry = self.history.entry(idx).await;
+                    self.readline.set_input(&entry.cmd());
+                    self.set_focus(
+                        crate::action::Focus::Readline,
+                        Some(&mut entry),
+                    )
+                    .await;
                 }
             }
             textmode::Key::Char('e') => {
@@ -111,24 +118,32 @@ impl State {
                                 crate::action::Focus::Scrolling(Some(idx));
                         }
                     }
-                    self.set_focus(focus).await;
-                    self.scene = self.default_scene(self.focus).await;
+                    self.set_focus(focus, Some(&mut entry)).await;
+                    self.scene = self
+                        .default_scene(self.focus, Some(&mut entry))
+                        .await;
                 }
             }
             textmode::Key::Char('j') | textmode::Key::Down => {
-                self.set_focus(crate::action::Focus::Scrolling(
-                    self.scroll_down(self.focus_idx()),
-                ))
+                self.set_focus(
+                    crate::action::Focus::Scrolling(
+                        self.scroll_down(self.focus_idx()),
+                    ),
+                    None,
+                )
                 .await;
             }
             textmode::Key::Char('k') | textmode::Key::Up => {
-                self.set_focus(crate::action::Focus::Scrolling(
-                    self.scroll_up(self.focus_idx()),
-                ))
+                self.set_focus(
+                    crate::action::Focus::Scrolling(
+                        self.scroll_up(self.focus_idx()),
+                    ),
+                    None,
+                )
                 .await;
             }
             textmode::Key::Char('r') => {
-                self.set_focus(crate::action::Focus::Readline).await;
+                self.set_focus(crate::action::Focus::Readline, None).await;
             }
             _ => {}
         }
@@ -226,13 +241,13 @@ impl State {
                 self.hide_readline = true;
             }
             crate::action::Action::UpdateFocus(new_focus) => {
-                self.set_focus(new_focus).await;
+                self.set_focus(new_focus, None).await;
             }
             crate::action::Action::UpdateScene(new_scene) => {
                 self.scene = new_scene;
             }
             crate::action::Action::CheckUpdateScene => {
-                self.scene = self.default_scene(self.focus).await;
+                self.scene = self.default_scene(self.focus, None).await;
             }
             crate::action::Action::Resize(new_size) => {
                 self.readline.resize(new_size).await;
@@ -251,6 +266,9 @@ impl State {
     async fn default_scene(
         &self,
         focus: crate::action::Focus,
+        entry: Option<
+            &mut async_std::sync::MutexGuardArc<crate::history::HistoryEntry>,
+        >,
     ) -> crate::action::Scene {
         match focus {
             crate::action::Focus::Readline
@@ -258,7 +276,12 @@ impl State {
                 crate::action::Scene::Readline
             }
             crate::action::Focus::History(idx) => {
-                if self.history.entry(idx).await.should_fullscreen() {
+                let fullscreen = if let Some(entry) = entry {
+                    entry.should_fullscreen()
+                } else {
+                    self.history.entry(idx).await.should_fullscreen()
+                };
+                if fullscreen {
                     crate::action::Scene::Fullscreen
                 } else {
                     crate::action::Scene::Readline
@@ -267,10 +290,16 @@ impl State {
         }
     }
 
-    async fn set_focus(&mut self, new_focus: crate::action::Focus) {
+    async fn set_focus(
+        &mut self,
+        new_focus: crate::action::Focus,
+        entry: Option<
+            &mut async_std::sync::MutexGuardArc<crate::history::HistoryEntry>,
+        >,
+    ) {
         self.focus = new_focus;
         self.hide_readline = false;
-        self.scene = self.default_scene(new_focus).await;
+        self.scene = self.default_scene(new_focus, entry).await;
     }
 
     fn focus_idx(&self) -> Option<usize> {
