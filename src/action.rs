@@ -94,6 +94,9 @@ impl Pending {
     }
 
     fn get_action(&mut self) -> Option<Action> {
+        if self.done {
+            return None;
+        }
         if self.size.is_some() {
             return Some(Action::Resize(self.size.take().unwrap()));
         }
@@ -115,9 +118,6 @@ impl Pending {
         }
         if self.render.take().is_some() {
             return Some(Action::Render);
-        }
-        if self.done {
-            return None;
         }
         unreachable!()
     }
