@@ -264,7 +264,7 @@ impl State {
         &self,
         focus: crate::action::Focus,
         entry: Option<
-            &mut async_std::sync::MutexGuardArc<crate::history::HistoryEntry>,
+            &mut async_std::sync::MutexGuardArc<crate::history::Entry>,
         >,
     ) -> crate::action::Scene {
         match focus {
@@ -291,7 +291,7 @@ impl State {
         &mut self,
         new_focus: crate::action::Focus,
         entry: Option<
-            &mut async_std::sync::MutexGuardArc<crate::history::HistoryEntry>,
+            &mut async_std::sync::MutexGuardArc<crate::history::Entry>,
         >,
     ) {
         self.focus = new_focus;

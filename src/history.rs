@@ -6,7 +6,7 @@ use textmode::Textmode as _;
 
 pub struct History {
     size: (u16, u16),
-    entries: Vec<crate::util::Mutex<HistoryEntry>>,
+    entries: Vec<crate::util::Mutex<Entry>>,
 }
 
 impl History {
@@ -91,9 +91,8 @@ impl History {
         let (exe, args) = crate::parse::cmd(cmd);
         let (input_w, input_r) = async_std::channel::unbounded();
         let (resize_w, resize_r) = async_std::channel::unbounded();
-        let entry = crate::util::mutex(HistoryEntry::new(
-            cmd, self.size, input_w, resize_w,
-        ));
+        let entry =
+            crate::util::mutex(Entry::new(cmd, self.size, input_w, resize_w));
         if crate::builtins::is(&exe) {
             let code: i32 = crate::builtins::run(&exe, &args).into();
             entry.lock_arc().await.exit_info = Some(ExitInfo::new(
@@ -129,7 +128,7 @@ impl History {
     pub async fn entry(
         &self,
         idx: usize,
-    ) -> async_std::sync::MutexGuardArc<HistoryEntry> {
+    ) -> async_std::sync::MutexGuardArc<Entry> {
         self.entries[idx].lock_arc().await
     }
 
@@ -138,7 +137,7 @@ impl History {
     }
 }
 
-pub struct HistoryEntry {
+pub struct Entry {
     cmd: String,
     vt: vt100::Parser,
     audible_bell_state: usize,
@@ -151,7 +150,7 @@ pub struct HistoryEntry {
     exit_info: Option<ExitInfo>,
 }
 
-impl HistoryEntry {
+impl Entry {
     fn new(
         cmd: &str,
         size: (u16, u16),
@@ -372,7 +371,7 @@ impl ExitInfo {
 
 fn run_process(
     mut child: pty_process::async_std::Child,
-    entry: crate::util::Mutex<HistoryEntry>,
+    entry: crate::util::Mutex<Entry>,
     input_r: async_std::channel::Receiver<Vec<u8>>,
     resize_r: async_std::channel::Receiver<(u16, u16)>,
     action_w: async_std::channel::Sender<crate::action::Action>,
