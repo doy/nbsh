@@ -19,6 +19,7 @@ impl Readline {
     pub async fn handle_key(
         &mut self,
         key: textmode::Key,
+        history_size: usize,
     ) -> Option<crate::action::Action> {
         match key {
             textmode::Key::String(s) => self.add_input(&s),
@@ -42,9 +43,13 @@ impl Readline {
             textmode::Key::Left => self.cursor_left(),
             textmode::Key::Right => self.cursor_right(),
             textmode::Key::Up => {
-                return Some(crate::action::Action::UpdateFocus(
-                    crate::action::Focus::Scrolling(Some(usize::MAX)),
-                ))
+                if history_size > 0 {
+                    return Some(crate::action::Action::UpdateFocus(
+                        crate::action::Focus::Scrolling(Some(
+                            history_size - 1,
+                        )),
+                    ));
+                }
             }
             _ => {}
         }

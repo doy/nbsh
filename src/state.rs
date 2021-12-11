@@ -36,7 +36,9 @@ impl State {
         } else {
             match self.focus {
                 crate::action::Focus::Readline => {
-                    self.readline.handle_key(key).await
+                    self.readline
+                        .handle_key(key, self.history.entry_count())
+                        .await
                 }
                 crate::action::Focus::History(idx) => {
                     self.history.handle_key(key, idx).await;
@@ -226,17 +228,7 @@ impl State {
                 self.focus = crate::action::Focus::History(idx);
                 self.hide_readline = true;
             }
-            crate::action::Action::UpdateFocus(mut new_focus) => {
-                match new_focus {
-                    crate::action::Focus::Readline
-                    | crate::action::Focus::Scrolling(None) => {}
-                    crate::action::Focus::History(ref mut idx)
-                    | crate::action::Focus::Scrolling(Some(ref mut idx)) => {
-                        if *idx >= self.history.entry_count() {
-                            *idx = self.history.entry_count() - 1;
-                        }
-                    }
-                }
+            crate::action::Action::UpdateFocus(new_focus) => {
                 self.focus = new_focus;
                 self.hide_readline = false;
                 self.scene = self.default_scene(new_focus).await;
@@ -290,7 +282,14 @@ impl State {
 
     fn scroll_up(&self, idx: Option<usize>) -> Option<usize> {
         idx.map_or_else(
-            || Some(self.history.entry_count() - 1),
+            || {
+                let count = self.history.entry_count();
+                if count == 0 {
+                    None
+                } else {
+                    Some(count - 1)
+                }
+            },
             |idx| Some(idx.saturating_sub(1)),
         )
     }
