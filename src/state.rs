@@ -139,6 +139,17 @@ impl State {
                     ),
                 ))
             }
+            textmode::Key::Char(' ') => {
+                if let Some(idx) = self.focus_idx() {
+                    self.readline
+                        .set_input(&self.history.history_cmd(idx).await);
+                    Some(crate::action::Action::UpdateFocus(
+                        crate::action::Focus::Readline,
+                    ))
+                } else {
+                    None
+                }
+            }
             _ => None,
         }
     }

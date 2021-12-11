@@ -138,6 +138,10 @@ impl History {
         self.entries[idx].lock_arc().await.running()
     }
 
+    pub async fn history_cmd(&self, idx: usize) -> String {
+        self.entries[idx].lock_arc().await.cmd.clone()
+    }
+
     pub fn entry_count(&self) -> usize {
         self.entries.len()
     }

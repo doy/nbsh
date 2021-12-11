@@ -120,6 +120,11 @@ impl Readline {
         self.pos += s.chars().count();
     }
 
+    pub fn set_input(&mut self, s: &str) {
+        self.input_line = s.to_string();
+        self.pos = s.chars().count();
+    }
+
     fn backspace(&mut self) {
         while self.pos > 0 {
             self.pos -= 1;
