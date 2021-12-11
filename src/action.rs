@@ -1,5 +1,6 @@
 #[derive(Debug)]
 pub enum Action {
+    Key(textmode::Key),
     Render,
     ForceRedraw,
     Run(String),
@@ -67,6 +68,7 @@ impl Reader {
 
 #[derive(Default)]
 struct Pending {
+    key: std::collections::VecDeque<textmode::Key>,
     render: Option<()>,
     force_redraw: Option<()>,
     run: std::collections::VecDeque<String>,
@@ -84,6 +86,7 @@ impl Pending {
 
     fn has_action(&self) -> bool {
         self.done
+            || !self.key.is_empty()
             || self.render.is_some()
             || self.force_redraw.is_some()
             || !self.run.is_empty()
@@ -96,6 +99,9 @@ impl Pending {
     fn get_action(&mut self) -> Option<Action> {
         if self.done {
             return None;
+        }
+        if !self.key.is_empty() {
+            return Some(Action::Key(self.key.pop_front().unwrap()));
         }
         if self.size.is_some() {
             return Some(Action::Resize(self.size.take().unwrap()));
@@ -124,6 +130,7 @@ impl Pending {
 
     fn new_action(&mut self, action: &Option<Action>) {
         match action {
+            Some(Action::Key(key)) => self.key.push_back(key.clone()),
             Some(Action::Render) => self.render = Some(()),
             Some(Action::ForceRedraw) => self.force_redraw = Some(()),
             Some(Action::Run(cmd)) => self.run.push_back(cmd.to_string()),

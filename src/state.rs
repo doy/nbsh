@@ -23,7 +23,160 @@ impl State {
         }
     }
 
-    pub async fn handle_key(
+    pub async fn render(
+        &self,
+        out: &mut textmode::Output,
+        hard: bool,
+    ) -> anyhow::Result<()> {
+        out.clear();
+        match self.scene {
+            crate::action::Scene::Readline => match self.focus {
+                crate::action::Focus::Readline => {
+                    self.history
+                        .render(
+                            out,
+                            self.readline.lines(),
+                            None,
+                            false,
+                            self.offset,
+                        )
+                        .await?;
+                    self.readline
+                        .render(
+                            out,
+                            self.history.entry_count(),
+                            true,
+                            self.offset,
+                        )
+                        .await?;
+                }
+                crate::action::Focus::History(idx) => {
+                    if self.hide_readline {
+                        self.history
+                            .render(out, 0, Some(idx), false, self.offset)
+                            .await?;
+                    } else {
+                        self.history
+                            .render(
+                                out,
+                                self.readline.lines(),
+                                Some(idx),
+                                false,
+                                self.offset,
+                            )
+                            .await?;
+                        let pos = out.screen().cursor_position();
+                        self.readline
+                            .render(
+                                out,
+                                self.history.entry_count(),
+                                false,
+                                self.offset,
+                            )
+                            .await?;
+                        out.move_to(pos.0, pos.1);
+                    }
+                }
+                crate::action::Focus::Scrolling(idx) => {
+                    self.history
+                        .render(
+                            out,
+                            self.readline.lines(),
+                            idx,
+                            true,
+                            self.offset,
+                        )
+                        .await?;
+                    self.readline
+                        .render(
+                            out,
+                            self.history.entry_count(),
+                            idx.is_none(),
+                            self.offset,
+                        )
+                        .await?;
+                    out.hide_cursor(true);
+                }
+            },
+            crate::action::Scene::Fullscreen => {
+                if let crate::action::Focus::History(idx) = self.focus {
+                    self.history.render_fullscreen(out, idx).await;
+                } else {
+                    unreachable!();
+                }
+            }
+        }
+        if hard {
+            out.hard_refresh().await?;
+        } else {
+            out.refresh().await?;
+        }
+        Ok(())
+    }
+
+    pub async fn handle_action(
+        &mut self,
+        action: crate::action::Action,
+        out: &mut textmode::Output,
+        action_w: &async_std::channel::Sender<crate::action::Action>,
+    ) {
+        let mut hard_refresh = false;
+        match action {
+            crate::action::Action::Key(key) => {
+                if let Some(action) = self.handle_key(key).await {
+                    action_w.send(action).await.unwrap();
+                }
+            }
+            crate::action::Action::Render => {
+                // for instance, if we are rerendering because of command
+                // output, that output could increase the number of lines of
+                // output of a command, pushing the currently focused entry
+                // off the top of the screen
+                self.history
+                    .make_focus_visible(
+                        self.readline.lines(),
+                        self.focus_idx(),
+                        matches!(
+                            self.focus,
+                            crate::action::Focus::Scrolling(_)
+                        ),
+                    )
+                    .await;
+            }
+            crate::action::Action::ForceRedraw => {
+                hard_refresh = true;
+            }
+            crate::action::Action::Run(ref cmd) => {
+                let idx =
+                    self.history.run(cmd, action_w.clone()).await.unwrap();
+                self.set_focus(crate::action::Focus::History(idx), None)
+                    .await;
+                self.hide_readline = true;
+            }
+            crate::action::Action::UpdateFocus(new_focus) => {
+                self.set_focus(new_focus, None).await;
+            }
+            crate::action::Action::UpdateScene(new_scene) => {
+                self.scene = new_scene;
+            }
+            crate::action::Action::CheckUpdateScene => {
+                self.scene = self.default_scene(self.focus, None).await;
+            }
+            crate::action::Action::Resize(new_size) => {
+                self.readline.resize(new_size).await;
+                self.history.resize(new_size).await;
+                out.set_size(new_size.0, new_size.1);
+                out.hard_refresh().await.unwrap();
+            }
+            crate::action::Action::Quit => {
+                // the debouncer should return None in this case
+                unreachable!();
+            }
+        }
+        self.render(out, hard_refresh).await.unwrap();
+    }
+
+    async fn handle_key(
         &mut self,
         key: textmode::Key,
     ) -> Option<crate::action::Action> {
@@ -145,154 +298,6 @@ impl State {
             _ => {}
         }
         Some(crate::action::Action::Render)
-    }
-
-    pub async fn render(
-        &self,
-        out: &mut textmode::Output,
-        hard: bool,
-    ) -> anyhow::Result<()> {
-        out.clear();
-        match self.scene {
-            crate::action::Scene::Readline => match self.focus {
-                crate::action::Focus::Readline => {
-                    self.history
-                        .render(
-                            out,
-                            self.readline.lines(),
-                            None,
-                            false,
-                            self.offset,
-                        )
-                        .await?;
-                    self.readline
-                        .render(
-                            out,
-                            self.history.entry_count(),
-                            true,
-                            self.offset,
-                        )
-                        .await?;
-                }
-                crate::action::Focus::History(idx) => {
-                    if self.hide_readline {
-                        self.history
-                            .render(out, 0, Some(idx), false, self.offset)
-                            .await?;
-                    } else {
-                        self.history
-                            .render(
-                                out,
-                                self.readline.lines(),
-                                Some(idx),
-                                false,
-                                self.offset,
-                            )
-                            .await?;
-                        let pos = out.screen().cursor_position();
-                        self.readline
-                            .render(
-                                out,
-                                self.history.entry_count(),
-                                false,
-                                self.offset,
-                            )
-                            .await?;
-                        out.move_to(pos.0, pos.1);
-                    }
-                }
-                crate::action::Focus::Scrolling(idx) => {
-                    self.history
-                        .render(
-                            out,
-                            self.readline.lines(),
-                            idx,
-                            true,
-                            self.offset,
-                        )
-                        .await?;
-                    self.readline
-                        .render(
-                            out,
-                            self.history.entry_count(),
-                            idx.is_none(),
-                            self.offset,
-                        )
-                        .await?;
-                    out.hide_cursor(true);
-                }
-            },
-            crate::action::Scene::Fullscreen => {
-                if let crate::action::Focus::History(idx) = self.focus {
-                    self.history.render_fullscreen(out, idx).await;
-                } else {
-                    unreachable!();
-                }
-            }
-        }
-        if hard {
-            out.hard_refresh().await?;
-        } else {
-            out.refresh().await?;
-        }
-        Ok(())
-    }
-
-    pub async fn handle_action(
-        &mut self,
-        action: crate::action::Action,
-        out: &mut textmode::Output,
-        action_w: &async_std::channel::Sender<crate::action::Action>,
-    ) {
-        let mut hard_refresh = false;
-        match action {
-            crate::action::Action::Render => {
-                // for instance, if we are rerendering because of command
-                // output, that output could increase the number of lines of
-                // output of a command, pushing the currently focused entry
-                // off the top of the screen
-                self.history
-                    .make_focus_visible(
-                        self.readline.lines(),
-                        self.focus_idx(),
-                        matches!(
-                            self.focus,
-                            crate::action::Focus::Scrolling(_)
-                        ),
-                    )
-                    .await;
-            }
-            crate::action::Action::ForceRedraw => {
-                hard_refresh = true;
-            }
-            crate::action::Action::Run(ref cmd) => {
-                let idx =
-                    self.history.run(cmd, action_w.clone()).await.unwrap();
-                self.set_focus(crate::action::Focus::History(idx), None)
-                    .await;
-                self.hide_readline = true;
-            }
-            crate::action::Action::UpdateFocus(new_focus) => {
-                self.set_focus(new_focus, None).await;
-            }
-            crate::action::Action::UpdateScene(new_scene) => {
-                self.scene = new_scene;
-            }
-            crate::action::Action::CheckUpdateScene => {
-                self.scene = self.default_scene(self.focus, None).await;
-            }
-            crate::action::Action::Resize(new_size) => {
-                self.readline.resize(new_size).await;
-                self.history.resize(new_size).await;
-                out.set_size(new_size.0, new_size.1);
-                out.hard_refresh().await.unwrap();
-            }
-            crate::action::Action::Quit => {
-                // the debouncer should return None in this case
-                unreachable!();
-            }
-        }
-        self.render(out, hard_refresh).await.unwrap();
     }
 
     async fn default_scene(

@@ -61,10 +61,8 @@ async fn async_main() -> anyhow::Result<()> {
 
     let (action_w, action_r) = async_std::channel::unbounded();
 
-    let state = state::State::new(get_offset());
+    let mut state = state::State::new(get_offset());
     state.render(&mut output, true).await.unwrap();
-
-    let state = util::mutex(state);
 
     {
         let mut signals = signal_hook_async_std::Signals::new(&[
@@ -81,15 +79,10 @@ async fn async_main() -> anyhow::Result<()> {
     resize(&action_w).await;
 
     {
-        let state = async_std::sync::Arc::clone(&state);
         let action_w = action_w.clone();
         async_std::task::spawn(async move {
             while let Some(key) = input.read_key().await.unwrap() {
-                if let Some(action) =
-                    state.lock_arc().await.handle_key(key).await
-                {
-                    action_w.send(action).await.unwrap();
-                }
+                action_w.send(action::Action::Key(key)).await.unwrap();
             }
         });
     }
@@ -117,11 +110,7 @@ async fn async_main() -> anyhow::Result<()> {
 
     let action_reader = action::Reader::new(action_r);
     while let Some(action) = action_reader.recv().await {
-        state
-            .lock_arc()
-            .await
-            .handle_action(action, &mut output, &action_w)
-            .await;
+        state.handle_action(action, &mut output, &action_w).await;
     }
 
     Ok(())
