@@ -234,7 +234,8 @@ impl State {
             crate::action::Action::Run(ref cmd) => {
                 let idx =
                     self.history.run(cmd, action_w.clone()).await.unwrap();
-                self.focus = crate::action::Focus::History(idx);
+                self.set_focus(crate::action::Focus::History(idx), None)
+                    .await;
                 self.hide_readline = true;
             }
             crate::action::Action::UpdateFocus(new_focus) => {
@@ -297,6 +298,13 @@ impl State {
         self.focus = new_focus;
         self.hide_readline = false;
         self.scene = self.default_scene(new_focus, entry).await;
+        self.history
+            .make_focus_visible(
+                self.readline.lines(),
+                self.focus_idx(),
+                matches!(self.focus, crate::action::Focus::Scrolling(_)),
+            )
+            .await;
     }
 
     fn focus_idx(&self) -> Option<usize> {

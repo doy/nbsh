@@ -7,6 +7,7 @@ use textmode::Textmode as _;
 pub struct History {
     size: (u16, u16),
     entries: Vec<crate::util::Mutex<Entry>>,
+    scroll_pos: usize,
 }
 
 impl History {
@@ -14,6 +15,7 @@ impl History {
         Self {
             size: (24, 80),
             entries: vec![],
+            scroll_pos: 0,
         }
     }
 
@@ -34,17 +36,11 @@ impl History {
     ) -> anyhow::Result<()> {
         let mut used_lines = repl_lines;
         let mut cursor = None;
-        for (idx, entry) in self.entries.iter().enumerate().rev() {
-            let mut entry = entry.lock_arc().await;
+        for (idx, mut entry) in
+            self.visible(repl_lines, focus, scrolling).await.rev()
+        {
             let focused = focus.map_or(false, |focus| idx == focus);
-            let last_row = entry.lines(self.size.1, focused && !scrolling);
-            used_lines += 1 + std::cmp::min(6, last_row);
-            if used_lines > self.size.0 as usize {
-                break;
-            }
-            if focused && !scrolling && used_lines == 1 && entry.running() {
-                used_lines = 2;
-            }
+            used_lines += entry.lines(self.size.1, focused && !scrolling);
             out.move_to(
                 (self.size.0 as usize - used_lines).try_into().unwrap(),
                 0,
@@ -134,6 +130,109 @@ impl History {
 
     pub fn entry_count(&self) -> usize {
         self.entries.len()
+    }
+
+    pub async fn make_focus_visible(
+        &mut self,
+        repl_lines: usize,
+        focus: Option<usize>,
+        scrolling: bool,
+    ) {
+        if self.entries.is_empty() || focus.is_none() {
+            return;
+        }
+        let focus = focus.unwrap();
+
+        let mut done = false;
+        while focus
+            < self
+                .visible(repl_lines, Some(focus), scrolling)
+                .await
+                .map(|(idx, _)| idx)
+                .next()
+                .unwrap()
+        {
+            self.scroll_pos += 1;
+            done = true;
+        }
+        if done {
+            return;
+        }
+
+        while focus
+            > self
+                .visible(repl_lines, Some(focus), scrolling)
+                .await
+                .map(|(idx, _)| idx)
+                .last()
+                .unwrap()
+        {
+            self.scroll_pos -= 1;
+        }
+    }
+
+    async fn visible(
+        &self,
+        repl_lines: usize,
+        focus: Option<usize>,
+        scrolling: bool,
+    ) -> VisibleEntries {
+        let mut iter = VisibleEntries::new();
+        if self.entries.is_empty() {
+            return iter;
+        }
+
+        let mut used_lines = repl_lines;
+        for (idx, entry) in
+            self.entries.iter().enumerate().rev().skip(self.scroll_pos)
+        {
+            let entry = entry.lock_arc().await;
+            let focused = focus.map_or(false, |focus| idx == focus);
+            used_lines += entry.lines(self.size.1, focused && !scrolling);
+            if used_lines > self.size.0 as usize {
+                break;
+            }
+            iter.add(idx, entry);
+        }
+        iter
+    }
+}
+
+struct VisibleEntries {
+    entries: std::collections::VecDeque<(
+        usize,
+        async_std::sync::MutexGuardArc<Entry>,
+    )>,
+}
+
+impl VisibleEntries {
+    fn new() -> Self {
+        Self {
+            entries: std::collections::VecDeque::new(),
+        }
+    }
+
+    fn add(
+        &mut self,
+        idx: usize,
+        entry: async_std::sync::MutexGuardArc<Entry>,
+    ) {
+        // push_front because we are adding them in reverse order
+        self.entries.push_front((idx, entry));
+    }
+}
+
+impl std::iter::Iterator for VisibleEntries {
+    type Item = (usize, async_std::sync::MutexGuardArc<Entry>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.entries.pop_front()
+    }
+}
+
+impl std::iter::DoubleEndedIterator for VisibleEntries {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.entries.pop_back()
     }
 }
 
@@ -328,6 +427,11 @@ impl Entry {
     }
 
     pub fn lines(&self, width: u16, focused: bool) -> usize {
+        let lines = self.output_lines(width, focused);
+        1 + std::cmp::min(6, lines)
+    }
+
+    pub fn output_lines(&self, width: u16, focused: bool) -> usize {
         if self.binary() {
             return 1;
         }
