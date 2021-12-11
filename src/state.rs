@@ -75,6 +75,11 @@ impl State {
                     None
                 }
             }
+            textmode::Key::Ctrl(b'e') => {
+                Some(crate::action::Action::UpdateFocus(
+                    crate::action::Focus::Scrolling(self.focus_idx()),
+                ))
+            }
             textmode::Key::Char('j') | textmode::Key::Down => {
                 Some(crate::action::Action::UpdateFocus(
                     crate::action::Focus::Scrolling(
