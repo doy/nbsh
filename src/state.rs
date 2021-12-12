@@ -185,7 +185,20 @@ impl State {
                 self.scene = self.default_scene(self.focus, None).await;
             }
             crate::event::Event::ProcessExit => {
-                self.set_focus(Focus::Readline, None).await;
+                if let Some(idx) = self.focus_idx() {
+                    let entry = self.history.entry(idx).await;
+                    if !entry.running() {
+                        self.set_focus(
+                            if self.hide_readline {
+                                Focus::Readline
+                            } else {
+                                Focus::Scrolling(Some(idx))
+                            },
+                            Some(entry),
+                        )
+                        .await;
+                    }
+                }
             }
             crate::event::Event::ClockTimer => {}
             crate::event::Event::Quit => {
