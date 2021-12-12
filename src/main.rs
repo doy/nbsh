@@ -1,13 +1,14 @@
 #![warn(clippy::pedantic)]
 #![warn(clippy::nursery)]
 #![allow(clippy::missing_const_for_fn)]
+#![allow(clippy::struct_excessive_bools)]
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::too_many_lines)]
 #![allow(clippy::unused_self)]
 
-mod action;
 mod builtins;
 mod env;
+mod event;
 mod format;
 mod history;
 mod parse;
@@ -37,15 +38,13 @@ fn get_offset() -> time::UtcOffset {
     }
 }
 
-async fn resize(
-    action_w: &async_std::channel::Sender<crate::action::Action>,
-) {
+async fn resize(event_w: &async_std::channel::Sender<crate::event::Event>) {
     let size = terminal_size::terminal_size().map_or(
         (24, 80),
         |(terminal_size::Width(w), terminal_size::Height(h))| (h, w),
     );
-    action_w
-        .send(crate::action::Action::Resize(size))
+    event_w
+        .send(crate::event::Event::Resize(size))
         .await
         .unwrap();
 }
@@ -59,7 +58,7 @@ async fn async_main() -> anyhow::Result<()> {
     let _input_guard = input.take_raw_guard();
     let _output_guard = output.take_screen_guard();
 
-    let (action_w, action_r) = async_std::channel::unbounded();
+    let (event_w, event_r) = async_std::channel::unbounded();
 
     let mut state = state::State::new(get_offset());
     state.render(&mut output, true).await.unwrap();
@@ -68,28 +67,28 @@ async fn async_main() -> anyhow::Result<()> {
         let mut signals = signal_hook_async_std::Signals::new(&[
             signal_hook::consts::signal::SIGWINCH,
         ])?;
-        let action_w = action_w.clone();
+        let event_w = event_w.clone();
         async_std::task::spawn(async move {
             while signals.next().await.is_some() {
-                resize(&action_w).await;
+                resize(&event_w).await;
             }
         });
     }
 
-    resize(&action_w).await;
+    resize(&event_w).await;
 
     {
-        let action_w = action_w.clone();
+        let event_w = event_w.clone();
         async_std::task::spawn(async move {
             while let Some(key) = input.read_key().await.unwrap() {
-                action_w.send(action::Action::Key(key)).await.unwrap();
+                event_w.send(event::Event::Key(key)).await.unwrap();
             }
         });
     }
 
     // redraw the clock every second
     {
-        let action_w = action_w.clone();
+        let event_w = event_w.clone();
         async_std::task::spawn(async move {
             let first_sleep = 1_000_000_000_u64.saturating_sub(
                 time::OffsetDateTime::now_utc().nanosecond().into(),
@@ -101,16 +100,16 @@ async fn async_main() -> anyhow::Result<()> {
             let mut interval = async_std::stream::interval(
                 std::time::Duration::from_secs(1),
             );
-            action_w.send(crate::action::Action::Render).await.unwrap();
+            event_w.send(crate::event::Event::ClockTimer).await.unwrap();
             while interval.next().await.is_some() {
-                action_w.send(crate::action::Action::Render).await.unwrap();
+                event_w.send(crate::event::Event::ClockTimer).await.unwrap();
             }
         });
     }
 
-    let action_reader = action::Reader::new(action_r);
-    while let Some(action) = action_reader.recv().await {
-        state.handle_action(action, &mut output, &action_w).await;
+    let event_reader = event::Reader::new(event_r);
+    while let Some(event) = event_reader.recv().await {
+        state.handle_event(event, &mut output, &event_w).await;
     }
 
     Ok(())

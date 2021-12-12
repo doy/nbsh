@@ -19,13 +19,6 @@ impl History {
         }
     }
 
-    pub async fn handle_key(&self, key: textmode::Key, idx: usize) {
-        let entry = self.entries[idx].lock_arc().await;
-        if entry.running() {
-            entry.input.send(key.into_bytes()).await.unwrap();
-        }
-    }
-
     pub async fn render(
         &self,
         out: &mut textmode::Output,
@@ -90,7 +83,7 @@ impl History {
     pub async fn run(
         &mut self,
         cmd: &str,
-        action_w: async_std::channel::Sender<crate::action::Action>,
+        event_w: async_std::channel::Sender<crate::event::Event>,
     ) -> anyhow::Result<usize> {
         let (exe, args) = crate::parse::cmd(cmd);
         let (input_w, input_r) = async_std::channel::unbounded();
@@ -102,10 +95,8 @@ impl History {
             entry.lock_arc().await.exit_info = Some(ExitInfo::new(
                 async_std::process::ExitStatus::from_raw(code << 8),
             ));
-            action_w
-                .send(crate::action::Action::UpdateFocus(
-                    crate::action::Focus::Readline,
-                ))
+            event_w
+                .send(crate::event::Event::ProcessExit)
                 .await
                 .unwrap();
         } else {
@@ -122,7 +113,7 @@ impl History {
                 async_std::sync::Arc::clone(&entry),
                 input_r,
                 resize_r,
-                action_w,
+                event_w,
             );
         }
         self.entries.push(entry);
@@ -423,6 +414,12 @@ impl Entry {
         }
     }
 
+    pub async fn send_input(&self, bytes: Vec<u8>) {
+        if self.running() {
+            self.input.send(bytes).await.unwrap();
+        }
+    }
+
     pub fn cmd(&self) -> String {
         self.cmd.clone()
     }
@@ -499,7 +496,7 @@ fn run_process(
     entry: crate::util::Mutex<Entry>,
     input_r: async_std::channel::Receiver<Vec<u8>>,
     resize_r: async_std::channel::Receiver<(u16, u16)>,
-    action_w: async_std::channel::Sender<crate::action::Action>,
+    event_w: async_std::channel::Sender<crate::event::Event>,
 ) {
     async_std::task::spawn(async move {
         loop {
@@ -525,13 +522,13 @@ fn run_process(
                         if entry.fullscreen.is_none()
                             && pre_alternate_screen != post_alternate_screen
                         {
-                            action_w
-                                .send(crate::action::Action::CheckUpdateScene)
+                            event_w
+                                .send(crate::event::Event::ProcessAlternateScreen)
                                 .await
                                 .unwrap();
                         }
-                        action_w
-                            .send(crate::action::Action::Render)
+                        event_w
+                            .send(crate::event::Event::ProcessOutput)
                             .await
                             .unwrap();
                     }
@@ -544,10 +541,8 @@ fn run_process(
                         entry.lock_arc().await.exit_info = Some(
                             ExitInfo::new(child.status().await.unwrap()),
                         );
-                        action_w
-                            .send(crate::action::Action::UpdateFocus(
-                                crate::action::Focus::Readline,
-                            ))
+                        event_w
+                            .send(crate::event::Event::ProcessExit)
                             .await
                             .unwrap();
                         break;

@@ -16,46 +16,6 @@ impl Readline {
         }
     }
 
-    pub async fn handle_key(
-        &mut self,
-        key: textmode::Key,
-        history_size: usize,
-    ) -> Option<crate::action::Action> {
-        match key {
-            textmode::Key::String(s) => self.add_input(&s),
-            textmode::Key::Char(c) => {
-                self.add_input(&c.to_string());
-            }
-            textmode::Key::Ctrl(b'c') => self.clear_input(),
-            textmode::Key::Ctrl(b'd') => {
-                return Some(crate::action::Action::Quit);
-            }
-            textmode::Key::Ctrl(b'l') => {
-                return Some(crate::action::Action::ForceRedraw);
-            }
-            textmode::Key::Ctrl(b'm') => {
-                let cmd = self.input();
-                self.clear_input();
-                return Some(crate::action::Action::Run(cmd));
-            }
-            textmode::Key::Ctrl(b'u') => self.clear_backwards(),
-            textmode::Key::Backspace => self.backspace(),
-            textmode::Key::Left => self.cursor_left(),
-            textmode::Key::Right => self.cursor_right(),
-            textmode::Key::Up => {
-                if history_size > 0 {
-                    return Some(crate::action::Action::UpdateFocus(
-                        crate::action::Focus::Scrolling(Some(
-                            history_size - 1,
-                        )),
-                    ));
-                }
-            }
-            _ => {}
-        }
-        Some(crate::action::Action::Render)
-    }
-
     pub async fn render(
         &self,
         out: &mut textmode::Output,
@@ -120,11 +80,11 @@ impl Readline {
         2 // XXX handle wrapping
     }
 
-    fn input(&self) -> String {
+    pub fn input(&self) -> String {
         self.input_line.clone()
     }
 
-    fn add_input(&mut self, s: &str) {
+    pub fn add_input(&mut self, s: &str) {
         self.input_line.insert_str(self.byte_pos(), s);
         self.pos += s.chars().count();
     }
@@ -134,7 +94,7 @@ impl Readline {
         self.pos = s.chars().count();
     }
 
-    fn backspace(&mut self) {
+    pub fn backspace(&mut self) {
         while self.pos > 0 {
             self.pos -= 1;
             let width =
@@ -145,17 +105,17 @@ impl Readline {
         }
     }
 
-    fn clear_input(&mut self) {
+    pub fn clear_input(&mut self) {
         self.input_line.clear();
         self.pos = 0;
     }
 
-    fn clear_backwards(&mut self) {
+    pub fn clear_backwards(&mut self) {
         self.input_line = self.input_line.chars().skip(self.pos).collect();
         self.pos = 0;
     }
 
-    fn cursor_left(&mut self) {
+    pub fn cursor_left(&mut self) {
         if self.pos == 0 {
             return;
         }
@@ -169,7 +129,7 @@ impl Readline {
         }
     }
 
-    fn cursor_right(&mut self) {
+    pub fn cursor_right(&mut self) {
         if self.pos == self.input_line.chars().count() {
             return;
         }
