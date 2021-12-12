@@ -284,6 +284,12 @@ impl State {
                 )
                 .await;
             }
+            textmode::Key::Char('n') => {
+                self.set_focus(self.next_running().await, None).await;
+            }
+            textmode::Key::Char('p') => {
+                self.set_focus(self.prev_running().await, None).await;
+            }
             textmode::Key::Char('r') => {
                 self.set_focus(Focus::Readline, None).await;
             }
@@ -416,5 +422,27 @@ impl State {
                 Some(idx + 1)
             }
         })
+    }
+
+    async fn next_running(&self) -> Focus {
+        let count = self.history.entry_count();
+        let cur = self.focus_idx().unwrap_or(count);
+        for idx in ((cur + 1)..count).chain(0..cur) {
+            if self.history.entry(idx).await.running() {
+                return Focus::History(idx);
+            }
+        }
+        self.focus_idx().map_or(Focus::Readline, Focus::History)
+    }
+
+    async fn prev_running(&self) -> Focus {
+        let count = self.history.entry_count();
+        let cur = self.focus_idx().unwrap_or(count);
+        for idx in ((cur + 1)..count).chain(0..cur).rev() {
+            if self.history.entry(idx).await.running() {
+                return Focus::History(idx);
+            }
+        }
+        self.focus_idx().map_or(Focus::Readline, Focus::History)
     }
 }
