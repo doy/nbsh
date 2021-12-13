@@ -5,7 +5,7 @@ use std::os::unix::process::ExitStatusExt as _;
 
 pub struct History {
     size: (u16, u16),
-    entries: Vec<crate::util::Mutex<Entry>>,
+    entries: Vec<async_std::sync::Arc<async_std::sync::Mutex<Entry>>>,
     scroll_pos: usize,
 }
 
@@ -87,8 +87,9 @@ impl History {
         let (exe, args) = crate::parse::cmd(cmd);
         let (input_w, input_r) = async_std::channel::unbounded();
         let (resize_w, resize_r) = async_std::channel::unbounded();
-        let entry =
-            crate::util::mutex(Entry::new(cmd, self.size, input_w, resize_w));
+        let entry = async_std::sync::Arc::new(async_std::sync::Mutex::new(
+            Entry::new(cmd, self.size, input_w, resize_w),
+        ));
         if crate::builtins::is(&exe) {
             let code: i32 = crate::builtins::run(&exe, &args).into();
             entry.lock_arc().await.exit_info = Some(ExitInfo::new(
@@ -492,7 +493,7 @@ impl ExitInfo {
 
 fn run_process(
     mut child: pty_process::async_std::Child,
-    entry: crate::util::Mutex<Entry>,
+    entry: async_std::sync::Arc<async_std::sync::Mutex<Entry>>,
     input_r: async_std::channel::Receiver<Vec<u8>>,
     resize_r: async_std::channel::Receiver<(u16, u16)>,
     event_w: async_std::channel::Sender<crate::event::Event>,

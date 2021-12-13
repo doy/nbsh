@@ -13,7 +13,6 @@ mod event;
 mod format;
 mod parse;
 mod state;
-mod util;
 
 use async_std::stream::StreamExt as _;
 use textmode::Textmode as _;
