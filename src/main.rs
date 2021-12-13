@@ -11,9 +11,7 @@ mod builtins;
 mod env;
 mod event;
 mod format;
-mod history;
 mod parse;
-mod readline;
 mod state;
 mod util;
 

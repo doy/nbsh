@@ -1,3 +1,6 @@
+mod history;
+mod readline;
+
 #[derive(Copy, Clone, Debug)]
 enum Focus {
     Readline,
@@ -19,8 +22,8 @@ pub enum Action {
 }
 
 pub struct State {
-    readline: crate::readline::Readline,
-    history: crate::history::History,
+    readline: readline::Readline,
+    history: history::History,
     focus: Focus,
     scene: Scene,
     escape: bool,
@@ -31,8 +34,8 @@ pub struct State {
 impl State {
     pub fn new(offset: time::UtcOffset) -> Self {
         Self {
-            readline: crate::readline::Readline::new(),
-            history: crate::history::History::new(),
+            readline: readline::Readline::new(),
+            history: history::History::new(),
             focus: Focus::Readline,
             scene: Scene::Readline,
             escape: false,
@@ -340,7 +343,7 @@ impl State {
     async fn default_scene(
         &self,
         focus: Focus,
-        entry: Option<async_std::sync::MutexGuardArc<crate::history::Entry>>,
+        entry: Option<async_std::sync::MutexGuardArc<history::Entry>>,
     ) -> Scene {
         match focus {
             Focus::Readline | Focus::Scrolling(_) => Scene::Readline,
@@ -362,7 +365,7 @@ impl State {
     async fn set_focus(
         &mut self,
         new_focus: Focus,
-        entry: Option<async_std::sync::MutexGuardArc<crate::history::Entry>>,
+        entry: Option<async_std::sync::MutexGuardArc<history::Entry>>,
     ) {
         self.focus = new_focus;
         self.hide_readline = false;
