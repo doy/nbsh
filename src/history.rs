@@ -2,7 +2,6 @@ use async_std::io::{ReadExt as _, WriteExt as _};
 use futures_lite::future::FutureExt as _;
 use pty_process::Command as _;
 use std::os::unix::process::ExitStatusExt as _;
-use textmode::Textmode as _;
 
 pub struct History {
     size: (u16, u16),
@@ -21,7 +20,7 @@ impl History {
 
     pub async fn render(
         &self,
-        out: &mut textmode::Output,
+        out: &mut impl textmode::Textmode,
         repl_lines: usize,
         focus: Option<usize>,
         scrolling: bool,
@@ -63,7 +62,7 @@ impl History {
 
     pub async fn render_fullscreen(
         &self,
-        out: &mut textmode::Output,
+        out: &mut impl textmode::Textmode,
         idx: usize,
     ) {
         let mut entry = self.entries[idx].lock_arc().await;
@@ -271,7 +270,7 @@ impl Entry {
 
     fn render(
         &mut self,
-        out: &mut textmode::Output,
+        out: &mut impl textmode::Textmode,
         idx: usize,
         entry_count: usize,
         width: u16,
@@ -386,7 +385,7 @@ impl Entry {
         out.reset_attributes();
     }
 
-    fn render_fullscreen(&mut self, out: &mut textmode::Output) {
+    fn render_fullscreen(&mut self, out: &mut impl textmode::Textmode) {
         let screen = self.vt.screen();
         let new_audible_bell_state = screen.audible_bell_count();
         let new_visual_bell_state = screen.visual_bell_count();
@@ -406,7 +405,7 @@ impl Entry {
         out.reset_attributes();
     }
 
-    fn set_bgcolor(&self, out: &mut textmode::Output, focus: bool) {
+    fn set_bgcolor(&self, out: &mut impl textmode::Textmode, focus: bool) {
         if focus {
             out.set_bgcolor(textmode::Color::Rgb(32, 32, 64));
         } else {

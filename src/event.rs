@@ -6,7 +6,6 @@ pub enum Event {
     ProcessAlternateScreen,
     ProcessExit,
     ClockTimer,
-    Quit,
 }
 
 pub struct Reader {
@@ -119,7 +118,7 @@ impl Pending {
             }
             Some(Event::ProcessExit) => self.process_exit = true,
             Some(Event::ClockTimer) => self.clock_timer = true,
-            Some(Event::Quit) | None => self.done = true,
+            None => self.done = true,
         }
     }
 }

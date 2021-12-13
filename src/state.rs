@@ -1,5 +1,3 @@
-use textmode::Textmode as _;
-
 #[derive(Copy, Clone, Debug)]
 enum Focus {
     Readline,
@@ -11,6 +9,13 @@ enum Focus {
 enum Scene {
     Readline,
     Fullscreen,
+}
+
+pub enum Action {
+    Refresh,
+    HardRefresh,
+    Resize(u16, u16),
+    Quit,
 }
 
 pub struct State {
@@ -38,8 +43,7 @@ impl State {
 
     pub async fn render(
         &self,
-        out: &mut textmode::Output,
-        hard: bool,
+        out: &mut impl textmode::Textmode,
     ) -> anyhow::Result<()> {
         out.clear();
         match self.scene {
@@ -119,29 +123,22 @@ impl State {
                 }
             }
         }
-        if hard {
-            out.hard_refresh().await?;
-        } else {
-            out.refresh().await?;
-        }
         Ok(())
     }
 
     pub async fn handle_event(
         &mut self,
         event: crate::event::Event,
-        out: &mut textmode::Output,
         event_w: &async_std::channel::Sender<crate::event::Event>,
-    ) {
-        let mut hard_refresh = false;
+    ) -> Option<Action> {
         match event {
             crate::event::Event::Key(key) => {
-                let (quit, hard) = if self.escape {
+                return if self.escape {
                     self.escape = false;
                     self.handle_key_escape(key).await
                 } else if key == textmode::Key::Ctrl(b'e') {
                     self.escape = true;
-                    (false, false)
+                    None
                 } else {
                     match self.focus {
                         Focus::Readline => {
@@ -150,25 +147,18 @@ impl State {
                         }
                         Focus::History(idx) => {
                             self.handle_key_history(key, idx).await;
-                            (false, false)
+                            None
                         }
                         Focus::Scrolling(_) => {
                             self.handle_key_escape(key).await
                         }
                     }
                 };
-                if quit {
-                    event_w.send(crate::event::Event::Quit).await.unwrap();
-                }
-                if hard {
-                    hard_refresh = true;
-                }
             }
             crate::event::Event::Resize(new_size) => {
                 self.readline.resize(new_size).await;
                 self.history.resize(new_size).await;
-                out.set_size(new_size.0, new_size.1);
-                hard_refresh = true;
+                return Some(Action::Resize(new_size.0, new_size.1));
             }
             crate::event::Event::ProcessOutput => {
                 // the number of visible lines may have changed, so make sure
@@ -201,28 +191,24 @@ impl State {
                 }
             }
             crate::event::Event::ClockTimer => {}
-            crate::event::Event::Quit => {
-                // the debouncer should return None in this case
-                unreachable!();
-            }
-        }
-        self.render(out, hard_refresh).await.unwrap();
+        };
+        Some(Action::Refresh)
     }
 
     async fn handle_key_escape(
         &mut self,
         key: textmode::Key,
-    ) -> (bool, bool) {
+    ) -> Option<Action> {
         match key {
             textmode::Key::Ctrl(b'd') => {
-                return (true, false);
+                return Some(Action::Quit);
             }
             textmode::Key::Ctrl(b'e') => {
                 self.set_focus(Focus::Scrolling(self.focus_idx()), None)
                     .await;
             }
             textmode::Key::Ctrl(b'l') => {
-                return (false, true);
+                return Some(Action::HardRefresh);
             }
             textmode::Key::Ctrl(b'm') => {
                 let idx = self.focus_idx();
@@ -293,26 +279,28 @@ impl State {
             textmode::Key::Char('r') => {
                 self.set_focus(Focus::Readline, None).await;
             }
-            _ => {}
+            _ => {
+                return None;
+            }
         }
-        (false, false)
+        Some(Action::Refresh)
     }
 
     async fn handle_key_readline(
         &mut self,
         key: textmode::Key,
         event_w: async_std::channel::Sender<crate::event::Event>,
-    ) -> (bool, bool) {
+    ) -> Option<Action> {
         match key {
             textmode::Key::Char(c) => {
                 self.readline.add_input(&c.to_string());
             }
             textmode::Key::Ctrl(b'c') => self.readline.clear_input(),
             textmode::Key::Ctrl(b'd') => {
-                return (true, false);
+                return Some(Action::Quit);
             }
             textmode::Key::Ctrl(b'l') => {
-                return (false, true);
+                return Some(Action::HardRefresh);
             }
             textmode::Key::Ctrl(b'm') => {
                 let cmd = self.readline.input();
@@ -336,9 +324,9 @@ impl State {
                     .await;
                 }
             }
-            _ => {}
+            _ => return None,
         }
-        (false, false)
+        Some(Action::Refresh)
     }
 
     async fn handle_key_history(&mut self, key: textmode::Key, idx: usize) {

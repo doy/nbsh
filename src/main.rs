@@ -1,5 +1,6 @@
 #![warn(clippy::pedantic)]
 #![warn(clippy::nursery)]
+#![allow(clippy::future_not_send)]
 #![allow(clippy::missing_const_for_fn)]
 #![allow(clippy::struct_excessive_bools)]
 #![allow(clippy::too_many_arguments)]
@@ -17,6 +18,7 @@ mod state;
 mod util;
 
 use async_std::stream::StreamExt as _;
+use textmode::Textmode as _;
 
 // the time crate is currently unable to get the local offset on unix due to
 // soundness concerns, so we have to do it manually/:
@@ -61,7 +63,8 @@ async fn async_main() -> anyhow::Result<()> {
     let (event_w, event_r) = async_std::channel::unbounded();
 
     let mut state = state::State::new(get_offset());
-    state.render(&mut output, true).await.unwrap();
+    state.render(&mut output).await.unwrap();
+    output.hard_refresh().await?;
 
     {
         let mut signals = signal_hook_async_std::Signals::new(&[
@@ -109,7 +112,23 @@ async fn async_main() -> anyhow::Result<()> {
 
     let event_reader = event::Reader::new(event_r);
     while let Some(event) = event_reader.recv().await {
-        state.handle_event(event, &mut output, &event_w).await;
+        match state.handle_event(event, &event_w).await {
+            Some(state::Action::Refresh) => {
+                state.render(&mut output).await?;
+                output.refresh().await?;
+            }
+            Some(state::Action::HardRefresh) => {
+                state.render(&mut output).await?;
+                output.hard_refresh().await?;
+            }
+            Some(state::Action::Resize(rows, cols)) => {
+                output.set_size(rows, cols);
+                state.render(&mut output).await?;
+                output.hard_refresh().await?;
+            }
+            Some(state::Action::Quit) => break,
+            None => {}
+        }
     }
 
     Ok(())
