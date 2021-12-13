@@ -40,17 +40,6 @@ fn get_offset() -> time::UtcOffset {
     }
 }
 
-async fn resize(event_w: &async_std::channel::Sender<crate::event::Event>) {
-    let size = terminal_size::terminal_size().map_or(
-        (24, 80),
-        |(terminal_size::Width(w), terminal_size::Height(h))| (h, w),
-    );
-    event_w
-        .send(crate::event::Event::Resize(size))
-        .await
-        .unwrap();
-}
-
 async fn async_main() -> anyhow::Result<()> {
     let mut input = textmode::Input::new().await?;
     let mut output = textmode::Output::new().await?;
@@ -62,23 +51,32 @@ async fn async_main() -> anyhow::Result<()> {
 
     let (event_w, event_r) = async_std::channel::unbounded();
 
-    let mut state = state::State::new(get_offset());
-    state.render(&mut output).await.unwrap();
-    output.hard_refresh().await?;
-
     {
-        let mut signals = signal_hook_async_std::Signals::new(&[
+        let signals = signal_hook_async_std::Signals::new(&[
             signal_hook::consts::signal::SIGWINCH,
         ])?;
         let event_w = event_w.clone();
         async_std::task::spawn(async move {
+            let mut signals = async_std::stream::once(
+                signal_hook::consts::signal::SIGWINCH,
+            )
+            .chain(signals);
             while signals.next().await.is_some() {
-                resize(&event_w).await;
+                event_w
+                    .send(crate::event::Event::Resize(
+                        terminal_size::terminal_size().map_or(
+                            (24, 80),
+                            |(
+                                terminal_size::Width(w),
+                                terminal_size::Height(h),
+                            )| { (h, w) },
+                        ),
+                    ))
+                    .await
+                    .unwrap();
             }
         });
     }
-
-    resize(&event_w).await;
 
     {
         let event_w = event_w.clone();
@@ -110,6 +108,7 @@ async fn async_main() -> anyhow::Result<()> {
         });
     }
 
+    let mut state = state::State::new(get_offset());
     let event_reader = event::Reader::new(event_r);
     while let Some(event) = event_reader.recv().await {
         match state.handle_event(event, &event_w).await {
