@@ -28,7 +28,7 @@ impl History {
     ) -> anyhow::Result<()> {
         let mut used_lines = repl_lines;
         let mut cursor = None;
-        for (idx, mut entry) in
+        for (idx, entry) in
             self.visible(repl_lines, focus, scrolling).await.rev()
         {
             let focused = focus.map_or(false, |focus| idx == focus);
@@ -270,7 +270,7 @@ impl Entry {
     }
 
     fn render(
-        &mut self,
+        &self,
         out: &mut impl textmode::Textmode,
         idx: usize,
         entry_count: usize,
@@ -312,18 +312,23 @@ impl Entry {
         out.reset_attributes();
 
         self.set_bgcolor(out, focused);
-        let time = if let Some(info) = self.exit_info {
-            format!(
-                "({}) [{}]",
-                crate::format::duration(info.instant - self.start_instant),
-                crate::format::time(self.start_time.to_offset(offset)),
-            )
-        } else {
-            format!(
-                "[{}]",
-                crate::format::time(self.start_time.to_offset(offset))
-            )
-        };
+        let time = self.exit_info.map_or_else(
+            || {
+                format!(
+                    "[{}]",
+                    crate::format::time(self.start_time.to_offset(offset))
+                )
+            },
+            |info| {
+                format!(
+                    "({}) [{}]",
+                    crate::format::duration(
+                        info.instant - self.start_instant
+                    ),
+                    crate::format::time(self.start_time.to_offset(offset)),
+                )
+            },
+        );
         let cur_pos = out.screen().cursor_position();
         out.write_str(
             &" ".repeat(width as usize - time.len() - 1 - cur_pos.1 as usize),
