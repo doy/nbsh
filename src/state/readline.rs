@@ -15,6 +15,8 @@ impl Readline {
         }
     }
 
+    // render always happens on the main task
+    #[allow(clippy::future_not_send)]
     pub async fn render(
         &self,
         out: &mut impl textmode::Textmode,
@@ -75,6 +77,8 @@ impl Readline {
         self.size = size;
     }
 
+    // self will be used eventually
+    #[allow(clippy::unused_self)]
     pub fn lines(&self) -> usize {
         2 // XXX handle wrapping
     }

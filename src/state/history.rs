@@ -18,6 +18,8 @@ impl History {
         }
     }
 
+    // render always happens on the main task
+    #[allow(clippy::future_not_send)]
     pub async fn render(
         &self,
         out: &mut impl textmode::Textmode,
@@ -34,7 +36,7 @@ impl History {
             let focused = focus.map_or(false, |focus| idx == focus);
             used_lines += entry.lines(self.size.1, focused && !scrolling);
             out.move_to(
-                (self.size.0 as usize - used_lines).try_into().unwrap(),
+                (usize::from(self.size.0) - used_lines).try_into().unwrap(),
                 0,
             );
             entry.render(
@@ -60,6 +62,8 @@ impl History {
         Ok(())
     }
 
+    // render always happens on the main task
+    #[allow(clippy::future_not_send)]
     pub async fn render_fullscreen(
         &self,
         out: &mut impl textmode::Textmode,
@@ -188,7 +192,7 @@ impl History {
             let entry = entry.lock_arc().await;
             let focused = focus.map_or(false, |focus| idx == focus);
             used_lines += entry.lines(self.size.1, focused && !scrolling);
-            if used_lines > self.size.0 as usize {
+            if used_lines > usize::from(self.size.0) {
                 break;
             }
             iter.add(idx, entry);
@@ -279,7 +283,7 @@ impl Entry {
         scrolling: bool,
         offset: time::UtcOffset,
     ) {
-        self.set_bgcolor(out, focused);
+        set_bgcolor(out, focused);
         out.set_fgcolor(textmode::color::YELLOW);
         let entry_count_width = format!("{}", entry_count + 1).len();
         let idx_str = format!("{}", idx + 1);
@@ -288,7 +292,7 @@ impl Entry {
         out.write_str(" ");
         out.reset_attributes();
 
-        self.set_bgcolor(out, focused);
+        set_bgcolor(out, focused);
         if let Some(info) = self.exit_info {
             if info.status.signal().is_some() {
                 out.set_fgcolor(textmode::color::MAGENTA);
@@ -303,7 +307,7 @@ impl Entry {
         }
         out.reset_attributes();
 
-        self.set_bgcolor(out, focused);
+        set_bgcolor(out, focused);
         out.write_str("$ ");
         if self.running() {
             out.set_bgcolor(textmode::Color::Rgb(16, 64, 16));
@@ -311,7 +315,7 @@ impl Entry {
         out.write_str(&self.cmd);
         out.reset_attributes();
 
-        self.set_bgcolor(out, focused);
+        set_bgcolor(out, focused);
         let time = self.exit_info.map_or_else(
             || {
                 format!(
@@ -330,9 +334,9 @@ impl Entry {
             },
         );
         let cur_pos = out.screen().cursor_position();
-        out.write_str(
-            &" ".repeat(width as usize - time.len() - 1 - cur_pos.1 as usize),
-        );
+        out.write_str(&" ".repeat(
+            usize::from(width) - time.len() - 1 - usize::from(cur_pos.1),
+        ));
         out.write_str(&time);
         out.write_str(" ");
         out.reset_attributes();
@@ -411,14 +415,6 @@ impl Entry {
         out.reset_attributes();
     }
 
-    fn set_bgcolor(&self, out: &mut impl textmode::Textmode, focus: bool) {
-        if focus {
-            out.set_bgcolor(textmode::Color::Rgb(32, 32, 64));
-        } else {
-            out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
-        }
-    }
-
     pub async fn send_input(&self, bytes: Vec<u8>) {
         if self.running() {
             self.input.send(bytes).await.unwrap();
@@ -469,7 +465,7 @@ impl Entry {
         if focused && self.running() {
             last_row = std::cmp::max(
                 last_row,
-                screen.cursor_position().0 as usize + 1,
+                usize::from(screen.cursor_position().0) + 1,
             );
         }
         last_row
@@ -577,4 +573,12 @@ fn run_process(
             }
         }
     });
+}
+
+fn set_bgcolor(out: &mut impl textmode::Textmode, focus: bool) {
+    if focus {
+        out.set_bgcolor(textmode::Color::Rgb(32, 32, 64));
+    } else {
+        out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
+    }
 }
