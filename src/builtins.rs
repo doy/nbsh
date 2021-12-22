@@ -2,10 +2,10 @@ pub fn is(exe: &str) -> bool {
     matches!(exe, "cd")
 }
 
-pub fn run(exe: &str, args: &[String]) -> u8 {
+pub fn run<'a>(exe: &str, args: impl IntoIterator<Item = &'a str>) -> u8 {
     match exe {
         "cd" => impls::cd(
-            args.iter()
+            args.into_iter()
                 .map(std::convert::AsRef::as_ref)
                 .next()
                 .unwrap_or(""),

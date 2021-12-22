@@ -85,17 +85,24 @@ impl History {
 
     pub async fn run(
         &mut self,
-        cmd: &str,
+        cmd: &crate::parse::Command,
         event_w: async_std::channel::Sender<crate::event::Event>,
     ) -> anyhow::Result<usize> {
-        let (exe, args) = crate::parse::cmd(cmd);
         let (input_w, input_r) = async_std::channel::unbounded();
         let (resize_w, resize_r) = async_std::channel::unbounded();
+
+        // for now
+        let cmd = match cmd {
+            crate::parse::Command::Exe(exe) => exe,
+            _ => todo!(),
+        };
+
         let entry = async_std::sync::Arc::new(async_std::sync::Mutex::new(
-            Entry::new(cmd, self.size, input_w, resize_w),
+            Entry::new(cmd.exe(), self.size, input_w, resize_w),
         ));
-        if crate::builtins::is(&exe) {
-            let code: i32 = crate::builtins::run(&exe, &args).into();
+        if crate::builtins::is(cmd.exe()) {
+            let code: i32 =
+                crate::builtins::run(cmd.exe(), cmd.args()).into();
             entry.lock_arc().await.exit_info = Some(ExitInfo::new(
                 async_std::process::ExitStatus::from_raw(code << 8),
             ));
@@ -104,8 +111,8 @@ impl History {
                 .await
                 .unwrap();
         } else {
-            let mut process = async_std::process::Command::new(&exe);
-            process.args(&args);
+            let mut process = async_std::process::Command::new(cmd.exe());
+            process.args(cmd.args());
             let child = process
                 .spawn_pty(Some(&pty_process::Size::new(
                     self.size.0,

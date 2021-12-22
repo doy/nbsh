@@ -309,7 +309,7 @@ impl State {
                 return Some(Action::HardRefresh);
             }
             textmode::Key::Ctrl(b'm') => {
-                let cmd = self.readline.input();
+                let cmd = self.parse(&self.readline.input());
                 self.readline.clear_input();
                 let idx =
                     self.history.run(&cmd, event_w.clone()).await.unwrap();
@@ -438,5 +438,11 @@ impl State {
             }
         }
         self.focus_idx().map_or(Focus::Readline, Focus::History)
+    }
+
+    fn parse(&self, cmd: &str) -> crate::parse::Command {
+        let cmd = crate::parse::Command::parse(cmd);
+        // todo: interpolate
+        cmd
     }
 }
