@@ -91,15 +91,16 @@ impl History {
         let (input_w, input_r) = async_std::channel::unbounded();
         let (resize_w, resize_r) = async_std::channel::unbounded();
 
+        let entry = async_std::sync::Arc::new(async_std::sync::Mutex::new(
+            Entry::new(cmd.clone(), self.size, input_w, resize_w),
+        ));
+
         // for now
         let cmd = match cmd {
             crate::parse::Command::Exe(exe) => exe,
             _ => todo!(),
         };
 
-        let entry = async_std::sync::Arc::new(async_std::sync::Mutex::new(
-            Entry::new(cmd.exe(), self.size, input_w, resize_w),
-        ));
         if crate::builtins::is(cmd.exe()) {
             let code: i32 =
                 crate::builtins::run(cmd.exe(), cmd.args()).into();
@@ -247,7 +248,7 @@ impl std::iter::DoubleEndedIterator for VisibleEntries {
 }
 
 pub struct Entry {
-    cmd: String,
+    cmd: crate::parse::Command,
     vt: vt100::Parser,
     audible_bell_state: usize,
     visual_bell_state: usize,
@@ -261,13 +262,13 @@ pub struct Entry {
 
 impl Entry {
     fn new(
-        cmd: &str,
+        cmd: crate::parse::Command,
         size: (u16, u16),
         input: async_std::channel::Sender<Vec<u8>>,
         resize: async_std::channel::Sender<(u16, u16)>,
     ) -> Self {
         Self {
-            cmd: cmd.into(),
+            cmd,
             vt: vt100::Parser::new(size.0, size.1, 0),
             audible_bell_state: 0,
             visual_bell_state: 0,
@@ -319,7 +320,7 @@ impl Entry {
         if self.running() {
             out.set_bgcolor(textmode::Color::Rgb(16, 64, 16));
         }
-        out.write_str(&self.cmd);
+        out.write_str(&self.cmd.input_string());
         out.reset_attributes();
 
         set_bgcolor(out, focused);
@@ -429,7 +430,7 @@ impl Entry {
     }
 
     pub fn cmd(&self) -> String {
-        self.cmd.clone()
+        self.cmd.input_string()
     }
 
     pub fn toggle_fullscreen(&mut self) {

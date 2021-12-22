@@ -1,0 +1,17 @@
+char = { ASCII_ALPHANUMERIC }
+
+word = @{ char+ }
+
+exe = { word+ }
+
+and  = { "&&" ~ command }
+or   = { "||" ~ command }
+both = { ";"  ~ command }
+pipe = { "|"  ~ command }
+
+command = { exe ~ (and | or | both | pipe)? }
+
+line = { SOI ~ command ~ EOI }
+
+WHITESPACE = _{ " " }
+COMMENT    = _{ "#" ~ ANY* }
