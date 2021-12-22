@@ -51,6 +51,7 @@ impl State {
         out: &mut impl textmode::Textmode,
     ) -> anyhow::Result<()> {
         out.clear();
+        out.write(&vt100::Parser::default().screen().input_mode_formatted());
         match self.scene {
             Scene::Readline => match self.focus {
                 Focus::Readline => {
