@@ -30,21 +30,15 @@ impl Word {
 pub struct Exe {
     exe: Word,
     args: Vec<Word>,
-    original: String,
 }
 
 impl Exe {
-    fn parse(pair: pest::iterators::Pair<Rule>) -> Self {
+    fn build_ast(pair: pest::iterators::Pair<Rule>) -> Self {
         assert!(matches!(pair.as_rule(), Rule::exe));
-        let original = pair.as_str().to_string();
         let mut iter = pair.into_inner();
         let exe = Word::new(iter.next().unwrap().as_str());
         let args = iter.map(|word| Word::new(word.as_str())).collect();
-        Self {
-            exe,
-            args,
-            original,
-        }
+        Self { exe, args }
     }
 
     pub fn exe(&self) -> &str {
@@ -54,72 +48,62 @@ impl Exe {
     pub fn args(&self) -> impl Iterator<Item = &str> {
         self.args.iter().map(|arg| arg.word.as_ref())
     }
+}
 
-    pub fn input_string(&self) -> String {
-        self.original.clone()
+#[derive(Debug, Clone)]
+pub struct Pipeline {
+    exes: Vec<Exe>,
+}
+
+impl Pipeline {
+    pub fn exes(&self) -> &[Exe] {
+        &self.exes
+    }
+
+    fn build_ast(pipeline: pest::iterators::Pair<Rule>) -> Self {
+        assert!(matches!(pipeline.as_rule(), Rule::pipeline));
+        Self {
+            exes: pipeline.into_inner().map(Exe::build_ast).collect(),
+        }
     }
 }
 
 #[derive(Debug, Clone)]
-pub enum Command {
-    Exe(Exe),
-    And(Exe, Box<Command>),
-    Or(Exe, Box<Command>),
-    Both(Exe, Box<Command>),
-    Pipe(Exe, Box<Command>),
+pub struct Commands {
+    pipelines: Vec<Pipeline>,
+    input_string: String,
 }
 
-impl Command {
+impl Commands {
     pub fn parse(full_cmd: &str) -> Self {
         Self::build_ast(
             Shell::parse(Rule::line, full_cmd)
                 .unwrap()
                 .next()
                 .unwrap()
-                .into_inner(),
+                .into_inner()
+                .next()
+                .unwrap(),
         )
     }
 
-    pub fn input_string(&self) -> String {
-        match self {
-            Self::Exe(exe) => exe.input_string(),
-            Self::And(exe, command) => format!(
-                "{} && {}",
-                exe.input_string(),
-                command.input_string()
-            ),
-            Self::Or(exe, command) => format!(
-                "{} || {}",
-                exe.input_string(),
-                command.input_string()
-            ),
-            Self::Both(exe, command) => {
-                format!("{}; {}", exe.input_string(), command.input_string())
-            }
-            Self::Pipe(exe, command) => {
-                format!("{} | {}", exe.input_string(), command.input_string())
-            }
-        }
+    pub fn pipelines(&self) -> &[Pipeline] {
+        &self.pipelines
     }
 
-    fn build_ast(mut pairs: pest::iterators::Pairs<Rule>) -> Self {
-        let command = pairs.next().unwrap();
-        assert!(matches!(command.as_rule(), Rule::command));
-        let mut inner = command.into_inner();
-        let exe = inner.next().unwrap();
-        let exe = Exe::parse(exe);
-        if let Some(rest) = inner.next() {
-            let rule = rest.as_rule();
-            let ast = Self::build_ast(rest.into_inner());
-            match rule {
-                Rule::and => Self::And(exe, Box::new(ast)),
-                Rule::or => Self::Or(exe, Box::new(ast)),
-                Rule::both => Self::Both(exe, Box::new(ast)),
-                Rule::pipe => Self::Pipe(exe, Box::new(ast)),
-                _ => unreachable!(),
-            }
-        } else {
-            Self::Exe(exe)
+    pub fn input_string(&self) -> &str {
+        &self.input_string
+    }
+
+    fn build_ast(commands: pest::iterators::Pair<Rule>) -> Self {
+        assert!(matches!(commands.as_rule(), Rule::commands));
+        let input_string = commands.as_str().to_string();
+        Self {
+            pipelines: commands
+                .into_inner()
+                .map(Pipeline::build_ast)
+                .collect(),
+            input_string,
         }
     }
 }

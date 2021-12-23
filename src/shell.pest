@@ -1,17 +1,11 @@
-char = { ASCII_ALPHANUMERIC }
-
+char = @{ !("|" | ";" | WHITESPACE) ~ ANY }
 word = @{ char+ }
 
-exe = { word+ }
+exe      = { word+ }
+pipeline = { exe ~ ("|" ~ exe)* }
+commands = { pipeline ~ (";" ~ pipeline)* }
 
-and  = { "&&" ~ command }
-or   = { "||" ~ command }
-both = { ";"  ~ command }
-pipe = { "|"  ~ command }
+line = { SOI ~ commands ~ EOI }
 
-command = { exe ~ (and | or | both | pipe)? }
-
-line = { SOI ~ command ~ EOI }
-
-WHITESPACE = _{ " " }
+WHITESPACE = _{ (" " | "\t" | "\n") }
 COMMENT    = _{ "#" ~ ANY* }

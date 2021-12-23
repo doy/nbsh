@@ -85,49 +85,24 @@ impl History {
 
     pub async fn run(
         &mut self,
-        cmd: &crate::parse::Command,
+        commands: &crate::parse::Commands,
         event_w: async_std::channel::Sender<crate::event::Event>,
     ) -> anyhow::Result<usize> {
         let (input_w, input_r) = async_std::channel::unbounded();
         let (resize_w, resize_r) = async_std::channel::unbounded();
 
         let entry = async_std::sync::Arc::new(async_std::sync::Mutex::new(
-            Entry::new(cmd.clone(), self.size, input_w, resize_w),
+            Entry::new(commands.clone(), self.size, input_w, resize_w),
         ));
 
-        // for now
-        let cmd = match cmd {
-            crate::parse::Command::Exe(exe) => exe,
-            _ => todo!(),
-        };
+        run_commands(
+            commands.clone(),
+            async_std::sync::Arc::clone(&entry),
+            input_r,
+            resize_r,
+            event_w,
+        );
 
-        if crate::builtins::is(cmd.exe()) {
-            let code: i32 =
-                crate::builtins::run(cmd.exe(), cmd.args()).into();
-            entry.lock_arc().await.exit_info = Some(ExitInfo::new(
-                async_std::process::ExitStatus::from_raw(code << 8),
-            ));
-            event_w
-                .send(crate::event::Event::ProcessExit)
-                .await
-                .unwrap();
-        } else {
-            let mut process = async_std::process::Command::new(cmd.exe());
-            process.args(cmd.args());
-            let child = process
-                .spawn_pty(Some(&pty_process::Size::new(
-                    self.size.0,
-                    self.size.1,
-                )))
-                .unwrap();
-            run_process(
-                child,
-                async_std::sync::Arc::clone(&entry),
-                input_r,
-                resize_r,
-                event_w,
-            );
-        }
         self.entries.push(entry);
         Ok(self.entries.len() - 1)
     }
@@ -248,7 +223,7 @@ impl std::iter::DoubleEndedIterator for VisibleEntries {
 }
 
 pub struct Entry {
-    cmd: crate::parse::Command,
+    commands: crate::parse::Commands,
     vt: vt100::Parser,
     audible_bell_state: usize,
     visual_bell_state: usize,
@@ -262,13 +237,13 @@ pub struct Entry {
 
 impl Entry {
     fn new(
-        cmd: crate::parse::Command,
+        commands: crate::parse::Commands,
         size: (u16, u16),
         input: async_std::channel::Sender<Vec<u8>>,
         resize: async_std::channel::Sender<(u16, u16)>,
     ) -> Self {
         Self {
-            cmd,
+            commands,
             vt: vt100::Parser::new(size.0, size.1, 0),
             audible_bell_state: 0,
             visual_bell_state: 0,
@@ -320,7 +295,7 @@ impl Entry {
         if self.running() {
             out.set_bgcolor(textmode::Color::Rgb(16, 64, 16));
         }
-        out.write_str(&self.cmd.input_string());
+        out.write_str(self.commands.input_string());
         out.reset_attributes();
 
         set_bgcolor(out, focused);
@@ -429,8 +404,8 @@ impl Entry {
         }
     }
 
-    pub fn cmd(&self) -> String {
-        self.cmd.input_string()
+    pub fn cmd(&self) -> &str {
+        self.commands.input_string()
     }
 
     pub fn toggle_fullscreen(&mut self) {
@@ -500,87 +475,133 @@ impl ExitInfo {
     }
 }
 
-fn run_process(
-    mut child: pty_process::async_std::Child,
+fn run_commands(
+    commands: crate::parse::Commands,
     entry: async_std::sync::Arc<async_std::sync::Mutex<Entry>>,
     input_r: async_std::channel::Receiver<Vec<u8>>,
     resize_r: async_std::channel::Receiver<(u16, u16)>,
     event_w: async_std::channel::Sender<crate::event::Event>,
 ) {
     async_std::task::spawn(async move {
-        loop {
-            enum Res {
-                Read(Result<usize, std::io::Error>),
-                Write(Result<Vec<u8>, async_std::channel::RecvError>),
-                Resize(Result<(u16, u16), async_std::channel::RecvError>),
-            }
-            let mut buf = [0_u8; 4096];
-            let mut pty = child.pty();
-            let read = async { Res::Read(pty.read(&mut buf).await) };
-            let write = async { Res::Write(input_r.recv().await) };
-            let resize = async { Res::Resize(resize_r.recv().await) };
-            match read.race(write).race(resize).await {
-                Res::Read(res) => match res {
-                    Ok(bytes) => {
-                        let mut entry = entry.lock_arc().await;
-                        let pre_alternate_screen =
-                            entry.vt.screen().alternate_screen();
-                        entry.vt.process(&buf[..bytes]);
-                        let post_alternate_screen =
-                            entry.vt.screen().alternate_screen();
-                        if entry.fullscreen.is_none()
-                            && pre_alternate_screen != post_alternate_screen
-                        {
-                            event_w
-                                .send(crate::event::Event::ProcessAlternateScreen)
-                                .await
-                                .unwrap();
-                        }
-                        event_w
-                            .send(crate::event::Event::ProcessOutput)
-                            .await
-                            .unwrap();
-                    }
-                    Err(e) => {
-                        if e.raw_os_error() != Some(libc::EIO) {
-                            eprintln!("pty read failed: {:?}", e);
-                        }
-                        // XXX not sure if this is safe - are we sure
-                        // the child exited?
-                        entry.lock_arc().await.exit_info = Some(
-                            ExitInfo::new(child.status().await.unwrap()),
-                        );
-                        event_w
-                            .send(crate::event::Event::ProcessExit)
-                            .await
-                            .unwrap();
-                        break;
-                    }
-                },
-                Res::Write(res) => match res {
-                    Ok(bytes) => {
-                        pty.write(&bytes).await.unwrap();
-                    }
-                    Err(e) => {
-                        panic!("failed to read from input channel: {}", e);
-                    }
-                },
-                Res::Resize(res) => match res {
-                    Ok(size) => {
-                        child
-                            .resize_pty(&pty_process::Size::new(
-                                size.0, size.1,
-                            ))
-                            .unwrap();
-                        entry.lock_arc().await.vt.set_size(size.0, size.1);
-                    }
-                    Err(e) => {
-                        panic!("failed to read from resize channel: {}", e);
-                    }
-                },
+        for pipeline in commands.pipelines() {
+            assert_eq!(pipeline.exes().len(), 1);
+            for exe in pipeline.exes() {
+                run_exe(
+                    exe,
+                    async_std::sync::Arc::clone(&entry),
+                    input_r.clone(),
+                    resize_r.clone(),
+                    event_w.clone(),
+                )
+                .await;
             }
         }
     });
+}
+
+async fn run_exe(
+    exe: &crate::parse::Exe,
+    entry: async_std::sync::Arc<async_std::sync::Mutex<Entry>>,
+    input_r: async_std::channel::Receiver<Vec<u8>>,
+    resize_r: async_std::channel::Receiver<(u16, u16)>,
+    event_w: async_std::channel::Sender<crate::event::Event>,
+) {
+    if crate::builtins::is(exe.exe()) {
+        let code: i32 = crate::builtins::run(exe.exe(), exe.args()).into();
+        entry.lock_arc().await.exit_info = Some(ExitInfo::new(
+            async_std::process::ExitStatus::from_raw(code << 8),
+        ));
+        event_w
+            .send(crate::event::Event::ProcessExit)
+            .await
+            .unwrap();
+        return;
+    }
+
+    let mut process = async_std::process::Command::new(exe.exe());
+    process.args(exe.args());
+    let size = entry.lock_arc().await.vt.screen().size();
+    let child = process
+        .spawn_pty(Some(&pty_process::Size::new(size.0, size.1)))
+        .unwrap();
+    loop {
+        enum Res {
+            Read(Result<usize, std::io::Error>),
+            Write(Result<Vec<u8>, async_std::channel::RecvError>),
+            Resize(Result<(u16, u16), async_std::channel::RecvError>),
+            Exit(
+                Result<async_std::process::ExitStatus, async_std::io::Error>,
+            ),
+        }
+        let mut buf = [0_u8; 4096];
+        let mut pty = child.pty();
+        let read = async { Res::Read(pty.read(&mut buf).await) };
+        let write = async { Res::Write(input_r.recv().await) };
+        let resize = async { Res::Resize(resize_r.recv().await) };
+        let exit = async { Res::Exit(child.status_no_drop().await) };
+        match read.race(write).race(resize).or(exit).await {
+            Res::Read(res) => match res {
+                Ok(bytes) => {
+                    let mut entry = entry.lock_arc().await;
+                    let pre_alternate_screen =
+                        entry.vt.screen().alternate_screen();
+                    entry.vt.process(&buf[..bytes]);
+                    let post_alternate_screen =
+                        entry.vt.screen().alternate_screen();
+                    if entry.fullscreen.is_none()
+                        && pre_alternate_screen != post_alternate_screen
+                    {
+                        event_w
+                            .send(crate::event::Event::ProcessAlternateScreen)
+                            .await
+                            .unwrap();
+                    }
+                    event_w
+                        .send(crate::event::Event::ProcessOutput)
+                        .await
+                        .unwrap();
+                }
+                Err(e) => {
+                    if e.raw_os_error() != Some(libc::EIO) {
+                        panic!("pty read failed: {:?}", e);
+                    }
+                }
+            },
+            Res::Write(res) => match res {
+                Ok(bytes) => {
+                    pty.write(&bytes).await.unwrap();
+                }
+                Err(e) => {
+                    panic!("failed to read from input channel: {}", e);
+                }
+            },
+            Res::Resize(res) => match res {
+                Ok(size) => {
+                    child
+                        .resize_pty(&pty_process::Size::new(size.0, size.1))
+                        .unwrap();
+                    entry.lock_arc().await.vt.set_size(size.0, size.1);
+                }
+                Err(e) => {
+                    panic!("failed to read from resize channel: {}", e);
+                }
+            },
+            Res::Exit(res) => match res {
+                Ok(status) => {
+                    entry.lock_arc().await.exit_info =
+                        Some(ExitInfo::new(status));
+                    event_w
+                        .send(crate::event::Event::ProcessExit)
+                        .await
+                        .unwrap();
+                    break;
+                }
+                Err(e) => {
+                    panic!("failed to get exit status: {}", e);
+                }
+            },
+        }
+    }
 }
 
 fn set_bgcolor(out: &mut impl textmode::Textmode, focus: bool) {

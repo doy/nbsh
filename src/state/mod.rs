@@ -237,7 +237,7 @@ impl State {
             textmode::Key::Char(' ') => {
                 if let Some(idx) = self.focus_idx() {
                     let entry = self.history.entry(idx).await;
-                    self.readline.set_input(&entry.cmd());
+                    self.readline.set_input(entry.cmd());
                     self.set_focus(Focus::Readline, Some(entry)).await;
                 }
             }
@@ -440,8 +440,8 @@ impl State {
         self.focus_idx().map_or(Focus::Readline, Focus::History)
     }
 
-    fn parse(&self, cmd: &str) -> crate::parse::Command {
-        let cmd = crate::parse::Command::parse(cmd);
+    fn parse(&self, cmd: &str) -> crate::parse::Commands {
+        let cmd = crate::parse::Commands::parse(cmd);
         // todo: interpolate
         cmd
     }
