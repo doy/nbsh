@@ -309,12 +309,18 @@ impl State {
                 return Some(Action::HardRefresh);
             }
             textmode::Key::Ctrl(b'm') => {
-                let cmd = self.parse(&self.readline.input());
-                self.readline.clear_input();
-                let idx =
-                    self.history.run(&cmd, event_w.clone()).await.unwrap();
-                self.set_focus(Focus::History(idx), None).await;
-                self.hide_readline = true;
+                let input = self.readline.input();
+                if !input.is_empty() {
+                    let cmd = self.parse(&input);
+                    self.readline.clear_input();
+                    let idx = self
+                        .history
+                        .run(&cmd, event_w.clone())
+                        .await
+                        .unwrap();
+                    self.set_focus(Focus::History(idx), None).await;
+                    self.hide_readline = true;
+                }
             }
             textmode::Key::Ctrl(b'u') => self.readline.clear_backwards(),
             textmode::Key::Backspace => self.readline.backspace(),
