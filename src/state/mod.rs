@@ -447,8 +447,8 @@ impl State {
     }
 
     fn parse(&self, cmd: &str) -> crate::parse::Commands {
-        let cmd = crate::parse::Commands::parse(cmd);
+        let ast = crate::parse::Commands::parse(cmd);
         // todo: interpolate
-        cmd
+        ast
     }
 }

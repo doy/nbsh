@@ -85,18 +85,18 @@ impl History {
 
     pub async fn run(
         &mut self,
-        commands: &crate::parse::Commands,
+        ast: &crate::parse::Commands,
         event_w: async_std::channel::Sender<crate::event::Event>,
     ) -> anyhow::Result<usize> {
         let (input_w, input_r) = async_std::channel::unbounded();
         let (resize_w, resize_r) = async_std::channel::unbounded();
 
         let entry = async_std::sync::Arc::new(async_std::sync::Mutex::new(
-            Entry::new(commands.clone(), self.size, input_w, resize_w),
+            Entry::new(ast.clone(), self.size, input_w, resize_w),
         ));
 
         run_commands(
-            commands.clone(),
+            ast.clone(),
             async_std::sync::Arc::clone(&entry),
             input_r,
             resize_r,
@@ -223,7 +223,7 @@ impl std::iter::DoubleEndedIterator for VisibleEntries {
 }
 
 pub struct Entry {
-    commands: crate::parse::Commands,
+    ast: crate::parse::Commands,
     vt: vt100::Parser,
     audible_bell_state: usize,
     visual_bell_state: usize,
@@ -237,13 +237,13 @@ pub struct Entry {
 
 impl Entry {
     fn new(
-        commands: crate::parse::Commands,
+        ast: crate::parse::Commands,
         size: (u16, u16),
         input: async_std::channel::Sender<Vec<u8>>,
         resize: async_std::channel::Sender<(u16, u16)>,
     ) -> Self {
         Self {
-            commands,
+            ast,
             vt: vt100::Parser::new(size.0, size.1, 0),
             audible_bell_state: 0,
             visual_bell_state: 0,
@@ -295,7 +295,7 @@ impl Entry {
         if self.running() {
             out.set_bgcolor(textmode::Color::Rgb(16, 64, 16));
         }
-        out.write_str(self.commands.input_string());
+        out.write_str(self.ast.input_string());
         out.reset_attributes();
 
         set_bgcolor(out, focused);
@@ -405,7 +405,7 @@ impl Entry {
     }
 
     pub fn cmd(&self) -> &str {
-        self.commands.input_string()
+        self.ast.input_string()
     }
 
     pub fn toggle_fullscreen(&mut self) {
@@ -476,7 +476,7 @@ impl ExitInfo {
 }
 
 fn run_commands(
-    commands: crate::parse::Commands,
+    ast: crate::parse::Commands,
     entry: async_std::sync::Arc<async_std::sync::Mutex<Entry>>,
     input_r: async_std::channel::Receiver<Vec<u8>>,
     resize_r: async_std::channel::Receiver<(u16, u16)>,
@@ -484,7 +484,7 @@ fn run_commands(
 ) {
     async_std::task::spawn(async move {
         let mut status = async_std::process::ExitStatus::from_raw(0 << 8);
-        'commands: for pipeline in commands.pipelines() {
+        'commands: for pipeline in ast.pipelines() {
             assert_eq!(pipeline.exes().len(), 1);
             for exe in pipeline.exes() {
                 status = run_exe(
