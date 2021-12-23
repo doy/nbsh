@@ -77,16 +77,16 @@ pub struct Commands {
 }
 
 impl Commands {
-    pub fn parse(full_cmd: &str) -> Self {
-        Self::build_ast(
+    pub fn parse(full_cmd: &str) -> Result<Self, Error> {
+        Ok(Self::build_ast(
             Shell::parse(Rule::line, full_cmd)
-                .unwrap()
+                .map_err(|e| Error::new(full_cmd, anyhow::anyhow!(e)))?
                 .next()
                 .unwrap()
                 .into_inner()
                 .next()
                 .unwrap(),
-        )
+        ))
     }
 
     pub fn pipelines(&self) -> &[Pipeline] {
@@ -107,5 +107,27 @@ impl Commands {
                 .collect(),
             input_string,
         }
+    }
+}
+
+pub struct Error {
+    input: String,
+    e: anyhow::Error,
+}
+
+impl Error {
+    fn new(input: &str, e: anyhow::Error) -> Self {
+        Self {
+            input: input.to_string(),
+            e,
+        }
+    }
+
+    pub fn input(&self) -> &str {
+        &self.input
+    }
+
+    pub fn error(&self) -> &anyhow::Error {
+        &self.e
     }
 }

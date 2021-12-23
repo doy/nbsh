@@ -92,7 +92,7 @@ impl History {
         let (resize_w, resize_r) = async_std::channel::unbounded();
 
         let entry = async_std::sync::Arc::new(async_std::sync::Mutex::new(
-            Entry::new(ast.clone(), self.size, input_w, resize_w),
+            Entry::new(Ok(ast.clone()), self.size, input_w, resize_w),
         ));
 
         run_commands(
@@ -105,6 +105,31 @@ impl History {
 
         self.entries.push(entry);
         Ok(self.entries.len() - 1)
+    }
+
+    pub async fn parse_error(
+        &mut self,
+        e: crate::parse::Error,
+        event_w: async_std::channel::Sender<crate::event::Event>,
+    ) {
+        // XXX would be great to not have to do this
+        let (input_w, input_r) = async_std::channel::unbounded();
+        let (resize_w, resize_r) = async_std::channel::unbounded();
+        input_w.close();
+        input_r.close();
+        resize_w.close();
+        resize_r.close();
+
+        let mut entry = Entry::new(Err(e), self.size, input_w, resize_w);
+        let status = async_std::process::ExitStatus::from_raw(1 << 8);
+        entry.exit_info = Some(ExitInfo::new(status));
+        self.entries.push(async_std::sync::Arc::new(
+            async_std::sync::Mutex::new(entry),
+        ));
+        event_w
+            .send(crate::event::Event::ProcessExit)
+            .await
+            .unwrap();
     }
 
     pub async fn entry(
@@ -223,7 +248,7 @@ impl std::iter::DoubleEndedIterator for VisibleEntries {
 }
 
 pub struct Entry {
-    ast: crate::parse::Commands,
+    ast: Result<crate::parse::Commands, crate::parse::Error>,
     vt: vt100::Parser,
     audible_bell_state: usize,
     visual_bell_state: usize,
@@ -237,7 +262,7 @@ pub struct Entry {
 
 impl Entry {
     fn new(
-        ast: crate::parse::Commands,
+        ast: Result<crate::parse::Commands, crate::parse::Error>,
         size: (u16, u16),
         input: async_std::channel::Sender<Vec<u8>>,
         resize: async_std::channel::Sender<(u16, u16)>,
@@ -295,7 +320,7 @@ impl Entry {
         if self.running() {
             out.set_bgcolor(textmode::Color::Rgb(16, 64, 16));
         }
-        out.write_str(self.ast.input_string());
+        out.write_str(self.cmd());
         out.reset_attributes();
 
         set_bgcolor(out, focused);
@@ -324,75 +349,99 @@ impl Entry {
         out.write_str(" ");
         out.reset_attributes();
 
-        if self.binary() {
-            let msg = "This appears to be binary data. Fullscreen this entry to view anyway.";
-            let len: u16 = msg.len().try_into().unwrap();
-            out.move_to(
-                out.screen().cursor_position().0 + 1,
-                (width - len) / 2,
-            );
-            out.set_fgcolor(textmode::color::RED);
-            out.write_str(msg);
-            out.hide_cursor(true);
-            out.reset_attributes();
-        } else {
-            let last_row = self.output_lines(width, focused && !scrolling);
-            if last_row > 5 {
-                out.write(b"\r\n");
-                out.set_fgcolor(textmode::color::BLUE);
-                out.write_str("...");
-                out.reset_attributes();
-            }
-            let mut out_row = out.screen().cursor_position().0 + 1;
-            let screen = self.vt.screen();
-            let pos = screen.cursor_position();
-            let mut wrapped = false;
-            let mut cursor_found = None;
-            for (idx, row) in screen
-                .rows_formatted(0, width)
-                .enumerate()
-                .take(last_row)
-                .skip(last_row.saturating_sub(5))
-            {
-                let idx: u16 = idx.try_into().unwrap();
-                out.reset_attributes();
-                if !wrapped {
-                    out.move_to(out_row, 0);
-                }
-                out.write(&row);
-                wrapped = screen.row_wrapped(idx);
-                if pos.0 == idx {
-                    cursor_found = Some(out_row);
-                }
-                out_row += 1;
-            }
-            if focused && !scrolling {
-                if let Some(row) = cursor_found {
-                    out.hide_cursor(screen.hide_cursor());
-                    out.move_to(row, pos.1);
-                } else {
+        match &self.ast {
+            Ok(_) => {
+                if self.binary() {
+                    let msg = "This appears to be binary data. Fullscreen this entry to view anyway.";
+                    let len: u16 = msg.len().try_into().unwrap();
+                    out.move_to(
+                        out.screen().cursor_position().0 + 1,
+                        (width - len) / 2,
+                    );
+                    out.set_fgcolor(textmode::color::RED);
+                    out.write_str(msg);
                     out.hide_cursor(true);
+                } else {
+                    let last_row =
+                        self.output_lines(width, focused && !scrolling);
+                    if last_row > 5 {
+                        out.write(b"\r\n");
+                        out.set_fgcolor(textmode::color::BLUE);
+                        out.write_str("...");
+                        out.reset_attributes();
+                    }
+                    let mut out_row = out.screen().cursor_position().0 + 1;
+                    let screen = self.vt.screen();
+                    let pos = screen.cursor_position();
+                    let mut wrapped = false;
+                    let mut cursor_found = None;
+                    for (idx, row) in screen
+                        .rows_formatted(0, width)
+                        .enumerate()
+                        .take(last_row)
+                        .skip(last_row.saturating_sub(5))
+                    {
+                        let idx: u16 = idx.try_into().unwrap();
+                        out.reset_attributes();
+                        if !wrapped {
+                            out.move_to(out_row, 0);
+                        }
+                        out.write(&row);
+                        wrapped = screen.row_wrapped(idx);
+                        if pos.0 == idx {
+                            cursor_found = Some(out_row);
+                        }
+                        out_row += 1;
+                    }
+                    if focused && !scrolling {
+                        if let Some(row) = cursor_found {
+                            out.hide_cursor(screen.hide_cursor());
+                            out.move_to(row, pos.1);
+                        } else {
+                            out.hide_cursor(true);
+                        }
+                    }
                 }
+            }
+            Err(e) => {
+                out.move_to(out.screen().cursor_position().0 + 1, 0);
+                out.set_fgcolor(textmode::color::RED);
+                out.write_str(
+                    &format!("{}", e.error()).replace('\n', "\r\n"),
+                );
+                out.hide_cursor(true);
             }
         }
         out.reset_attributes();
     }
 
     fn render_fullscreen(&mut self, out: &mut impl textmode::Textmode) {
-        let screen = self.vt.screen();
-        let new_audible_bell_state = screen.audible_bell_count();
-        let new_visual_bell_state = screen.visual_bell_count();
+        match &self.ast {
+            Ok(_) => {
+                let screen = self.vt.screen();
+                let new_audible_bell_state = screen.audible_bell_count();
+                let new_visual_bell_state = screen.visual_bell_count();
 
-        out.write(&screen.state_formatted());
+                out.write(&screen.state_formatted());
 
-        if self.audible_bell_state != new_audible_bell_state {
-            out.write(b"\x07");
-            self.audible_bell_state = new_audible_bell_state;
-        }
+                if self.audible_bell_state != new_audible_bell_state {
+                    out.write(b"\x07");
+                    self.audible_bell_state = new_audible_bell_state;
+                }
 
-        if self.visual_bell_state != new_visual_bell_state {
-            out.write(b"\x1bg");
-            self.visual_bell_state = new_visual_bell_state;
+                if self.visual_bell_state != new_visual_bell_state {
+                    out.write(b"\x1bg");
+                    self.visual_bell_state = new_visual_bell_state;
+                }
+            }
+            Err(e) => {
+                out.move_to(0, 0);
+                out.set_fgcolor(textmode::color::RED);
+                out.write_str(
+                    &format!("{}", e.error()).replace('\n', "\r\n"),
+                );
+                out.hide_cursor(true);
+            }
         }
 
         out.reset_attributes();
@@ -405,7 +454,10 @@ impl Entry {
     }
 
     pub fn cmd(&self) -> &str {
-        self.ast.input_string()
+        match &self.ast {
+            Ok(ast) => ast.input_string(),
+            Err(e) => e.input(),
+        }
     }
 
     pub fn toggle_fullscreen(&mut self) {
@@ -434,6 +486,10 @@ impl Entry {
     }
 
     pub fn output_lines(&self, width: u16, focused: bool) -> usize {
+        if let Err(e) = &self.ast {
+            return e.error().to_string().lines().count();
+        }
+
         if self.binary() {
             return 1;
         }

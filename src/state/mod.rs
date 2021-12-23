@@ -311,15 +311,23 @@ impl State {
             textmode::Key::Ctrl(b'm') => {
                 let input = self.readline.input();
                 if !input.is_empty() {
-                    let cmd = self.parse(&input);
                     self.readline.clear_input();
-                    let idx = self
-                        .history
-                        .run(&cmd, event_w.clone())
-                        .await
-                        .unwrap();
-                    self.set_focus(Focus::History(idx), None).await;
-                    self.hide_readline = true;
+                    match self.parse(&input) {
+                        Ok(ast) => {
+                            let idx = self
+                                .history
+                                .run(&ast, event_w.clone())
+                                .await
+                                .unwrap();
+                            self.set_focus(Focus::History(idx), None).await;
+                            self.hide_readline = true;
+                        }
+                        Err(e) => {
+                            self.history
+                                .parse_error(e, event_w.clone())
+                                .await;
+                        }
+                    }
                 }
             }
             textmode::Key::Ctrl(b'u') => self.readline.clear_backwards(),
@@ -446,9 +454,12 @@ impl State {
         self.focus_idx().map_or(Focus::Readline, Focus::History)
     }
 
-    fn parse(&self, cmd: &str) -> crate::parse::Commands {
-        let ast = crate::parse::Commands::parse(cmd);
+    fn parse(
+        &self,
+        cmd: &str,
+    ) -> Result<crate::parse::Commands, crate::parse::Error> {
+        let ast = crate::parse::Commands::parse(cmd)?;
         // todo: interpolate
-        ast
+        Ok(ast)
     }
 }
