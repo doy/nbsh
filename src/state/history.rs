@@ -483,19 +483,28 @@ fn run_commands(
     event_w: async_std::channel::Sender<crate::event::Event>,
 ) {
     async_std::task::spawn(async move {
+        let mut status = None;
         for pipeline in commands.pipelines() {
             assert_eq!(pipeline.exes().len(), 1);
             for exe in pipeline.exes() {
-                run_exe(
-                    exe,
-                    async_std::sync::Arc::clone(&entry),
-                    input_r.clone(),
-                    resize_r.clone(),
-                    event_w.clone(),
-                )
-                .await;
+                status = Some(
+                    run_exe(
+                        exe,
+                        async_std::sync::Arc::clone(&entry),
+                        input_r.clone(),
+                        resize_r.clone(),
+                        event_w.clone(),
+                    )
+                    .await,
+                );
             }
         }
+        entry.lock_arc().await.exit_info =
+            Some(ExitInfo::new(status.unwrap()));
+        event_w
+            .send(crate::event::Event::ProcessExit)
+            .await
+            .unwrap();
     });
 }
 
@@ -505,17 +514,10 @@ async fn run_exe(
     input_r: async_std::channel::Receiver<Vec<u8>>,
     resize_r: async_std::channel::Receiver<(u16, u16)>,
     event_w: async_std::channel::Sender<crate::event::Event>,
-) {
+) -> async_std::process::ExitStatus {
     if crate::builtins::is(exe.exe()) {
         let code: i32 = crate::builtins::run(exe.exe(), exe.args()).into();
-        entry.lock_arc().await.exit_info = Some(ExitInfo::new(
-            async_std::process::ExitStatus::from_raw(code << 8),
-        ));
-        event_w
-            .send(crate::event::Event::ProcessExit)
-            .await
-            .unwrap();
-        return;
+        return async_std::process::ExitStatus::from_raw(code << 8);
     }
 
     let mut process = async_std::process::Command::new(exe.exe());
@@ -588,13 +590,7 @@ async fn run_exe(
             },
             Res::Exit(res) => match res {
                 Ok(status) => {
-                    entry.lock_arc().await.exit_info =
-                        Some(ExitInfo::new(status));
-                    event_w
-                        .send(crate::event::Event::ProcessExit)
-                        .await
-                        .unwrap();
-                    break;
+                    return status;
                 }
                 Err(e) => {
                     panic!("failed to get exit status: {}", e);
