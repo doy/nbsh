@@ -11,17 +11,19 @@ pub struct Word {
 }
 
 impl Word {
-    fn new(word: &str) -> Self {
+    fn build_ast(pair: pest::iterators::Pair<Rule>) -> Self {
+        assert!(matches!(pair.as_rule(), Rule::word));
+        let word = pair.into_inner().next().unwrap();
+        assert!(matches!(
+            word.as_rule(),
+            Rule::bareword | Rule::single_string | Rule::double_string
+        ));
         Self {
-            word: word.to_string(),
-            interpolate: true,
-        }
-    }
-
-    fn literal(word: &str) -> Self {
-        Self {
-            word: word.to_string(),
-            interpolate: false,
+            word: word.as_str().to_string(),
+            interpolate: matches!(
+                word.as_rule(),
+                Rule::bareword | Rule::double_string
+            ),
         }
     }
 }
@@ -36,8 +38,8 @@ impl Exe {
     fn build_ast(pair: pest::iterators::Pair<Rule>) -> Self {
         assert!(matches!(pair.as_rule(), Rule::exe));
         let mut iter = pair.into_inner();
-        let exe = Word::new(iter.next().unwrap().as_str());
-        let args = iter.map(|word| Word::new(word.as_str())).collect();
+        let exe = Word::build_ast(iter.next().unwrap());
+        let args = iter.map(Word::build_ast).collect();
         Self { exe, args }
     }
 

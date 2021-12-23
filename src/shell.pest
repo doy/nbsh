@@ -1,5 +1,16 @@
-char = @{ !("|" | ";" | WHITESPACE) ~ ANY }
-word = @{ char+ }
+bareword_char      = @{ !("|" | ";" | "\"" | "'" | WHITESPACE | COMMENT) ~ ANY }
+single_string_char = @{ "\\'" | (!"'" ~ ANY) }
+double_string_char = @{ "\\\"" | (!"\"" ~ ANY) }
+
+bareword      = @{ bareword_char+ }
+single_string = @{ single_string_char+ }
+double_string = @{ double_string_char+ }
+
+word     = {
+    bareword |
+    "'" ~ single_string ~ "'" |
+    "\"" ~ double_string ~ "\""
+}
 
 exe      = { word+ }
 pipeline = { exe ~ ("|" ~ exe)* }
