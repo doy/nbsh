@@ -483,24 +483,27 @@ fn run_commands(
     event_w: async_std::channel::Sender<crate::event::Event>,
 ) {
     async_std::task::spawn(async move {
-        let mut status = None;
+        let mut status = async_std::process::ExitStatus::from_raw(0 << 8);
         for pipeline in commands.pipelines() {
             assert_eq!(pipeline.exes().len(), 1);
             for exe in pipeline.exes() {
-                status = Some(
-                    run_exe(
-                        exe,
-                        async_std::sync::Arc::clone(&entry),
-                        input_r.clone(),
-                        resize_r.clone(),
-                        event_w.clone(),
-                    )
-                    .await,
-                );
+                status = run_exe(
+                    exe,
+                    async_std::sync::Arc::clone(&entry),
+                    input_r.clone(),
+                    resize_r.clone(),
+                    event_w.clone(),
+                )
+                .await;
+                if status.signal().is_some() {
+                    break;
+                }
+            }
+            if status.signal().is_some() {
+                break;
             }
         }
-        entry.lock_arc().await.exit_info =
-            Some(ExitInfo::new(status.unwrap()));
+        entry.lock_arc().await.exit_info = Some(ExitInfo::new(status));
         event_w
             .send(crate::event::Event::ProcessExit)
             .await
