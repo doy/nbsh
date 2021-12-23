@@ -484,7 +484,7 @@ fn run_commands(
 ) {
     async_std::task::spawn(async move {
         let mut status = async_std::process::ExitStatus::from_raw(0 << 8);
-        for pipeline in commands.pipelines() {
+        'commands: for pipeline in commands.pipelines() {
             assert_eq!(pipeline.exes().len(), 1);
             for exe in pipeline.exes() {
                 status = run_exe(
@@ -495,12 +495,16 @@ fn run_commands(
                     event_w.clone(),
                 )
                 .await;
-                if status.signal().is_some() {
-                    break;
+
+                // i'm not sure what exactly the expected behavior here is -
+                // in zsh, SIGINT kills the whole command line while SIGTERM
+                // doesn't, but i don't know what the precise logic is or how
+                // other signals are handled
+                if status.signal()
+                    == Some(signal_hook::consts::signal::SIGINT)
+                {
+                    break 'commands;
                 }
-            }
-            if status.signal().is_some() {
-                break;
             }
         }
         entry.lock_arc().await.exit_info = Some(ExitInfo::new(status));
