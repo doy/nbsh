@@ -291,7 +291,7 @@ impl Entry {
         scrolling: bool,
         offset: time::UtcOffset,
     ) {
-        set_bgcolor(out, focused);
+        set_bgcolor(out, idx, focused);
         out.set_fgcolor(textmode::color::YELLOW);
         let entry_count_width = format!("{}", entry_count + 1).len();
         let idx_str = format!("{}", idx + 1);
@@ -300,7 +300,7 @@ impl Entry {
         out.write_str(" ");
         out.reset_attributes();
 
-        set_bgcolor(out, focused);
+        set_bgcolor(out, idx, focused);
         if let Some(info) = self.exit_info {
             if info.status.signal().is_some() {
                 out.set_fgcolor(textmode::color::MAGENTA);
@@ -315,7 +315,7 @@ impl Entry {
         }
         out.reset_attributes();
 
-        set_bgcolor(out, focused);
+        set_bgcolor(out, idx, focused);
         out.write_str("$ ");
         if self.running() {
             out.set_bgcolor(textmode::Color::Rgb(16, 64, 16));
@@ -323,7 +323,7 @@ impl Entry {
         out.write_str(self.cmd());
         out.reset_attributes();
 
-        set_bgcolor(out, focused);
+        set_bgcolor(out, idx, focused);
         let time = self.exit_info.map_or_else(
             || {
                 format!(
@@ -663,10 +663,12 @@ async fn run_exe(
     }
 }
 
-fn set_bgcolor(out: &mut impl textmode::Textmode, focus: bool) {
+fn set_bgcolor(out: &mut impl textmode::Textmode, idx: usize, focus: bool) {
     if focus {
-        out.set_bgcolor(textmode::Color::Rgb(32, 32, 64));
+        out.set_bgcolor(textmode::Color::Rgb(0x56, 0x1b, 0x8b));
+    } else if idx % 2 == 0 {
+        out.set_bgcolor(textmode::Color::Rgb(0x24, 0x21, 0x00));
     } else {
-        out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
+        out.set_bgcolor(textmode::Color::Rgb(0x20, 0x20, 0x20));
     }
 }

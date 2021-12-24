@@ -36,18 +36,22 @@ impl Readline {
 
         out.move_to(self.size.0 - 2, 0);
         if focus {
-            out.set_bgcolor(textmode::Color::Rgb(32, 32, 64));
+            out.set_bgcolor(textmode::Color::Rgb(0x56, 0x1b, 0x8b));
+        } else if entry_count % 2 == 0 {
+            out.set_bgcolor(textmode::Color::Rgb(0x24, 0x21, 0x00));
         } else {
-            out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
+            out.set_bgcolor(textmode::Color::Rgb(0x20, 0x20, 0x20));
         }
         out.write(b"\x1b[K");
         out.set_fgcolor(textmode::color::YELLOW);
         out.write_str(&format!("{}", entry_count + 1));
         out.reset_attributes();
         if focus {
-            out.set_bgcolor(textmode::Color::Rgb(32, 32, 64));
+            out.set_bgcolor(textmode::Color::Rgb(0x56, 0x1b, 0x8b));
+        } else if entry_count % 2 == 0 {
+            out.set_bgcolor(textmode::Color::Rgb(0x24, 0x21, 0x00));
         } else {
-            out.set_bgcolor(textmode::Color::Rgb(32, 32, 32));
+            out.set_bgcolor(textmode::Color::Rgb(0x20, 0x20, 0x20));
         }
         out.write_str(" (");
         out.write_str(&pwd);
