@@ -6,7 +6,7 @@ bareword      = @{ bareword_char+ }
 single_string = @{ single_string_char+ }
 double_string = @{ double_string_char+ }
 
-word     = {
+word     = ${
     bareword |
     "'" ~ single_string ~ "'" |
     "\"" ~ double_string ~ "\""
