@@ -1,6 +1,7 @@
 use async_std::io::{ReadExt as _, WriteExt as _};
 use futures_lite::future::FutureExt as _;
 use pty_process::Command as _;
+use std::error::Error as _;
 use std::os::unix::process::ExitStatusExt as _;
 
 pub struct History {
@@ -586,9 +587,23 @@ async fn run_exe(
     let mut process = async_std::process::Command::new(exe.exe());
     process.args(exe.args());
     let size = entry.lock_arc().await.vt.screen().size();
-    let child = process
-        .spawn_pty(Some(&pty_process::Size::new(size.0, size.1)))
-        .unwrap();
+    let child =
+        process.spawn_pty(Some(&pty_process::Size::new(size.0, size.1)));
+    let child = match child {
+        Ok(child) => child,
+        Err(e) => {
+            let mut entry = entry.lock_arc().await;
+            entry.vt.process(
+                format!(
+                    "\x1b[31mnbsh: failed to run {}: {}",
+                    exe.exe(),
+                    e.source().unwrap()
+                )
+                .as_bytes(),
+            );
+            return async_std::process::ExitStatus::from_raw(1 << 8);
+        }
+    };
     loop {
         enum Res {
             Read(Result<usize, std::io::Error>),
