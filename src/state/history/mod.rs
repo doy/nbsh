@@ -4,6 +4,8 @@ use pty_process::Command as _;
 use std::error::Error as _;
 use std::os::unix::process::ExitStatusExt as _;
 
+mod builtins;
+
 pub struct History {
     size: (u16, u16),
     entries: Vec<async_std::sync::Arc<async_std::sync::Mutex<Entry>>>,
@@ -602,8 +604,8 @@ async fn run_exe(
     resize_r: async_std::channel::Receiver<(u16, u16)>,
     event_w: async_std::channel::Sender<crate::event::Event>,
 ) -> async_std::process::ExitStatus {
-    if crate::builtins::is(exe.exe()) {
-        let code: i32 = crate::builtins::run(exe.exe(), exe.args()).into();
+    if builtins::is(exe.exe()) {
+        let code: i32 = builtins::run(exe.exe(), exe.args()).into();
         return async_std::process::ExitStatus::from_raw(code << 8);
     }
 
