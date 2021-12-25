@@ -604,9 +604,8 @@ async fn run_exe(
     resize_r: async_std::channel::Receiver<(u16, u16)>,
     event_w: async_std::channel::Sender<crate::event::Event>,
 ) -> async_std::process::ExitStatus {
-    if builtins::is(exe.exe()) {
-        let code: i32 = builtins::run(exe.exe(), exe.args()).into();
-        return async_std::process::ExitStatus::from_raw(code << 8);
+    if let Some(status) = builtins::run(exe) {
+        return status;
     }
 
     let mut process = async_std::process::Command::new(exe.exe());

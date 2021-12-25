@@ -1,47 +1,48 @@
-pub fn is(exe: &str) -> bool {
-    matches!(exe, "cd")
-}
+use std::os::unix::process::ExitStatusExt as _;
 
-pub fn run<'a>(exe: &str, args: impl IntoIterator<Item = &'a str>) -> u8 {
-    match exe {
-        "cd" => impls::cd(
-            args.into_iter()
-                .map(std::convert::AsRef::as_ref)
-                .next()
-                .unwrap_or(""),
-        ),
-        _ => unreachable!(),
+pub fn run(
+    exe: &crate::parse::Exe,
+) -> Option<async_std::process::ExitStatus> {
+    match exe.exe() {
+        "cd" => Some(cd(exe)),
+        _ => None,
     }
 }
 
-mod impls {
-    pub fn cd(dir: &str) -> u8 {
-        let dir = if dir.is_empty() {
-            home()
-        } else if dir.starts_with('~') {
-            let path: std::path::PathBuf = dir.into();
-            if let std::path::Component::Normal(prefix) =
-                path.components().next().unwrap()
-            {
-                if prefix.to_str() == Some("~") {
-                    home().join(path.strip_prefix(prefix).unwrap())
-                } else {
-                    // TODO
-                    return 1;
-                }
+fn cd(exe: &crate::parse::Exe) -> async_std::process::ExitStatus {
+    let dir = exe
+        .args()
+        .into_iter()
+        .map(std::convert::AsRef::as_ref)
+        .next()
+        .unwrap_or("");
+
+    let dir = if dir.is_empty() {
+        home()
+    } else if dir.starts_with('~') {
+        let path: std::path::PathBuf = dir.into();
+        if let std::path::Component::Normal(prefix) =
+            path.components().next().unwrap()
+        {
+            if prefix.to_str() == Some("~") {
+                home().join(path.strip_prefix(prefix).unwrap())
             } else {
-                unreachable!()
+                // TODO
+                return async_std::process::ExitStatus::from_raw(1 << 8);
             }
         } else {
-            dir.into()
-        };
-        match std::env::set_current_dir(dir) {
-            Ok(()) => 0,
-            Err(_) => 1,
+            unreachable!()
         }
-    }
+    } else {
+        dir.into()
+    };
+    let code = match std::env::set_current_dir(dir) {
+        Ok(()) => 0,
+        Err(_) => 1,
+    };
+    async_std::process::ExitStatus::from_raw(code << 8)
+}
 
-    fn home() -> std::path::PathBuf {
-        std::env::var_os("HOME").unwrap().into()
-    }
+fn home() -> std::path::PathBuf {
+    std::env::var_os("HOME").unwrap().into()
 }
