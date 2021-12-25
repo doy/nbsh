@@ -1,12 +1,23 @@
 use std::os::unix::process::ExitStatusExt as _;
 
+type Builtin = &'static (dyn Fn(&crate::parse::Exe) -> std::process::ExitStatus
+              + Sync
+              + Send);
+
+// i don't know how to do this without an as conversion
+#[allow(clippy::as_conversions)]
+static BUILTINS: once_cell::sync::Lazy<
+    std::collections::HashMap<&'static str, Builtin>,
+> = once_cell::sync::Lazy::new(|| {
+    let mut builtins = std::collections::HashMap::new();
+    builtins.insert("cd", &cd as Builtin);
+    builtins
+});
+
 pub fn run(
     exe: &crate::parse::Exe,
 ) -> Option<async_std::process::ExitStatus> {
-    match exe.exe() {
-        "cd" => Some(cd(exe)),
-        _ => None,
-    }
+    BUILTINS.get(exe.exe()).map(|f| f(exe))
 }
 
 fn cd(exe: &crate::parse::Exe) -> async_std::process::ExitStatus {

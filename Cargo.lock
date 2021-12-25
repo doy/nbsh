@@ -466,6 +466,7 @@ dependencies = [
  "hostname",
  "libc",
  "nix",
+ "once_cell",
  "pest",
  "pest_derive",
  "pty-process",
