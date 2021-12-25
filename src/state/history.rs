@@ -541,27 +541,18 @@ fn run_commands(
 ) {
     async_std::task::spawn(async move {
         let mut status = async_std::process::ExitStatus::from_raw(0 << 8);
-        'commands: for pipeline in ast.pipelines() {
-            assert_eq!(pipeline.exes().len(), 1);
-            for exe in pipeline.exes() {
-                status = run_exe(
-                    exe,
-                    async_std::sync::Arc::clone(&entry),
-                    input_r.clone(),
-                    resize_r.clone(),
-                    event_w.clone(),
-                )
-                .await;
-
-                // i'm not sure what exactly the expected behavior here is -
-                // in zsh, SIGINT kills the whole command line while SIGTERM
-                // doesn't, but i don't know what the precise logic is or how
-                // other signals are handled
-                if status.signal()
-                    == Some(signal_hook::consts::signal::SIGINT)
-                {
-                    break 'commands;
-                }
+        for pipeline in ast.pipelines() {
+            let (pipeline_status, done) = run_pipeline(
+                pipeline,
+                async_std::sync::Arc::clone(&entry),
+                input_r.clone(),
+                resize_r.clone(),
+                event_w.clone(),
+            )
+            .await;
+            status = pipeline_status;
+            if done {
+                break;
             }
         }
         entry.lock_arc().await.exit_info = Some(ExitInfo::new(status));
@@ -570,6 +561,38 @@ fn run_commands(
             .await
             .unwrap();
     });
+}
+
+async fn run_pipeline(
+    pipeline: &crate::parse::Pipeline,
+    entry: async_std::sync::Arc<async_std::sync::Mutex<Entry>>,
+    input_r: async_std::channel::Receiver<Vec<u8>>,
+    resize_r: async_std::channel::Receiver<(u16, u16)>,
+    event_w: async_std::channel::Sender<crate::event::Event>,
+) -> (async_std::process::ExitStatus, bool) {
+    // for now
+    assert_eq!(pipeline.exes().len(), 1);
+
+    let mut status = async_std::process::ExitStatus::from_raw(0 << 8);
+    for exe in pipeline.exes() {
+        status = run_exe(
+            exe,
+            async_std::sync::Arc::clone(&entry),
+            input_r.clone(),
+            resize_r.clone(),
+            event_w.clone(),
+        )
+        .await;
+
+        // i'm not sure what exactly the expected behavior here is -
+        // in zsh, SIGINT kills the whole command line while SIGTERM
+        // doesn't, but i don't know what the precise logic is or how
+        // other signals are handled
+        if status.signal() == Some(signal_hook::consts::signal::SIGINT) {
+            return (status, true);
+        }
+    }
+    (status, false)
 }
 
 async fn run_exe(
