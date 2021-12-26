@@ -640,7 +640,7 @@ async fn run_exe(
             let mut entry = env.entry().await;
             entry.vt.process(
                 format!(
-                    "\x1b[31mnbsh: failed to run {}: {}",
+                    "nbsh: failed to run {}: {}",
                     exe.exe(),
                     e.source().unwrap()
                 )
