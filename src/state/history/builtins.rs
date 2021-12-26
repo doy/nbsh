@@ -92,7 +92,13 @@ async fn cd(
         Ok(()) => 0,
         Err(e) => {
             env.write_vt(
-                format!("{}: {}: {}", exe.exe(), e, dir.display()).as_bytes(),
+                format!(
+                    "{}: {}: {}",
+                    exe.exe(),
+                    crate::format::io_error(&e),
+                    dir.display()
+                )
+                .as_bytes(),
             )
             .await;
             1

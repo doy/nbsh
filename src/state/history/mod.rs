@@ -1,7 +1,6 @@
 use async_std::io::{ReadExt as _, WriteExt as _};
 use futures_lite::future::FutureExt as _;
 use pty_process::Command as _;
-use std::error::Error as _;
 use std::os::unix::process::ExitStatusExt as _;
 
 mod builtins;
@@ -650,9 +649,16 @@ async fn run_exe(
         Ok(child) => child,
         Err(e) => {
             let mut entry = env.entry().await;
+            let e_str = match e {
+                pty_process::Error::CreatePty(e)
+                | pty_process::Error::SetTermSize(e)
+                | pty_process::Error::Spawn(e) => match e {
+                    pty_process::Source::Io(e) => crate::format::io_error(&e),
+                    _ => e.to_string(),
+                },
+            };
             entry.vt.process(
-                format!("nbsh: {}: {}", e.source().unwrap(), exe.exe())
-                    .as_bytes(),
+                format!("nbsh: {}: {}", e_str, exe.exe()).as_bytes(),
             );
             return async_std::process::ExitStatus::from_raw(1 << 8);
         }

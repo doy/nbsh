@@ -37,3 +37,12 @@ pub fn duration(dur: std::time::Duration) -> String {
         format!("{}ns", nanos)
     }
 }
+
+pub fn io_error(e: &std::io::Error) -> String {
+    let mut s = format!("{}", e);
+    if e.raw_os_error().is_some() {
+        let i = s.rfind('(').unwrap();
+        s.truncate(i - 1);
+    }
+    s
+}
