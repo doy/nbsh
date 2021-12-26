@@ -652,10 +652,13 @@ async fn run_exe(
             let e_str = match e {
                 pty_process::Error::CreatePty(e)
                 | pty_process::Error::SetTermSize(e)
-                | pty_process::Error::Spawn(e) => match e {
-                    pty_process::Source::Io(e) => crate::format::io_error(&e),
-                    _ => e.to_string(),
-                },
+                | pty_process::Error::Spawn(e) => {
+                    if let pty_process::Source::Io(e) = e {
+                        crate::format::io_error(&e)
+                    } else {
+                        e.to_string()
+                    }
+                }
             };
             entry.vt.process(
                 format!("nbsh: {}: {}", e_str, exe.exe()).as_bytes(),
