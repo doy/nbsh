@@ -1,25 +1,25 @@
 use std::os::unix::process::ExitStatusExt as _;
 
-// i hate all of this so much
-type Builtin = Box<
-    dyn for<'a> Fn(
-            &'a crate::parse::Exe,
-            &'a super::ProcessEnv,
-        ) -> std::pin::Pin<
-            Box<
-                dyn std::future::Future<Output = std::process::ExitStatus>
-                    + Sync
-                    + Send
-                    + 'a,
-            >,
-        > + Sync
-        + Send,
->;
+type Builtin = &'static (dyn for<'a> Fn(
+    &'a crate::parse::Exe,
+    &'a super::ProcessEnv,
+) -> std::pin::Pin<
+    Box<
+        dyn std::future::Future<Output = std::process::ExitStatus>
+            + Sync
+            + Send
+            + 'a,
+    >,
+> + Sync
+              + Send);
 
 static BUILTINS: once_cell::sync::Lazy<
     std::collections::HashMap<&'static str, Builtin>,
 > = once_cell::sync::Lazy::new(|| {
-    fn box_builtin<F>(f: F) -> Builtin
+    // all this does is convince the type system to do the right thing, i
+    // don't think there's any way to just do it directly through annotations
+    // or casts or whatever
+    fn coerce_builtin<F>(f: &'static F) -> Builtin
     where
         F: for<'a> Fn(
                 &'a crate::parse::Exe,
@@ -35,13 +35,14 @@ static BUILTINS: once_cell::sync::Lazy<
             + Send
             + 'static,
     {
-        Box::new(f)
+        f
     }
 
     let mut builtins = std::collections::HashMap::new();
-    builtins.insert("cd", box_builtin(|exe, env| Box::pin(cd(exe, env))));
-    builtins.insert("and", box_builtin(|exe, env| Box::pin(and(exe, env))));
-    builtins.insert("or", box_builtin(|exe, env| Box::pin(or(exe, env))));
+    builtins.insert("cd", coerce_builtin(&|exe, env| Box::pin(cd(exe, env))));
+    builtins
+        .insert("and", coerce_builtin(&|exe, env| Box::pin(and(exe, env))));
+    builtins.insert("or", coerce_builtin(&|exe, env| Box::pin(or(exe, env))));
     builtins
 });
 
