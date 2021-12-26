@@ -563,6 +563,10 @@ impl ProcessEnv {
         self.entry.lock_arc().await
     }
 
+    async fn write_vt(&self, buf: &[u8]) {
+        self.entry().await.vt.process(buf);
+    }
+
     async fn read_input(
         &self,
     ) -> Result<Vec<u8>, async_std::channel::RecvError> {

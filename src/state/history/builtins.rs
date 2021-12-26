@@ -59,7 +59,7 @@ pub async fn run(
 
 async fn cd(
     exe: &crate::parse::Exe,
-    _: &super::ProcessEnv,
+    env: &super::ProcessEnv,
 ) -> async_std::process::ExitStatus {
     let dir = exe
         .args()
@@ -79,6 +79,7 @@ async fn cd(
                 home().join(path.strip_prefix(prefix).unwrap())
             } else {
                 // TODO
+                env.write_vt(b"unimplemented").await;
                 return async_std::process::ExitStatus::from_raw(1 << 8);
             }
         } else {
@@ -89,7 +90,11 @@ async fn cd(
     };
     let code = match std::env::set_current_dir(dir) {
         Ok(()) => 0,
-        Err(_) => 1,
+        Err(e) => {
+            env.write_vt(format!("{}: {}", exe.exe(), e).as_bytes())
+                .await;
+            1
+        }
     };
     async_std::process::ExitStatus::from_raw(code << 8)
 }
