@@ -584,8 +584,7 @@ fn run_commands(ast: crate::parse::Commands, env: ProcessEnv) {
     async_std::task::spawn(async move {
         let mut status = async_std::process::ExitStatus::from_raw(0 << 8);
         for pipeline in ast.pipelines() {
-            let (pipeline_status, done) =
-                run_pipeline(pipeline, env.clone()).await;
+            let (pipeline_status, done) = run_pipeline(pipeline, &env).await;
             status = pipeline_status;
             if done {
                 break;
@@ -598,14 +597,14 @@ fn run_commands(ast: crate::parse::Commands, env: ProcessEnv) {
 
 async fn run_pipeline(
     pipeline: &crate::parse::Pipeline,
-    env: ProcessEnv,
+    env: &ProcessEnv,
 ) -> (async_std::process::ExitStatus, bool) {
     // for now
     assert_eq!(pipeline.exes().len(), 1);
 
     let mut status = async_std::process::ExitStatus::from_raw(0 << 8);
     for exe in pipeline.exes() {
-        status = run_exe(exe, env.clone()).await;
+        status = run_exe(exe, env).await;
 
         // i'm not sure what exactly the expected behavior here is -
         // in zsh, SIGINT kills the whole command line while SIGTERM
@@ -620,9 +619,9 @@ async fn run_pipeline(
 
 async fn run_exe(
     exe: &crate::parse::Exe,
-    env: ProcessEnv,
+    env: &ProcessEnv,
 ) -> async_std::process::ExitStatus {
-    if let Some(status) = builtins::run(exe, env.clone()) {
+    if let Some(status) = builtins::run(exe, env) {
         return status;
     }
 
