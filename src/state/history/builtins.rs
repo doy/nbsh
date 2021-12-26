@@ -22,7 +22,7 @@ type Builtin = Box<
 static BUILTINS: once_cell::sync::Lazy<
     std::collections::HashMap<&'static str, Builtin>,
 > = once_cell::sync::Lazy::new(|| {
-    fn box_builtin<F: 'static>(f: F) -> Builtin
+    fn box_builtin<F>(f: F) -> Builtin
     where
         F: for<'a> Fn(
                 &'a crate::parse::Exe,
@@ -35,7 +35,8 @@ static BUILTINS: once_cell::sync::Lazy<
                         + 'a,
                 >,
             > + Sync
-            + Send,
+            + Send
+            + 'static,
     {
         Box::new(f)
     }
