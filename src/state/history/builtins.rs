@@ -121,9 +121,10 @@ async fn and(
 ) -> async_std::process::ExitStatus {
     let exe = exe.shift();
     if env.latest_status().success() {
-        super::run_exe(&exe, env).await;
+        super::run_exe(&exe, env).await
+    } else {
+        *env.latest_status()
     }
-    *env.latest_status()
 }
 
 async fn or(
@@ -131,10 +132,11 @@ async fn or(
     env: &super::ProcessEnv,
 ) -> async_std::process::ExitStatus {
     let exe = exe.shift();
-    if !env.latest_status().success() {
-        super::run_exe(&exe, env).await;
+    if env.latest_status().success() {
+        *env.latest_status()
+    } else {
+        super::run_exe(&exe, env).await
     }
-    *env.latest_status()
 }
 
 async fn command(
