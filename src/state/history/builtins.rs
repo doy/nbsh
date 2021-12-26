@@ -1,6 +1,9 @@
 use std::os::unix::process::ExitStatusExt as _;
 
-type Builtin = &'static (dyn Fn(&crate::parse::Exe) -> std::process::ExitStatus
+type Builtin = &'static (dyn Fn(
+    &crate::parse::Exe,
+    super::ProcessEnv,
+) -> std::process::ExitStatus
               + Sync
               + Send);
 
@@ -16,11 +19,15 @@ static BUILTINS: once_cell::sync::Lazy<
 
 pub fn run(
     exe: &crate::parse::Exe,
+    env: super::ProcessEnv,
 ) -> Option<async_std::process::ExitStatus> {
-    BUILTINS.get(exe.exe()).map(|f| f(exe))
+    BUILTINS.get(exe.exe()).map(|f| f(exe, env))
 }
 
-fn cd(exe: &crate::parse::Exe) -> async_std::process::ExitStatus {
+fn cd(
+    exe: &crate::parse::Exe,
+    _: super::ProcessEnv,
+) -> async_std::process::ExitStatus {
     let dir = exe
         .args()
         .into_iter()

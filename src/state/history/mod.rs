@@ -100,10 +100,12 @@ impl History {
 
         run_commands(
             ast.clone(),
-            async_std::sync::Arc::clone(&entry),
-            input_r,
-            resize_r,
-            event_w,
+            ProcessEnv::new(
+                async_std::sync::Arc::clone(&entry),
+                input_r,
+                resize_r,
+                event_w,
+            ),
         );
 
         self.entries.push(entry);
@@ -534,57 +536,76 @@ impl ExitInfo {
     }
 }
 
-fn run_commands(
-    ast: crate::parse::Commands,
+#[derive(Clone)]
+pub struct ProcessEnv {
     entry: async_std::sync::Arc<async_std::sync::Mutex<Entry>>,
     input_r: async_std::channel::Receiver<Vec<u8>>,
     resize_r: async_std::channel::Receiver<(u16, u16)>,
     event_w: async_std::channel::Sender<crate::event::Event>,
-) {
+}
+
+impl ProcessEnv {
+    fn new(
+        entry: async_std::sync::Arc<async_std::sync::Mutex<Entry>>,
+        input_r: async_std::channel::Receiver<Vec<u8>>,
+        resize_r: async_std::channel::Receiver<(u16, u16)>,
+        event_w: async_std::channel::Sender<crate::event::Event>,
+    ) -> Self {
+        Self {
+            entry,
+            input_r,
+            resize_r,
+            event_w,
+        }
+    }
+
+    async fn entry(&self) -> async_std::sync::MutexGuardArc<Entry> {
+        self.entry.lock_arc().await
+    }
+
+    async fn read_input(
+        &self,
+    ) -> Result<Vec<u8>, async_std::channel::RecvError> {
+        self.input_r.recv().await
+    }
+
+    async fn read_resize(
+        &self,
+    ) -> Result<(u16, u16), async_std::channel::RecvError> {
+        self.resize_r.recv().await
+    }
+
+    async fn send_event(&self, event: crate::event::Event) {
+        self.event_w.send(event).await.unwrap();
+    }
+}
+
+fn run_commands(ast: crate::parse::Commands, env: ProcessEnv) {
     async_std::task::spawn(async move {
         let mut status = async_std::process::ExitStatus::from_raw(0 << 8);
         for pipeline in ast.pipelines() {
-            let (pipeline_status, done) = run_pipeline(
-                pipeline,
-                async_std::sync::Arc::clone(&entry),
-                input_r.clone(),
-                resize_r.clone(),
-                event_w.clone(),
-            )
-            .await;
+            let (pipeline_status, done) =
+                run_pipeline(pipeline, env.clone()).await;
             status = pipeline_status;
             if done {
                 break;
             }
         }
-        entry.lock_arc().await.exit_info = Some(ExitInfo::new(status));
-        event_w
-            .send(crate::event::Event::ProcessExit)
-            .await
-            .unwrap();
+        env.entry().await.exit_info = Some(ExitInfo::new(status));
+        env.send_event(crate::event::Event::ProcessExit).await;
     });
 }
 
 async fn run_pipeline(
     pipeline: &crate::parse::Pipeline,
-    entry: async_std::sync::Arc<async_std::sync::Mutex<Entry>>,
-    input_r: async_std::channel::Receiver<Vec<u8>>,
-    resize_r: async_std::channel::Receiver<(u16, u16)>,
-    event_w: async_std::channel::Sender<crate::event::Event>,
+    env: ProcessEnv,
 ) -> (async_std::process::ExitStatus, bool) {
     // for now
     assert_eq!(pipeline.exes().len(), 1);
 
     let mut status = async_std::process::ExitStatus::from_raw(0 << 8);
     for exe in pipeline.exes() {
-        status = run_exe(
-            exe,
-            async_std::sync::Arc::clone(&entry),
-            input_r.clone(),
-            resize_r.clone(),
-            event_w.clone(),
-        )
-        .await;
+        status = run_exe(exe, env.clone()).await;
 
         // i'm not sure what exactly the expected behavior here is -
         // in zsh, SIGINT kills the whole command line while SIGTERM
@@ -599,24 +620,21 @@ async fn run_pipeline(
 
 async fn run_exe(
     exe: &crate::parse::Exe,
-    entry: async_std::sync::Arc<async_std::sync::Mutex<Entry>>,
-    input_r: async_std::channel::Receiver<Vec<u8>>,
-    resize_r: async_std::channel::Receiver<(u16, u16)>,
-    event_w: async_std::channel::Sender<crate::event::Event>,
+    env: ProcessEnv,
 ) -> async_std::process::ExitStatus {
-    if let Some(status) = builtins::run(exe) {
+    if let Some(status) = builtins::run(exe, env.clone()) {
         return status;
     }
 
     let mut process = async_std::process::Command::new(exe.exe());
     process.args(exe.args());
-    let size = entry.lock_arc().await.vt.screen().size();
+    let size = env.entry().await.vt.screen().size();
     let child =
         process.spawn_pty(Some(&pty_process::Size::new(size.0, size.1)));
     let child = match child {
         Ok(child) => child,
         Err(e) => {
-            let mut entry = entry.lock_arc().await;
+            let mut entry = env.entry().await;
             entry.vt.process(
                 format!(
                     "\x1b[31mnbsh: failed to run {}: {}",
@@ -640,13 +658,13 @@ async fn run_exe(
         let mut buf = [0_u8; 4096];
         let mut pty = child.pty();
         let read = async { Res::Read(pty.read(&mut buf).await) };
-        let write = async { Res::Write(input_r.recv().await) };
-        let resize = async { Res::Resize(resize_r.recv().await) };
+        let write = async { Res::Write(env.read_input().await) };
+        let resize = async { Res::Resize(env.read_resize().await) };
         let exit = async { Res::Exit(child.status_no_drop().await) };
         match read.race(write).race(resize).or(exit).await {
             Res::Read(res) => match res {
                 Ok(bytes) => {
-                    let mut entry = entry.lock_arc().await;
+                    let mut entry = env.entry().await;
                     let pre_alternate_screen =
                         entry.vt.screen().alternate_screen();
                     entry.vt.process(&buf[..bytes]);
@@ -655,15 +673,12 @@ async fn run_exe(
                     if entry.fullscreen.is_none()
                         && pre_alternate_screen != post_alternate_screen
                     {
-                        event_w
-                            .send(crate::event::Event::ProcessAlternateScreen)
-                            .await
-                            .unwrap();
+                        env.send_event(
+                            crate::event::Event::ProcessAlternateScreen,
+                        )
+                        .await;
                     }
-                    event_w
-                        .send(crate::event::Event::ProcessOutput)
-                        .await
-                        .unwrap();
+                    env.send_event(crate::event::Event::ProcessOutput).await;
                 }
                 Err(e) => {
                     if e.raw_os_error() != Some(libc::EIO) {
@@ -684,7 +699,7 @@ async fn run_exe(
                     child
                         .resize_pty(&pty_process::Size::new(size.0, size.1))
                         .unwrap();
-                    entry.lock_arc().await.vt.set_size(size.0, size.1);
+                    env.entry().await.vt.set_size(size.0, size.1);
                 }
                 Err(e) => {
                     panic!("failed to read from resize channel: {}", e);
