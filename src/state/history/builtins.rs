@@ -42,12 +42,9 @@ static BUILTINS: once_cell::sync::Lazy<
     }
 
     let mut builtins = std::collections::HashMap::new();
-    builtins
-        .insert("cd", box_builtin(move |exe, env| Box::pin(cd(exe, env))));
-    builtins
-        .insert("and", box_builtin(move |exe, env| Box::pin(and(exe, env))));
-    builtins
-        .insert("or", box_builtin(move |exe, env| Box::pin(or(exe, env))));
+    builtins.insert("cd", box_builtin(|exe, env| Box::pin(cd(exe, env))));
+    builtins.insert("and", box_builtin(|exe, env| Box::pin(and(exe, env))));
+    builtins.insert("or", box_builtin(|exe, env| Box::pin(or(exe, env))));
     builtins
 });
 
