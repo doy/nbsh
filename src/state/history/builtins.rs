@@ -44,6 +44,10 @@ static BUILTINS: once_cell::sync::Lazy<
     builtins
         .insert("cd", box_builtin(move |exe, env| Box::pin(cd(exe, env))));
     builtins
+        .insert("and", box_builtin(move |exe, env| Box::pin(and(exe, env))));
+    builtins
+        .insert("or", box_builtin(move |exe, env| Box::pin(or(exe, env))));
+    builtins
 });
 
 pub async fn run(
@@ -97,6 +101,28 @@ async fn cd(
         }
     };
     async_std::process::ExitStatus::from_raw(code << 8)
+}
+
+async fn and(
+    exe: &crate::parse::Exe,
+    env: &super::ProcessEnv,
+) -> async_std::process::ExitStatus {
+    let exe = exe.shift();
+    if env.latest_status().success() {
+        super::run_exe(&exe, env).await;
+    }
+    *env.latest_status()
+}
+
+async fn or(
+    exe: &crate::parse::Exe,
+    env: &super::ProcessEnv,
+) -> async_std::process::ExitStatus {
+    let exe = exe.shift();
+    if !env.latest_status().success() {
+        super::run_exe(&exe, env).await;
+    }
+    *env.latest_status()
 }
 
 fn home() -> std::path::PathBuf {

@@ -542,6 +542,8 @@ pub struct ProcessEnv {
     input_r: async_std::channel::Receiver<Vec<u8>>,
     resize_r: async_std::channel::Receiver<(u16, u16)>,
     event_w: async_std::channel::Sender<crate::event::Event>,
+
+    latest_status: async_std::process::ExitStatus,
 }
 
 impl ProcessEnv {
@@ -556,6 +558,8 @@ impl ProcessEnv {
             input_r,
             resize_r,
             event_w,
+
+            latest_status: async_std::process::ExitStatus::from_raw(0),
         }
     }
 
@@ -582,19 +586,27 @@ impl ProcessEnv {
     async fn send_event(&self, event: crate::event::Event) {
         self.event_w.send(event).await.unwrap();
     }
+
+    fn set_status(&mut self, status: async_std::process::ExitStatus) {
+        self.latest_status = status;
+    }
+
+    fn latest_status(&self) -> &async_std::process::ExitStatus {
+        &self.latest_status
+    }
 }
 
-fn run_commands(ast: crate::parse::Commands, env: ProcessEnv) {
+fn run_commands(ast: crate::parse::Commands, mut env: ProcessEnv) {
     async_std::task::spawn(async move {
-        let mut status = async_std::process::ExitStatus::from_raw(0 << 8);
         for pipeline in ast.pipelines() {
             let (pipeline_status, done) = run_pipeline(pipeline, &env).await;
-            status = pipeline_status;
+            env.set_status(pipeline_status);
             if done {
                 break;
             }
         }
-        env.entry().await.exit_info = Some(ExitInfo::new(status));
+        env.entry().await.exit_info =
+            Some(ExitInfo::new(*env.latest_status()));
         env.send_event(crate::event::Event::ProcessExit).await;
     });
 }

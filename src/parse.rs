@@ -50,6 +50,13 @@ impl Exe {
     pub fn args(&self) -> impl Iterator<Item = &str> {
         self.args.iter().map(|arg| arg.word.as_ref())
     }
+
+    pub fn shift(&self) -> Self {
+        let mut new = self.clone();
+        let new_exe = new.args.remove(0);
+        new.exe = new_exe;
+        new
+    }
 }
 
 #[derive(Debug, Clone)]
