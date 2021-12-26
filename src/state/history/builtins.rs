@@ -34,7 +34,7 @@ where
         > + Sync
         + Send,
 {
-    Box::new(move |exe, env| Box::pin(f(exe, env)))
+    Box::new(f)
 }
 
 static BUILTINS: once_cell::sync::Lazy<
