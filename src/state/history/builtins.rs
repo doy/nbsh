@@ -1,30 +1,63 @@
 use std::os::unix::process::ExitStatusExt as _;
 
-type Builtin = &'static (dyn Fn(
-    &crate::parse::Exe,
-    &super::ProcessEnv,
-) -> std::process::ExitStatus
-              + Sync
-              + Send);
+use std::future::Future;
+use std::pin::Pin;
 
-// i don't know how to do this without an as conversion
-#[allow(clippy::as_conversions)]
+// i hate all of this so much
+type Builtin = Box<
+    dyn for<'a> Fn(
+            &'a crate::parse::Exe,
+            &'a super::ProcessEnv,
+        ) -> Pin<
+            Box<
+                dyn Future<Output = std::process::ExitStatus>
+                    + Sync
+                    + Send
+                    + 'a,
+            >,
+        > + Sync
+        + Send,
+>;
+
+fn box_builtin<F: 'static>(f: F) -> Builtin
+where
+    F: for<'a> Fn(
+            &'a crate::parse::Exe,
+            &'a super::ProcessEnv,
+        ) -> Pin<
+            Box<
+                dyn Future<Output = std::process::ExitStatus>
+                    + Sync
+                    + Send
+                    + 'a,
+            >,
+        > + Sync
+        + Send,
+{
+    Box::new(move |exe, env| Box::pin(f(exe, env)))
+}
+
 static BUILTINS: once_cell::sync::Lazy<
     std::collections::HashMap<&'static str, Builtin>,
 > = once_cell::sync::Lazy::new(|| {
     let mut builtins = std::collections::HashMap::new();
-    builtins.insert("cd", &cd as Builtin);
+    builtins
+        .insert("cd", box_builtin(move |exe, env| Box::pin(cd(exe, env))));
     builtins
 });
 
-pub fn run(
+pub async fn run(
     exe: &crate::parse::Exe,
     env: &super::ProcessEnv,
 ) -> Option<async_std::process::ExitStatus> {
-    BUILTINS.get(exe.exe()).map(|f| f(exe, env))
+    if let Some(f) = BUILTINS.get(exe.exe()) {
+        Some(f(exe, env).await)
+    } else {
+        None
+    }
 }
 
-fn cd(
+async fn cd(
     exe: &crate::parse::Exe,
     _: &super::ProcessEnv,
 ) -> async_std::process::ExitStatus {

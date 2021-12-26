@@ -621,7 +621,7 @@ async fn run_exe(
     exe: &crate::parse::Exe,
     env: &ProcessEnv,
 ) -> async_std::process::ExitStatus {
-    if let Some(status) = builtins::run(exe, env) {
+    if let Some(status) = builtins::run(exe, env).await {
         return status;
     }
 
