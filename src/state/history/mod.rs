@@ -637,9 +637,16 @@ async fn run_exe(
     env: &ProcessEnv,
 ) -> async_std::process::ExitStatus {
     if let Some(status) = builtins::run(exe, env).await {
-        return status;
+        status
+    } else {
+        run_binary(exe, env).await
     }
+}
 
+async fn run_binary(
+    exe: &crate::parse::Exe,
+    env: &ProcessEnv,
+) -> async_std::process::ExitStatus {
     let mut process = async_std::process::Command::new(exe.exe());
     process.args(exe.args());
     let size = env.entry().await.vt.screen().size();

@@ -43,6 +43,14 @@ static BUILTINS: once_cell::sync::Lazy<
     builtins
         .insert("and", coerce_builtin(&|exe, env| Box::pin(and(exe, env))));
     builtins.insert("or", coerce_builtin(&|exe, env| Box::pin(or(exe, env))));
+    builtins.insert(
+        "command",
+        coerce_builtin(&|exe, env| Box::pin(command(exe, env))),
+    );
+    builtins.insert(
+        "builtin",
+        coerce_builtin(&|exe, env| Box::pin(builtin(exe, env))),
+    );
     builtins
 });
 
@@ -126,6 +134,24 @@ async fn or(
     if !env.latest_status().success() {
         super::run_exe(&exe, env).await;
     }
+    *env.latest_status()
+}
+
+async fn command(
+    exe: &crate::parse::Exe,
+    env: &super::ProcessEnv,
+) -> async_std::process::ExitStatus {
+    let exe = exe.shift();
+    super::run_binary(&exe, env).await;
+    *env.latest_status()
+}
+
+async fn builtin(
+    exe: &crate::parse::Exe,
+    env: &super::ProcessEnv,
+) -> async_std::process::ExitStatus {
+    let exe = exe.shift();
+    run(&exe, env).await;
     *env.latest_status()
 }
 
