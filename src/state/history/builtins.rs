@@ -1,16 +1,13 @@
 use std::os::unix::process::ExitStatusExt as _;
 
-use std::future::Future;
-use std::pin::Pin;
-
 // i hate all of this so much
 type Builtin = Box<
     dyn for<'a> Fn(
             &'a crate::parse::Exe,
             &'a super::ProcessEnv,
-        ) -> Pin<
+        ) -> std::pin::Pin<
             Box<
-                dyn Future<Output = std::process::ExitStatus>
+                dyn std::future::Future<Output = std::process::ExitStatus>
                     + Sync
                     + Send
                     + 'a,
@@ -27,9 +24,9 @@ static BUILTINS: once_cell::sync::Lazy<
         F: for<'a> Fn(
                 &'a crate::parse::Exe,
                 &'a super::ProcessEnv,
-            ) -> Pin<
+            ) -> std::pin::Pin<
                 Box<
-                    dyn Future<Output = std::process::ExitStatus>
+                    dyn std::future::Future<Output = std::process::ExitStatus>
                         + Sync
                         + Send
                         + 'a,
