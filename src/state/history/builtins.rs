@@ -19,27 +19,27 @@ type Builtin = Box<
         + Send,
 >;
 
-fn box_builtin<F: 'static>(f: F) -> Builtin
-where
-    F: for<'a> Fn(
-            &'a crate::parse::Exe,
-            &'a super::ProcessEnv,
-        ) -> Pin<
-            Box<
-                dyn Future<Output = std::process::ExitStatus>
-                    + Sync
-                    + Send
-                    + 'a,
-            >,
-        > + Sync
-        + Send,
-{
-    Box::new(f)
-}
-
 static BUILTINS: once_cell::sync::Lazy<
     std::collections::HashMap<&'static str, Builtin>,
 > = once_cell::sync::Lazy::new(|| {
+    fn box_builtin<F: 'static>(f: F) -> Builtin
+    where
+        F: for<'a> Fn(
+                &'a crate::parse::Exe,
+                &'a super::ProcessEnv,
+            ) -> Pin<
+                Box<
+                    dyn Future<Output = std::process::ExitStatus>
+                        + Sync
+                        + Send
+                        + 'a,
+                >,
+            > + Sync
+            + Send,
+    {
+        Box::new(f)
+    }
+
     let mut builtins = std::collections::HashMap::new();
     builtins
         .insert("cd", box_builtin(move |exe, env| Box::pin(cd(exe, env))));
