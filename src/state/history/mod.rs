@@ -651,12 +651,8 @@ async fn run_exe(
         Err(e) => {
             let mut entry = env.entry().await;
             entry.vt.process(
-                format!(
-                    "nbsh: failed to run {}: {}",
-                    exe.exe(),
-                    e.source().unwrap()
-                )
-                .as_bytes(),
+                format!("nbsh: {}: {}", e.source().unwrap(), exe.exe())
+                    .as_bytes(),
             );
             return async_std::process::ExitStatus::from_raw(1 << 8);
         }

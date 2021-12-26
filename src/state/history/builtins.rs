@@ -88,11 +88,13 @@ async fn cd(
     } else {
         dir.into()
     };
-    let code = match std::env::set_current_dir(dir) {
+    let code = match std::env::set_current_dir(&dir) {
         Ok(()) => 0,
         Err(e) => {
-            env.write_vt(format!("{}: {}", exe.exe(), e).as_bytes())
-                .await;
+            env.write_vt(
+                format!("{}: {}: {}", exe.exe(), e, dir.display()).as_bytes(),
+            )
+            .await;
             1
         }
     };
