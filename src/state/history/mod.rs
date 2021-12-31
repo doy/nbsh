@@ -630,43 +630,52 @@ async fn run_pipeline(
     pipeline: &crate::parse::Pipeline,
     env: &ProcessEnv,
 ) -> (async_std::process::ExitStatus, bool) {
-    // for now
-    assert_eq!(pipeline.exes().len(), 1);
-
-    let mut status = async_std::process::ExitStatus::from_raw(0 << 8);
-    for exe in pipeline.exes() {
-        status = run_exe(exe, env).await;
-
-        // i'm not sure what exactly the expected behavior here is -
-        // in zsh, SIGINT kills the whole command line while SIGTERM
-        // doesn't, but i don't know what the precise logic is or how
-        // other signals are handled
-        if status.signal() == Some(signal_hook::consts::signal::SIGINT) {
-            return (status, true);
-        }
+    if pipeline.exes().len() == 1 {
+        let status = run_exe(&pipeline.exes()[0], env).await;
+        (
+            status,
+            // i'm not sure what exactly the expected behavior here is - in
+            // zsh, SIGINT kills the whole command line while SIGTERM doesn't,
+            // but i don't know what the precise logic is or how other signals
+            // are handled
+            status.signal() == Some(signal_hook::consts::signal::SIGINT),
+        )
+    } else {
+        todo!()
     }
-    (status, false)
 }
 
 async fn run_exe(
     exe: &crate::parse::Exe,
     env: &ProcessEnv,
 ) -> async_std::process::ExitStatus {
-    let (exit_w, exit_r) = async_std::channel::unbounded();
-    {
-        let exe = exe.clone();
-        let env = env.clone();
-        async_std::task::spawn(async move {
-            if let Some(status) = builtins::run(&exe, &env).await {
-                exit_w.send(status).await.unwrap();
-            } else {
-                exit_w
-                    .send(run_binary(&exe, &env).await.unwrap())
-                    .await
-                    .unwrap();
-            };
-        });
+    if let Some(fut) = builtins::run(exe, env) {
+        run_future(fut, env.clone()).await
+    } else {
+        let fut = {
+            let exe = exe.clone();
+            let env = env.clone();
+            async move { run_binary(&exe, &env).await }
+        };
+        run_future(fut, env.clone()).await
     }
+}
+
+async fn run_future<F>(
+    fut: F,
+    env: ProcessEnv,
+) -> async_std::process::ExitStatus
+where
+    F: std::future::Future<Output = async_std::process::ExitStatus>
+        + Sync
+        + Send
+        + 'static,
+{
+    let (exit_w, exit_r) = async_std::channel::unbounded();
+    async_std::task::spawn(async move {
+        let status = fut.await;
+        exit_w.send(status).await.unwrap();
+    });
     loop {
         enum Res {
             Read(Result<usize, std::io::Error>),
@@ -743,7 +752,7 @@ async fn run_exe(
 async fn run_binary(
     exe: &crate::parse::Exe,
     env: &ProcessEnv,
-) -> Result<async_std::process::ExitStatus, async_std::io::Error> {
+) -> async_std::process::ExitStatus {
     let mut process = pty_process::Command::new(exe.exe());
     process.args(exe.args());
     let child = process.spawn(&env.pty);
@@ -762,10 +771,10 @@ async fn run_binary(
             )
             .await
             .unwrap();
-            return Ok(async_std::process::ExitStatus::from_raw(1 << 8));
+            return async_std::process::ExitStatus::from_raw(1 << 8);
         }
     };
-    child.status_no_drop().await
+    child.status_no_drop().await.unwrap()
 }
 
 fn set_bgcolor(out: &mut impl textmode::Textmode, idx: usize, focus: bool) {

@@ -54,12 +54,24 @@ static BUILTINS: once_cell::sync::Lazy<
     builtins
 });
 
-pub async fn run(
+pub fn run(
     exe: &crate::parse::Exe,
     env: &super::ProcessEnv,
-) -> Option<async_std::process::ExitStatus> {
+) -> Option<
+    std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = async_std::process::ExitStatus>
+                + Send
+                + Sync,
+        >,
+    >,
+> {
+    // the closure form doesn't work without explicit type annotations
+    #[allow(clippy::option_if_let_else)]
     if let Some(f) = BUILTINS.get(exe.exe()) {
-        Some(f(exe, env).await)
+        let exe = exe.clone();
+        let env = env.clone();
+        Some(Box::pin(async move { f(&exe, &env).await }))
     } else {
         None
     }
@@ -145,7 +157,7 @@ async fn command(
     env: &super::ProcessEnv,
 ) -> async_std::process::ExitStatus {
     let exe = exe.shift();
-    super::run_binary(&exe, env).await.unwrap();
+    super::run_binary(&exe, env).await;
     *env.latest_status()
 }
 
@@ -154,7 +166,7 @@ async fn builtin(
     env: &super::ProcessEnv,
 ) -> async_std::process::ExitStatus {
     let exe = exe.shift();
-    run(&exe, env).await;
+    run(&exe, env).unwrap().await;
     *env.latest_status()
 }
 
