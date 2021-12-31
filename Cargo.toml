@@ -6,25 +6,25 @@ edition = "2021"
 license = "MIT"
 
 [dependencies]
-anyhow = "1.0.51"
+anyhow = "1.0.52"
 async-std = { version = "1.10.0", features = ["unstable"] }
 futures-lite = "1.12.0"
 futures-util = "0.3.19"
 hostname = "0.3.1"
 libc = "0.2.112"
-nix = "0.23.0"
+nix = "0.23.1"
 once_cell = "1.9.0"
 pest = "2.1.3"
 pest_derive = "2.1.0"
 pty-process = { version = "0.2.0", features = ["async"] }
-signal-hook = "0.3.12"
+signal-hook = "0.3.13"
 signal-hook-async-std = "0.2.1"
 terminal_size = "0.1.17"
 textmode = { version = "0.3.0", features = ["async"] }
 time = { version = "0.3.5", features = ["formatting", "parsing"] }
 unicode-width = "0.1.9"
 users = "0.11.0"
-vt100 = "0.15.0"
+vt100 = "0.15.1"
 
 [patch.crates-io]
 # https://github.com/smol-rs/async-process/pull/19
