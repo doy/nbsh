@@ -62,17 +62,33 @@ impl Exe {
 #[derive(Debug, Clone)]
 pub struct Pipeline {
     exes: Vec<Exe>,
+    input_string: String,
 }
 
 impl Pipeline {
+    pub fn parse(pipeline: &str) -> Result<Self, Error> {
+        Ok(Self::build_ast(
+            Shell::parse(Rule::pipeline, pipeline)
+                .map_err(|e| Error::new(pipeline, anyhow::anyhow!(e)))?
+                .next()
+                .unwrap(),
+        ))
+    }
+
     pub fn exes(&self) -> &[Exe] {
         &self.exes
     }
 
+    pub fn input_string(&self) -> &str {
+        &self.input_string
+    }
+
     fn build_ast(pipeline: pest::iterators::Pair<Rule>) -> Self {
         assert!(matches!(pipeline.as_rule(), Rule::pipeline));
+        let input_string = pipeline.as_str().to_string();
         Self {
             exes: pipeline.into_inner().map(Exe::build_ast).collect(),
+            input_string,
         }
     }
 }
@@ -117,6 +133,7 @@ impl Commands {
     }
 }
 
+#[derive(Debug)]
 pub struct Error {
     input: String,
     e: anyhow::Error,

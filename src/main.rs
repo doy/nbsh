@@ -43,6 +43,11 @@ fn get_offset() -> time::UtcOffset {
 }
 
 async fn async_main() -> anyhow::Result<()> {
+    if std::env::args().nth(1).as_deref() == Some("--internal-pipe-runner") {
+        pipe::run().await;
+        std::process::exit(0);
+    }
+
     let mut input = textmode::Input::new().await?;
     let mut output = textmode::Output::new().await?;
 
@@ -136,10 +141,6 @@ async fn async_main() -> anyhow::Result<()> {
 }
 
 fn main() {
-    if std::env::args().nth(1).as_deref() == Some("--internal-pipe-runner") {
-        pipe::run();
-        std::process::exit(0);
-    }
     match async_std::task::block_on(async_main()) {
         Ok(_) => (),
         Err(e) => {

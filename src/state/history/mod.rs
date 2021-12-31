@@ -647,9 +647,13 @@ async fn run_pipeline(
         let child = cmd.spawn(&env.pty).unwrap();
         nix::unistd::close(r).unwrap();
 
-        let w = unsafe { std::fs::File::from_raw_fd(w) };
+        let mut w = unsafe { async_std::fs::File::from_raw_fd(w) };
+        let pipeline = pipeline.clone();
         let fut = async move {
-            // TODO write data to w
+            w.write_all(pipeline.input_string().as_bytes())
+                .await
+                .unwrap();
+            drop(w);
             child.status_no_drop().await.unwrap()
         };
         run_future(fut, env.clone()).await
