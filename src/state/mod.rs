@@ -350,11 +350,7 @@ impl State {
     }
 
     async fn handle_key_history(&mut self, key: textmode::Key, idx: usize) {
-        self.history
-            .entry(idx)
-            .await
-            .send_input(key.into_bytes())
-            .await;
+        self.history.send_input(idx, key.into_bytes()).await;
     }
 
     async fn default_scene(

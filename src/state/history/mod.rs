@@ -74,13 +74,14 @@ impl History {
         entry.render_fullscreen(out);
     }
 
+    pub async fn send_input(&mut self, idx: usize, input: Vec<u8>) {
+        self.entry(idx).await.send_input(input).await;
+    }
+
     pub async fn resize(&mut self, size: (u16, u16)) {
         self.size = size;
         for entry in &self.entries {
-            let entry = entry.lock_arc().await;
-            if entry.running() {
-                entry.resize.send(size).await.unwrap();
-            }
+            entry.lock_arc().await.resize(size).await;
         }
     }
 
@@ -457,6 +458,12 @@ impl Entry {
         }
     }
 
+    pub async fn resize(&self, size: (u16, u16)) {
+        if self.running() {
+            self.resize.send(size).await.unwrap();
+        }
+    }
+
     pub fn cmd(&self) -> &str {
         match &self.ast {
             Ok(ast) => ast.input_string(),
@@ -571,10 +578,6 @@ impl ProcessEnv {
         self.entry.lock_arc().await
     }
 
-    async fn write_vt(&self, buf: &[u8]) {
-        self.entry().await.vt.process(buf);
-    }
-
     async fn read_pty(&self, buf: &mut [u8]) -> std::io::Result<usize> {
         (&*self.pty).read(buf).await
     }
@@ -649,49 +652,38 @@ async fn run_exe(
     exe: &crate::parse::Exe,
     env: &ProcessEnv,
 ) -> async_std::process::ExitStatus {
-    if let Some(status) = builtins::run(exe, env).await {
-        status
-    } else {
-        run_binary(exe, env).await
-    }
-}
-
-async fn run_binary(
-    exe: &crate::parse::Exe,
-    env: &ProcessEnv,
-) -> async_std::process::ExitStatus {
-    let mut process = pty_process::Command::new(exe.exe());
-    process.args(exe.args());
-    let child = process.spawn(&env.pty);
-    let child = match child {
-        Ok(child) => child,
-        Err(e) => {
-            let mut entry = env.entry().await;
-            let e_str = if let pty_process::Error::Io(e) = e {
-                crate::format::io_error(&e)
+    let (exit_w, exit_r) = async_std::channel::unbounded();
+    {
+        let exe = exe.clone();
+        let env = env.clone();
+        async_std::task::spawn(async move {
+            if let Some(status) = builtins::run(&exe, &env).await {
+                exit_w.send(status).await.unwrap();
             } else {
-                e.to_string()
+                exit_w
+                    .send(run_binary(&exe, &env).await.unwrap())
+                    .await
+                    .unwrap();
             };
-            entry.vt.process(
-                format!("nbsh: {}: {}", e_str, exe.exe()).as_bytes(),
-            );
-            return async_std::process::ExitStatus::from_raw(1 << 8);
-        }
-    };
+        });
+    }
     loop {
         enum Res {
             Read(Result<usize, std::io::Error>),
             Write(Result<Vec<u8>, async_std::channel::RecvError>),
             Resize(Result<(u16, u16), async_std::channel::RecvError>),
             Exit(
-                Result<async_std::process::ExitStatus, async_std::io::Error>,
+                Result<
+                    async_std::process::ExitStatus,
+                    async_std::channel::RecvError,
+                >,
             ),
         }
         let mut buf = [0_u8; 4096];
         let read = async { Res::Read(env.read_pty(&mut buf).await) };
         let write = async { Res::Write(env.read_input().await) };
         let resize = async { Res::Resize(env.read_resize().await) };
-        let exit = async { Res::Exit(child.status_no_drop().await) };
+        let exit = async { Res::Exit(exit_r.recv().await) };
         match read.race(write).race(resize).or(exit).await {
             Res::Read(res) => match res {
                 Ok(bytes) => {
@@ -746,6 +738,34 @@ async fn run_binary(
             },
         }
     }
+}
+
+async fn run_binary(
+    exe: &crate::parse::Exe,
+    env: &ProcessEnv,
+) -> Result<async_std::process::ExitStatus, async_std::io::Error> {
+    let mut process = pty_process::Command::new(exe.exe());
+    process.args(exe.args());
+    let child = process.spawn(&env.pty);
+    let child = match child {
+        Ok(child) => child,
+        Err(e) => {
+            let exe = exe.clone();
+            let env = env.clone();
+            let e_str = if let pty_process::Error::Io(e) = e {
+                crate::format::io_error(&e)
+            } else {
+                e.to_string()
+            };
+            env.write_pty(
+                format!("nbsh: {}: {}\n", e_str, exe.exe()).as_bytes(),
+            )
+            .await
+            .unwrap();
+            return Ok(async_std::process::ExitStatus::from_raw(1 << 8));
+        }
+    };
+    child.status_no_drop().await
 }
 
 fn set_bgcolor(out: &mut impl textmode::Textmode, idx: usize, focus: bool) {

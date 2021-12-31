@@ -87,7 +87,7 @@ async fn cd(
                 home().join(path.strip_prefix(prefix).unwrap())
             } else {
                 // TODO
-                env.write_vt(b"unimplemented").await;
+                env.write_pty(b"unimplemented\n").await.unwrap();
                 return async_std::process::ExitStatus::from_raw(1 << 8);
             }
         } else {
@@ -99,16 +99,17 @@ async fn cd(
     let code = match std::env::set_current_dir(&dir) {
         Ok(()) => 0,
         Err(e) => {
-            env.write_vt(
+            env.write_pty(
                 format!(
-                    "{}: {}: {}",
+                    "{}: {}: {}\n",
                     exe.exe(),
                     crate::format::io_error(&e),
                     dir.display()
                 )
                 .as_bytes(),
             )
-            .await;
+            .await
+            .unwrap();
             1
         }
     };
@@ -144,7 +145,7 @@ async fn command(
     env: &super::ProcessEnv,
 ) -> async_std::process::ExitStatus {
     let exe = exe.shift();
-    super::run_binary(&exe, env).await;
+    super::run_binary(&exe, env).await.unwrap();
     *env.latest_status()
 }
 
