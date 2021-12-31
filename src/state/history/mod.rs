@@ -634,7 +634,8 @@ async fn run_pipeline(
     let status = if pipeline.exes().len() == 1 {
         run_exe(&pipeline.exes()[0], env).await
     } else {
-        let mut cmd = pty_process::Command::new("/proc/self/exe");
+        let mut cmd =
+            pty_process::Command::new(std::env::current_exe().unwrap());
         cmd.arg("--internal-pipe-runner");
         let (r, w) =
             nix::unistd::pipe2(nix::fcntl::OFlag::O_CLOEXEC).unwrap();
