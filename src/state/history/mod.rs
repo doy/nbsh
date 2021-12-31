@@ -1,6 +1,5 @@
 use async_std::io::{ReadExt as _, WriteExt as _};
 use futures_lite::future::FutureExt as _;
-use pty_process::Command as _;
 use std::os::unix::process::ExitStatusExt as _;
 
 mod builtins;
@@ -101,6 +100,7 @@ impl History {
             ast.clone(),
             ProcessEnv::new(
                 async_std::sync::Arc::clone(&entry),
+                self.size,
                 input_r,
                 resize_r,
                 event_w,
@@ -538,6 +538,7 @@ impl ExitInfo {
 #[derive(Clone)]
 pub struct ProcessEnv {
     entry: async_std::sync::Arc<async_std::sync::Mutex<Entry>>,
+    pty: async_std::sync::Arc<pty_process::Pty>,
     input_r: async_std::channel::Receiver<Vec<u8>>,
     resize_r: async_std::channel::Receiver<(u16, u16)>,
     event_w: async_std::channel::Sender<crate::event::Event>,
@@ -548,12 +549,16 @@ pub struct ProcessEnv {
 impl ProcessEnv {
     fn new(
         entry: async_std::sync::Arc<async_std::sync::Mutex<Entry>>,
+        size: (u16, u16),
         input_r: async_std::channel::Receiver<Vec<u8>>,
         resize_r: async_std::channel::Receiver<(u16, u16)>,
         event_w: async_std::channel::Sender<crate::event::Event>,
     ) -> Self {
+        let pty = pty_process::Pty::new().unwrap();
+        pty.resize(pty_process::Size::new(size.0, size.1)).unwrap();
         Self {
             entry,
+            pty: async_std::sync::Arc::new(pty),
             input_r,
             resize_r,
             event_w,
@@ -568,6 +573,14 @@ impl ProcessEnv {
 
     async fn write_vt(&self, buf: &[u8]) {
         self.entry().await.vt.process(buf);
+    }
+
+    async fn read_pty(&self, buf: &mut [u8]) -> std::io::Result<usize> {
+        (&*self.pty).read(buf).await
+    }
+
+    async fn write_pty(&self, buf: &[u8]) -> std::io::Result<usize> {
+        (&*self.pty).write(buf).await
     }
 
     async fn read_input(
@@ -647,25 +660,17 @@ async fn run_binary(
     exe: &crate::parse::Exe,
     env: &ProcessEnv,
 ) -> async_std::process::ExitStatus {
-    let mut process = async_std::process::Command::new(exe.exe());
+    let mut process = pty_process::Command::new(exe.exe());
     process.args(exe.args());
-    let size = env.entry().await.vt.screen().size();
-    let child =
-        process.spawn_pty(Some(&pty_process::Size::new(size.0, size.1)));
+    let child = process.spawn(&env.pty);
     let child = match child {
         Ok(child) => child,
         Err(e) => {
             let mut entry = env.entry().await;
-            let e_str = match e {
-                pty_process::Error::CreatePty(e)
-                | pty_process::Error::SetTermSize(e)
-                | pty_process::Error::Spawn(e) => {
-                    if let pty_process::Source::Io(e) = e {
-                        crate::format::io_error(&e)
-                    } else {
-                        e.to_string()
-                    }
-                }
+            let e_str = if let pty_process::Error::Io(e) = e {
+                crate::format::io_error(&e)
+            } else {
+                e.to_string()
             };
             entry.vt.process(
                 format!("nbsh: {}: {}", e_str, exe.exe()).as_bytes(),
@@ -683,8 +688,7 @@ async fn run_binary(
             ),
         }
         let mut buf = [0_u8; 4096];
-        let mut pty = child.pty();
-        let read = async { Res::Read(pty.read(&mut buf).await) };
+        let read = async { Res::Read(env.read_pty(&mut buf).await) };
         let write = async { Res::Write(env.read_input().await) };
         let resize = async { Res::Resize(env.read_resize().await) };
         let exit = async { Res::Exit(child.status_no_drop().await) };
@@ -715,7 +719,7 @@ async fn run_binary(
             },
             Res::Write(res) => match res {
                 Ok(bytes) => {
-                    pty.write(&bytes).await.unwrap();
+                    env.write_pty(&bytes).await.unwrap();
                 }
                 Err(e) => {
                     panic!("failed to read from input channel: {}", e);
@@ -723,8 +727,8 @@ async fn run_binary(
             },
             Res::Resize(res) => match res {
                 Ok(size) => {
-                    child
-                        .resize_pty(&pty_process::Size::new(size.0, size.1))
+                    env.pty
+                        .resize(pty_process::Size::new(size.0, size.1))
                         .unwrap();
                     env.entry().await.vt.set_size(size.0, size.1);
                 }
