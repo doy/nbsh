@@ -16,6 +16,7 @@ mod env;
 mod event;
 mod format;
 mod parse;
+mod pipe;
 mod state;
 
 use async_std::stream::StreamExt as _;
@@ -135,6 +136,10 @@ async fn async_main() -> anyhow::Result<()> {
 }
 
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("--internal-pipe-runner") {
+        pipe::run();
+        std::process::exit(0);
+    }
     match async_std::task::block_on(async_main()) {
         Ok(_) => (),
         Err(e) => {

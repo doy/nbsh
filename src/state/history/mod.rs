@@ -1,5 +1,6 @@
 use async_std::io::{ReadExt as _, WriteExt as _};
 use futures_lite::future::FutureExt as _;
+use std::os::unix::io::FromRawFd as _;
 use std::os::unix::process::ExitStatusExt as _;
 
 mod builtins;
@@ -630,19 +631,37 @@ async fn run_pipeline(
     pipeline: &crate::parse::Pipeline,
     env: &ProcessEnv,
 ) -> (async_std::process::ExitStatus, bool) {
-    if pipeline.exes().len() == 1 {
-        let status = run_exe(&pipeline.exes()[0], env).await;
-        (
-            status,
-            // i'm not sure what exactly the expected behavior here is - in
-            // zsh, SIGINT kills the whole command line while SIGTERM doesn't,
-            // but i don't know what the precise logic is or how other signals
-            // are handled
-            status.signal() == Some(signal_hook::consts::signal::SIGINT),
-        )
+    let status = if pipeline.exes().len() == 1 {
+        run_exe(&pipeline.exes()[0], env).await
     } else {
-        todo!()
-    }
+        let mut cmd = pty_process::Command::new("/proc/self/exe");
+        cmd.arg("--internal-pipe-runner");
+        let (r, w) =
+            nix::unistd::pipe2(nix::fcntl::OFlag::O_CLOEXEC).unwrap();
+        unsafe {
+            cmd.pre_exec(move || {
+                nix::unistd::dup2(r, 3)?;
+                Ok(())
+            });
+        }
+        let child = cmd.spawn(&env.pty).unwrap();
+        nix::unistd::close(r).unwrap();
+
+        let w = unsafe { std::fs::File::from_raw_fd(w) };
+        let fut = async move {
+            // TODO write data to w
+            child.status_no_drop().await.unwrap()
+        };
+        run_future(fut, env.clone()).await
+    };
+    (
+        status,
+        // i'm not sure what exactly the expected behavior here is - in zsh,
+        // SIGINT kills the whole command line while SIGTERM doesn't, but i
+        // don't know what the precise logic is or how other signals are
+        // handled
+        status.signal() == Some(signal_hook::consts::signal::SIGINT),
+    )
 }
 
 async fn run_exe(
