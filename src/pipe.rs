@@ -1,7 +1,7 @@
 use async_std::io::prelude::ReadExt as _;
 use async_std::os::unix::process::CommandExt as _;
 use async_std::stream::StreamExt as _;
-use std::os::unix::io::{AsRawFd as _, FromRawFd as _};
+use std::os::unix::io::FromRawFd as _;
 use std::os::unix::process::ExitStatusExt as _;
 
 async fn read_pipeline() -> crate::parse::Pipeline {
@@ -54,18 +54,23 @@ pub async fn run() {
         }
         if pg.is_none() {
             pg = Some(child.id().try_into().unwrap());
+            let pty = nix::fcntl::open(
+                "/dev/tty",
+                nix::fcntl::OFlag::empty(),
+                nix::sys::stat::Mode::empty(),
+            )
+            .unwrap();
+            nix::unistd::tcsetpgrp(
+                pty,
+                nix::unistd::Pid::from_raw(pg.unwrap()),
+            )
+            .unwrap();
+            nix::unistd::close(pty).unwrap();
         }
         futures.push(async move {
             (child.status_no_drop().await.unwrap(), i == last)
         });
     }
-
-    let pty = std::fs::File::open("/dev/tty").unwrap();
-    nix::unistd::tcsetpgrp(
-        pty.as_raw_fd(),
-        nix::unistd::Pid::from_raw(pg.unwrap()),
-    )
-    .unwrap();
 
     let mut final_status = None;
     while let Some((status, last)) = futures.next().await {
