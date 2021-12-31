@@ -66,6 +66,11 @@ pub async fn run() {
             )
             .unwrap();
             nix::unistd::close(pty).unwrap();
+            nix::sys::signal::kill(
+                nix::unistd::Pid::from_raw(-pg.unwrap()),
+                nix::sys::signal::Signal::SIGCONT,
+            )
+            .unwrap();
         }
         futures.push(async move {
             (child.status_no_drop().await.unwrap(), i == last)
