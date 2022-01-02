@@ -23,6 +23,7 @@ pub fn run() -> anyhow::Result<i32> {
 
     let mut children = vec![];
 
+    // Safety: setpgid is an async-signal-safe function
     unsafe {
         cmds[0].pre_exec(|| {
             setpgid_child(PID0)?;
@@ -36,6 +37,7 @@ pub fn run() -> anyhow::Result<i32> {
     children.push(leader);
 
     for cmd in &mut cmds[1..] {
+        // Safety: setpgid is an async-signal-safe function
         unsafe {
             cmd.pre_exec(move || {
                 setpgid_child(pg_pid)?;
@@ -47,6 +49,7 @@ pub fn run() -> anyhow::Result<i32> {
         children.push(child);
         setpgid_parent(child_pid, pg_pid)?;
     }
+    // ensure that we don't keep the pipes open past when the children exit
     drop(cmds);
 
     let last_pid = id_to_pid(children[children.len() - 1].id());
@@ -128,6 +131,9 @@ fn setpgid_parent(
     pg: nix::unistd::Pid,
 ) -> anyhow::Result<()> {
     nix::unistd::setpgid(pid, pg).or_else(|e| {
+        // EACCES means that the child already called exec, but if it did,
+        // then it also must have already called setpgid itself, so we don't
+        // care
         if e == nix::errno::Errno::EACCES {
             Ok(())
         } else {
