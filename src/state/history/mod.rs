@@ -97,14 +97,13 @@ impl History {
         let entry = async_std::sync::Arc::new(async_std::sync::Mutex::new(
             Entry::new(Ok(ast.clone()), self.size, input_w, resize_w),
         ));
-        let pty =
-            pty::Pty::new(self.size, &entry, input_r, resize_r, event_w)?;
-
         run_commands(
             ast.clone(),
-            pty,
             async_std::sync::Arc::clone(&entry),
             ProcessEnv::new(),
+            input_r,
+            resize_r,
+            event_w,
         );
 
         self.entries.push(entry);
@@ -564,11 +563,33 @@ impl ProcessEnv {
 
 fn run_commands(
     ast: crate::parse::Commands,
-    pty: pty::Pty,
     entry: async_std::sync::Arc<async_std::sync::Mutex<Entry>>,
     mut env: ProcessEnv,
+    input_r: async_std::channel::Receiver<Vec<u8>>,
+    resize_r: async_std::channel::Receiver<(u16, u16)>,
+    event_w: async_std::channel::Sender<crate::event::Event>,
 ) {
     async_std::task::spawn(async move {
+        let pty = match pty::Pty::new(
+            entry.lock_arc().await.vt.screen().size(),
+            &entry,
+            input_r,
+            resize_r,
+            event_w,
+        ) {
+            Ok(pty) => pty,
+            Err(e) => {
+                let mut entry = entry.lock_arc().await;
+                entry.vt.process(
+                    format!("nbsh: failed to allocate pty: {}", e).as_bytes(),
+                );
+                entry.exit_info = Some(ExitInfo::new(
+                    async_std::process::ExitStatus::from_raw(1 << 8),
+                ));
+                return;
+            }
+        };
+
         for pipeline in ast.pipelines() {
             let (pipeline_status, done) =
                 run_pipeline(pipeline, &pty, &env).await;
@@ -579,6 +600,7 @@ fn run_commands(
         }
         entry.lock_arc().await.exit_info =
             Some(ExitInfo::new(*env.latest_status()));
+
         pty.close().await;
     });
 }
