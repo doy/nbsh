@@ -161,6 +161,7 @@ static BUILTINS: once_cell::sync::Lazy<
 > = once_cell::sync::Lazy::new(|| {
     let mut builtins = std::collections::HashMap::new();
     builtins.insert("cd", &cd as Builtin);
+    builtins.insert("echo", &echo);
     builtins.insert("and", &and);
     builtins.insert("or", &or);
     builtins.insert("command", &command);
@@ -299,6 +300,51 @@ fn cd(
     let env = env.clone();
     Ok(Child {
         fut: Box::pin(async move { async_cd(&exe, &env, io).await }),
+        wrapped_child: None,
+    })
+}
+
+// clippy can't tell that the type is necessary
+#[allow(clippy::unnecessary_wraps)]
+// mostly just for testing and ensuring that builtins work, i'll likely remove
+// this later, since the binary seems totally fine
+fn echo(
+    exe: &crate::parse::Exe,
+    env: &crate::command::Env,
+    io: Io,
+) -> anyhow::Result<Child> {
+    async fn async_echo(
+        exe: &crate::parse::Exe,
+        _env: &crate::command::Env,
+        io: Io,
+    ) -> std::process::ExitStatus {
+        macro_rules! write_stdout {
+            ($bytes:expr) => {
+                if let Err(e) = io.write_stdout($bytes).await {
+                    io.write_stderr(format!("echo: {}", e).as_bytes())
+                        .await
+                        .unwrap();
+                    return async_std::process::ExitStatus::from_raw(1 << 8);
+                }
+            };
+        }
+        let count = exe.args().count();
+        for (i, arg) in exe.args().enumerate() {
+            write_stdout!(arg.as_bytes());
+            if i == count - 1 {
+                write_stdout!(b"\n");
+            } else {
+                write_stdout!(b" ");
+            }
+        }
+
+        async_std::process::ExitStatus::from_raw(0)
+    }
+
+    let exe = exe.clone();
+    let env = env.clone();
+    Ok(Child {
+        fut: Box::pin(async move { async_echo(&exe, &env, io).await }),
         wrapped_child: None,
     })
 }
