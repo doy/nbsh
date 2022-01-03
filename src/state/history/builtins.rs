@@ -1,3 +1,4 @@
+use async_std::io::WriteExt as _;
 use std::os::unix::process::ExitStatusExt as _;
 
 type Builtin = &'static (dyn for<'a> Fn(
@@ -99,7 +100,10 @@ async fn cd(
                 home().join(path.strip_prefix(prefix).unwrap())
             } else {
                 // TODO
-                env.write_pty(b"unimplemented\n").await.unwrap();
+                async_std::io::stderr()
+                    .write(b"unimplemented\n")
+                    .await
+                    .unwrap();
                 return async_std::process::ExitStatus::from_raw(1 << 8);
             }
         } else {
@@ -111,17 +115,18 @@ async fn cd(
     let code = match std::env::set_current_dir(&dir) {
         Ok(()) => 0,
         Err(e) => {
-            env.write_pty(
-                format!(
-                    "{}: {}: {}\n",
-                    exe.exe(),
-                    crate::format::io_error(&e),
-                    dir.display()
+            async_std::io::stderr()
+                .write(
+                    format!(
+                        "{}: {}: {}\n",
+                        exe.exe(),
+                        crate::format::io_error(&e),
+                        dir.display()
+                    )
+                    .as_bytes(),
                 )
-                .as_bytes(),
-            )
-            .await
-            .unwrap();
+                .await
+                .unwrap();
             1
         }
     };
@@ -134,7 +139,8 @@ async fn and(
 ) -> async_std::process::ExitStatus {
     let exe = exe.shift();
     if env.latest_status().success() {
-        super::run_exe(&exe, env).await
+        todo!()
+        // super::run_exe(&exe, env).await
     } else {
         *env.latest_status()
     }
@@ -148,7 +154,8 @@ async fn or(
     if env.latest_status().success() {
         *env.latest_status()
     } else {
-        super::run_exe(&exe, env).await
+        todo!()
+        // super::run_exe(&exe, env).await
     }
 }
 
@@ -157,7 +164,7 @@ async fn command(
     env: &super::ProcessEnv,
 ) -> async_std::process::ExitStatus {
     let exe = exe.shift();
-    super::run_binary(&exe, env).await;
+    // super::run_binary(&exe, env).await;
     *env.latest_status()
 }
 
