@@ -3,6 +3,7 @@ use futures_lite::future::FutureExt as _;
 
 pub struct Pty {
     pty: async_std::sync::Arc<pty_process::Pty>,
+    close_w: async_std::channel::Sender<()>,
 }
 
 impl Pty {
@@ -11,9 +12,10 @@ impl Pty {
         entry: &async_std::sync::Arc<async_std::sync::Mutex<super::Entry>>,
         input_r: async_std::channel::Receiver<Vec<u8>>,
         resize_r: async_std::channel::Receiver<(u16, u16)>,
-        close_r: async_std::channel::Receiver<()>,
         event_w: async_std::channel::Sender<crate::event::Event>,
     ) -> anyhow::Result<Self> {
+        let (close_w, close_r) = async_std::channel::unbounded();
+
         let pty = pty_process::Pty::new()?;
         pty.resize(pty_process::Size::new(size.0, size.1))?;
         let pty = async_std::sync::Arc::new(pty);
@@ -116,7 +118,7 @@ impl Pty {
             });
         }
 
-        Ok(Self { pty })
+        Ok(Self { pty, close_w })
     }
 
     pub fn spawn(
@@ -124,5 +126,9 @@ impl Pty {
         mut cmd: pty_process::Command,
     ) -> anyhow::Result<async_std::process::Child> {
         Ok(cmd.spawn(&self.pty)?)
+    }
+
+    pub async fn close(&self) {
+        self.close_w.send(()).await.unwrap();
     }
 }

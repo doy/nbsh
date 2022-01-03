@@ -93,21 +93,18 @@ impl History {
     ) -> anyhow::Result<usize> {
         let (input_w, input_r) = async_std::channel::unbounded();
         let (resize_w, resize_r) = async_std::channel::unbounded();
-        let (close_w, close_r) = async_std::channel::unbounded();
 
         let entry = async_std::sync::Arc::new(async_std::sync::Mutex::new(
             Entry::new(Ok(ast.clone()), self.size, input_w, resize_w),
         ));
-        let pty = pty::Pty::new(
-            self.size, &entry, input_r, resize_r, close_r, event_w,
-        )?;
+        let pty =
+            pty::Pty::new(self.size, &entry, input_r, resize_r, event_w)?;
 
         run_commands(
             ast.clone(),
             pty,
             async_std::sync::Arc::clone(&entry),
             ProcessEnv::new(),
-            close_w,
         );
 
         self.entries.push(entry);
@@ -570,7 +567,6 @@ fn run_commands(
     pty: pty::Pty,
     entry: async_std::sync::Arc<async_std::sync::Mutex<Entry>>,
     mut env: ProcessEnv,
-    close_w: async_std::channel::Sender<()>,
 ) {
     async_std::task::spawn(async move {
         for pipeline in ast.pipelines() {
@@ -583,7 +579,7 @@ fn run_commands(
         }
         entry.lock_arc().await.exit_info =
             Some(ExitInfo::new(*env.latest_status()));
-        close_w.send(()).await.unwrap();
+        pty.close().await;
     });
 }
 
