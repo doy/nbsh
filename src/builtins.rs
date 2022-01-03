@@ -1,9 +1,9 @@
 use async_std::io::WriteExt as _;
 use std::os::unix::process::ExitStatusExt as _;
 
-type Builtin = &'static (dyn for<'a> Fn(
+type BuiltinFunc = &'static (dyn for<'a> Fn(
     &'a crate::parse::Exe,
-    &'a super::ProcessEnv,
+    &'a crate::command::Env,
 ) -> std::pin::Pin<
     Box<
         dyn std::future::Future<Output = std::process::ExitStatus>
@@ -15,16 +15,16 @@ type Builtin = &'static (dyn for<'a> Fn(
               + Send);
 
 static BUILTINS: once_cell::sync::Lazy<
-    std::collections::HashMap<&'static str, Builtin>,
+    std::collections::HashMap<&'static str, BuiltinFunc>,
 > = once_cell::sync::Lazy::new(|| {
     // all this does is convince the type system to do the right thing, i
     // don't think there's any way to just do it directly through annotations
     // or casts or whatever
-    fn coerce_builtin<F>(f: &'static F) -> Builtin
+    fn coerce_builtin<F>(f: &'static F) -> BuiltinFunc
     where
         F: for<'a> Fn(
                 &'a crate::parse::Exe,
-                &'a super::ProcessEnv,
+                &'a crate::command::Env,
             ) -> std::pin::Pin<
                 Box<
                     dyn std::future::Future<Output = std::process::ExitStatus>
@@ -55,9 +55,43 @@ static BUILTINS: once_cell::sync::Lazy<
     builtins
 });
 
+pub struct Builtin {
+    f: BuiltinFunc,
+    stdin: Box<dyn async_std::io::Read>,
+    stdout: Box<dyn async_std::io::Write>,
+    stderr: Box<dyn async_std::io::Write>,
+}
+
+impl Builtin {
+    pub fn new(exe: &crate::parse::Exe) -> Option<Self> {
+        if let Some(f) = BUILTINS.get(exe.exe()) {
+            Some(Self {
+                f,
+                stdin: Box::new(async_std::io::stdin()),
+                stdout: Box::new(async_std::io::stdout()),
+                stderr: Box::new(async_std::io::stderr()),
+            })
+        } else {
+            None
+        }
+    }
+
+    pub fn stdin(&mut self, fh: std::fs::File) {
+        self.stdin = Box::new(async_std::fs::File::from(fh));
+    }
+
+    pub fn stdout(&mut self, fh: std::fs::File) {
+        self.stdout = Box::new(async_std::fs::File::from(fh));
+    }
+
+    pub fn stderr(&mut self, fh: std::fs::File) {
+        self.stderr = Box::new(async_std::fs::File::from(fh));
+    }
+}
+
 pub fn run(
     exe: &crate::parse::Exe,
-    env: &super::ProcessEnv,
+    env: &crate::command::Env,
 ) -> Option<
     std::pin::Pin<
         Box<
@@ -80,7 +114,7 @@ pub fn run(
 
 async fn cd(
     exe: &crate::parse::Exe,
-    env: &super::ProcessEnv,
+    env: &crate::command::Env,
 ) -> async_std::process::ExitStatus {
     let dir = exe
         .args()
@@ -135,7 +169,7 @@ async fn cd(
 
 async fn and(
     exe: &crate::parse::Exe,
-    env: &super::ProcessEnv,
+    env: &crate::command::Env,
 ) -> async_std::process::ExitStatus {
     let exe = exe.shift();
     if env.latest_status().success() {
@@ -148,7 +182,7 @@ async fn and(
 
 async fn or(
     exe: &crate::parse::Exe,
-    env: &super::ProcessEnv,
+    env: &crate::command::Env,
 ) -> async_std::process::ExitStatus {
     let exe = exe.shift();
     if env.latest_status().success() {
@@ -161,7 +195,7 @@ async fn or(
 
 async fn command(
     exe: &crate::parse::Exe,
-    env: &super::ProcessEnv,
+    env: &crate::command::Env,
 ) -> async_std::process::ExitStatus {
     let exe = exe.shift();
     // super::run_binary(&exe, env).await;
@@ -170,7 +204,7 @@ async fn command(
 
 async fn builtin(
     exe: &crate::parse::Exe,
-    env: &super::ProcessEnv,
+    env: &crate::command::Env,
 ) -> async_std::process::ExitStatus {
     let exe = exe.shift();
     run(&exe, env).unwrap().await;

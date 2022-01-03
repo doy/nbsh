@@ -12,11 +12,12 @@
 #![allow(clippy::too_many_lines)]
 #![allow(clippy::type_complexity)]
 
+mod builtins;
+mod command;
 mod env;
 mod event;
 mod format;
 mod parse;
-mod pipe;
 mod state;
 
 use async_std::stream::StreamExt as _;
@@ -43,8 +44,8 @@ fn get_offset() -> time::UtcOffset {
 }
 
 async fn async_main() -> anyhow::Result<i32> {
-    if std::env::args().nth(1).as_deref() == Some("--internal-pipe-runner") {
-        return pipe::run().await;
+    if std::env::args().nth(1).as_deref() == Some("--internal-cmd-runner") {
+        return command::run().await;
     }
 
     let mut input = textmode::Input::new().await?;

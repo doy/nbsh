@@ -2,7 +2,6 @@ use async_std::io::WriteExt as _;
 use std::os::unix::io::FromRawFd as _;
 use std::os::unix::process::ExitStatusExt as _;
 
-mod builtins;
 mod pty;
 
 pub struct History {
@@ -100,7 +99,7 @@ impl History {
         run_commands(
             ast.clone(),
             async_std::sync::Arc::clone(&entry),
-            ProcessEnv::new(),
+            crate::command::Env::new(),
             input_r,
             resize_r,
             event_w,
@@ -514,31 +513,10 @@ impl ExitInfo {
     }
 }
 
-#[derive(Clone)]
-pub struct ProcessEnv {
-    latest_status: async_std::process::ExitStatus,
-}
-
-impl ProcessEnv {
-    fn new() -> Self {
-        Self {
-            latest_status: async_std::process::ExitStatus::from_raw(0),
-        }
-    }
-
-    fn set_status(&mut self, status: async_std::process::ExitStatus) {
-        self.latest_status = status;
-    }
-
-    fn latest_status(&self) -> &async_std::process::ExitStatus {
-        &self.latest_status
-    }
-}
-
 fn run_commands(
     ast: crate::parse::Commands,
     entry: async_std::sync::Arc<async_std::sync::Mutex<Entry>>,
-    mut env: ProcessEnv,
+    mut env: crate::command::Env,
     input_r: async_std::channel::Receiver<Vec<u8>>,
     resize_r: async_std::channel::Receiver<(u16, u16)>,
     event_w: async_std::channel::Sender<crate::event::Event>,
@@ -582,10 +560,10 @@ fn run_commands(
 async fn run_pipeline(
     pipeline: &crate::parse::Pipeline,
     pty: &pty::Pty,
-    env: &ProcessEnv,
+    env: &crate::command::Env,
 ) -> (async_std::process::ExitStatus, bool) {
     let mut cmd = pty_process::Command::new(std::env::current_exe().unwrap());
-    cmd.arg("--internal-pipe-runner");
+    cmd.arg("--internal-cmd-runner");
     let (r, w) = nix::unistd::pipe2(nix::fcntl::OFlag::O_CLOEXEC).unwrap();
     unsafe {
         cmd.pre_exec(move || {
