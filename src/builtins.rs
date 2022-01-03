@@ -85,6 +85,8 @@ impl Child {
     }
 }
 
+// clippy can't tell that the type is necessary
+#[allow(clippy::unnecessary_wraps)]
 fn cd(
     exe: &crate::parse::Exe,
     env: &crate::command::Env,

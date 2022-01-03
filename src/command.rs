@@ -131,39 +131,10 @@ impl Child {
 
 pub async fn run() -> anyhow::Result<i32> {
     let (code, pipeline) = read_data().await?;
-    let env: Env = Env::new(code);
-    let mut cmds: Vec<_> = pipeline.exes().iter().map(Command::new).collect();
-    for i in 0..(cmds.len() - 1) {
-        let (r, w) = pipe()?;
-        cmds[i].stdout(w);
-        cmds[i + 1].stdin(r);
-    }
-
-    let mut children = vec![];
-    let mut pg_pid = None;
-    for mut cmd in cmds.drain(..) {
-        // Safety: setpgid is an async-signal-safe function
-        unsafe {
-            cmd.pre_exec(move || {
-                setpgid_child(pg_pid)?;
-                Ok(())
-            });
-        }
-        let child = cmd.spawn(&env)?;
-        if let Some(id) = child.id() {
-            let child_pid = id_to_pid(id);
-            setpgid_parent(child_pid, pg_pid)?;
-            if pg_pid.is_none() {
-                pg_pid = Some(child_pid);
-                set_foreground_pg(child_pid)?;
-            }
-        }
-        children.push(child);
-    }
-
-    let mut final_status = None;
-
+    let env = Env::new(code);
+    let children = spawn_children(&pipeline, &env)?;
     let count = children.len();
+
     let mut children: futures_util::stream::FuturesUnordered<_> =
         children
             .into_iter()
@@ -172,6 +143,7 @@ pub async fn run() -> anyhow::Result<i32> {
                 (child.status().await, i == count - 1)
             })
             .collect();
+    let mut final_status = None;
     while let Some((status, last)) = children.next().await {
         let status = status.unwrap_or_else(|_| {
             async_std::process::ExitStatus::from_raw(1 << 8)
@@ -205,6 +177,41 @@ async fn read_data() -> anyhow::Result<(i32, crate::parse::Pipeline)> {
     fd3.read_to_string(&mut pipeline).await?;
     let ast = crate::parse::Pipeline::parse(&pipeline)?;
     Ok((code, ast))
+}
+
+fn spawn_children(
+    pipeline: &crate::parse::Pipeline,
+    env: &Env,
+) -> anyhow::Result<Vec<Child>> {
+    let mut cmds: Vec<_> = pipeline.exes().iter().map(Command::new).collect();
+    for i in 0..(cmds.len() - 1) {
+        let (r, w) = pipe()?;
+        cmds[i].stdout(w);
+        cmds[i + 1].stdin(r);
+    }
+
+    let mut children = vec![];
+    let mut pg_pid = None;
+    for mut cmd in cmds.drain(..) {
+        // Safety: setpgid is an async-signal-safe function
+        unsafe {
+            cmd.pre_exec(move || {
+                setpgid_child(pg_pid)?;
+                Ok(())
+            });
+        }
+        let child = cmd.spawn(env)?;
+        if let Some(id) = child.id() {
+            let child_pid = id_to_pid(id);
+            setpgid_parent(child_pid, pg_pid)?;
+            if pg_pid.is_none() {
+                pg_pid = Some(child_pid);
+                set_foreground_pg(child_pid)?;
+            }
+        }
+        children.push(child);
+    }
+    Ok(children)
 }
 
 fn pipe() -> anyhow::Result<(std::fs::File, std::fs::File)> {
