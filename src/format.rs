@@ -4,9 +4,9 @@ pub fn exit_status(status: std::process::ExitStatus) -> String {
     status.signal().map_or_else(
         || format!("{:03}  ", status.code().unwrap()),
         |sig| {
-            signal_hook::low_level::signal_name(sig).map_or_else(
-                || format!("SIG{} ", sig),
-                |name| format!("{:4} ", &name[3..]),
+            nix::sys::signal::Signal::try_from(sig).map_or_else(
+                |_| format!("SIG{} ", sig),
+                |sig| format!("{:4} ", &sig.as_str()[3..]),
             )
         },
     )

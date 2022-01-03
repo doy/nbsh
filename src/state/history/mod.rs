@@ -608,6 +608,8 @@ async fn run_pipeline(
                 return (std::process::ExitStatus::from_raw(1 << 8), false);
             }
             Res::Exit(Ok(status)) => {
+                // nix::sys::signal::Signal is repr(i32)
+                #[allow(clippy::as_conversions)]
                 return (
                     status,
                     // i'm not sure what exactly the expected behavior here is
@@ -615,7 +617,7 @@ async fn run_pipeline(
                     // SIGTERM doesn't, but i don't know what the precise
                     // logic is or how other signals are handled
                     status.signal()
-                        == Some(signal_hook::consts::signal::SIGINT),
+                        == Some(nix::sys::signal::Signal::SIGINT as i32),
                 );
             }
             Res::Exit(Err(e)) => {

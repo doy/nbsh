@@ -60,13 +60,17 @@ async fn async_main() -> anyhow::Result<i32> {
     let (event_w, event_r) = async_std::channel::unbounded();
 
     {
+        // nix::sys::signal::Signal is repr(i32)
+        #[allow(clippy::as_conversions)]
         let signals = signal_hook_async_std::Signals::new(&[
-            signal_hook::consts::signal::SIGWINCH,
+            nix::sys::signal::Signal::SIGWINCH as i32,
         ])?;
         let event_w = event_w.clone();
         async_std::task::spawn(async move {
+            // nix::sys::signal::Signal is repr(i32)
+            #[allow(clippy::as_conversions)]
             let mut signals = async_std::stream::once(
-                signal_hook::consts::signal::SIGWINCH,
+                nix::sys::signal::Signal::SIGWINCH as i32,
             )
             .chain(signals);
             while signals.next().await.is_some() {

@@ -514,7 +514,6 @@ dependencies = [
  "pest_derive",
  "pty-process",
  "serde",
- "signal-hook",
  "signal-hook-async-std",
  "terminal_size",
  "textmode",
