@@ -176,8 +176,6 @@ impl State {
                         matches!(self.focus, Focus::Scrolling(_)),
                     )
                     .await;
-            }
-            crate::event::Event::ProcessAlternateScreen => {
                 self.scene = self.default_scene(self.focus, None).await;
             }
             crate::event::Event::ProcessExit => {

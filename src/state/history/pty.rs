@@ -67,20 +67,7 @@ async fn pty_task(
         match read.race(write).race(resize).or(close).await {
             Res::Read(res) => match res {
                 Ok(bytes) => {
-                    let mut entry = entry.lock_arc().await;
-                    let pre_alternate_screen =
-                        entry.vt.screen().alternate_screen();
-                    entry.vt.process(&buf[..bytes]);
-                    let post_alternate_screen =
-                        entry.vt.screen().alternate_screen();
-                    if entry.fullscreen.is_none()
-                        && pre_alternate_screen != post_alternate_screen
-                    {
-                        event_w
-                            .send(crate::event::Event::ProcessAlternateScreen)
-                            .await
-                            .unwrap();
-                    }
+                    entry.lock_arc().await.vt.process(&buf[..bytes]);
                     event_w
                         .send(crate::event::Event::ProcessOutput)
                         .await
