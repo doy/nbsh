@@ -593,9 +593,9 @@ async fn run_pipeline(
             Res::Read(
                 blocking::unblock(move || {
                     let fh = unsafe { std::fs::File::from_raw_fd(from_r) };
-                    let env = bincode::deserialize_from(&fh);
+                    let event = bincode::deserialize_from(&fh);
                     let _ = fh.into_raw_fd();
-                    env
+                    event
                 })
                 .await,
             )
@@ -604,6 +604,11 @@ async fn run_pipeline(
         match read.or(exit).await {
             Res::Read(Ok(event)) => event_w.send(event).await.unwrap(),
             Res::Read(Err(e)) => {
+                if let bincode::ErrorKind::Io(e) = &*e {
+                    if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                        continue;
+                    }
+                }
                 eprintln!("nbsh: {}", e);
                 return (std::process::ExitStatus::from_raw(1 << 8), false);
             }

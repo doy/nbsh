@@ -36,6 +36,7 @@ async fn write_event(event: crate::event::Event) {
     fd4.write_all(&bincode::serialize(&event).unwrap())
         .await
         .unwrap();
+    fd4.flush().await.unwrap();
     let _ = fd4.into_raw_fd();
 }
 
