@@ -104,7 +104,7 @@ impl History {
         run_commands(
             ast,
             async_std::sync::Arc::clone(&entry),
-            crate::env::Env::new(0),
+            crate::env::Env::new(),
             input_r,
             resize_r,
             event_w,
@@ -541,8 +541,8 @@ fn run_commands(
         };
 
         for pipeline in ast.pipelines() {
-            let (pipeline_status, done) =
-                run_pipeline(pipeline, &pty, &env).await;
+            env.set_pipeline(pipeline.input_string().to_string());
+            let (pipeline_status, done) = run_pipeline(&pty, &env).await;
             env.set_status(pipeline_status);
             if done {
                 break;
@@ -556,7 +556,6 @@ fn run_commands(
 }
 
 async fn run_pipeline(
-    pipeline: &crate::parse::Pipeline,
     pty: &pty::Pty,
     env: &crate::env::Env,
 ) -> (async_std::process::ExitStatus, bool) {
@@ -573,13 +572,7 @@ async fn run_pipeline(
     nix::unistd::close(r).unwrap();
 
     let mut w = unsafe { async_std::fs::File::from_raw_fd(w) };
-    // TODO: actual serialization
-    w.write_all(&env.latest_status().code().unwrap_or(1).to_be_bytes())
-        .await
-        .unwrap();
-    w.write_all(pipeline.input_string().as_bytes())
-        .await
-        .unwrap();
+    w.write_all(&env.as_bytes()).await.unwrap();
     drop(w);
 
     let status = child.status_no_drop().await.unwrap();

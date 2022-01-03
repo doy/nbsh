@@ -8,6 +8,7 @@ license = "MIT"
 [dependencies]
 anyhow = "1.0.52"
 async-std = { version = "1.10.0", features = ["unstable"] }
+bincode = "1.3.3"
 blocking = "1.1.0"
 futures-lite = "1.12.0"
 futures-util = "0.3.19"
@@ -18,6 +19,7 @@ once_cell = "1.9.0"
 pest = "2.1.3"
 pest_derive = "2.1.0"
 pty-process = { version = "0.2.0", features = ["async"] }
+serde = { version = "1.0.133", features = ["derive"] }
 signal-hook = "0.3.13"
 signal-hook-async-std = "0.2.1"
 terminal_size = "0.1.17"

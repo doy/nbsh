@@ -10,8 +10,8 @@ mod command;
 pub use command::{Child, Command};
 
 pub async fn run() -> anyhow::Result<i32> {
-    let (code, pipeline) = read_data().await?;
-    let env = crate::env::Env::new(code);
+    let env = read_data().await?;
+    let pipeline = crate::parse::Pipeline::parse(env.pipeline().unwrap())?;
     let (children, pg) = spawn_children(pipeline, &env)?;
     let status = wait_children(children, pg).await;
     if let Some(signal) = status.signal() {
@@ -20,18 +20,15 @@ pub async fn run() -> anyhow::Result<i32> {
     Ok(status.code().unwrap())
 }
 
-async fn read_data() -> anyhow::Result<(i32, crate::parse::Pipeline)> {
+async fn read_data() -> anyhow::Result<crate::env::Env> {
     // Safety: this code is only called by crate::history::run_pipeline, which
     // passes data through on fd 3, and which will not spawn this process
     // unless the pipe was successfully opened on that fd
     let mut fd3 = unsafe { async_std::fs::File::from_raw_fd(3) };
-    let mut be_bytes = [0; 4];
-    fd3.read_exact(&mut be_bytes).await?;
-    let code = i32::from_be_bytes(be_bytes);
-    let mut pipeline = String::new();
-    fd3.read_to_string(&mut pipeline).await?;
-    let ast = crate::parse::Pipeline::parse(&pipeline)?;
-    Ok((code, ast))
+    let mut data = vec![];
+    fd3.read_to_end(&mut data).await?;
+    let env = crate::env::Env::from_bytes(&data);
+    Ok(env)
 }
 
 fn spawn_children(
