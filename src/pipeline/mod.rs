@@ -1,136 +1,16 @@
 use async_std::io::ReadExt as _;
-use async_std::os::unix::process::CommandExt as _;
 use async_std::stream::StreamExt as _;
 use std::os::unix::io::FromRawFd as _;
 use std::os::unix::process::ExitStatusExt as _;
 
 const PID0: nix::unistd::Pid = nix::unistd::Pid::from_raw(0);
 
-#[derive(Clone)]
-pub struct Env {
-    latest_status: async_std::process::ExitStatus,
-}
-
-impl Env {
-    pub fn new(code: i32) -> Self {
-        Self {
-            latest_status: async_std::process::ExitStatus::from_raw(
-                code << 8,
-            ),
-        }
-    }
-
-    pub fn set_status(&mut self, status: async_std::process::ExitStatus) {
-        self.latest_status = status;
-    }
-
-    pub fn latest_status(&self) -> &async_std::process::ExitStatus {
-        &self.latest_status
-    }
-}
-
-pub enum Command {
-    Binary(async_std::process::Command),
-    Builtin(crate::builtins::Command),
-}
-
-impl Command {
-    pub fn new(exe: &crate::parse::Exe) -> Self {
-        crate::builtins::Command::new(exe)
-            .map_or_else(|| Self::new_binary(exe), Self::Builtin)
-    }
-
-    pub fn new_binary(exe: &crate::parse::Exe) -> Self {
-        let mut cmd = async_std::process::Command::new(exe.exe());
-        cmd.args(exe.args());
-        Self::Binary(cmd)
-    }
-
-    pub fn new_builtin(exe: &crate::parse::Exe) -> Self {
-        crate::builtins::Command::new(exe)
-            .map_or_else(|| todo!(), Self::Builtin)
-    }
-
-    pub fn stdin(&mut self, fh: std::fs::File) {
-        match self {
-            Self::Binary(cmd) => {
-                cmd.stdin(fh);
-            }
-            Self::Builtin(cmd) => {
-                cmd.stdin(fh);
-            }
-        }
-    }
-
-    pub fn stdout(&mut self, fh: std::fs::File) {
-        match self {
-            Self::Binary(cmd) => {
-                cmd.stdout(fh);
-            }
-            Self::Builtin(cmd) => {
-                cmd.stdout(fh);
-            }
-        }
-    }
-
-    pub fn stderr(&mut self, fh: std::fs::File) {
-        match self {
-            Self::Binary(cmd) => {
-                cmd.stderr(fh);
-            }
-            Self::Builtin(cmd) => {
-                cmd.stderr(fh);
-            }
-        }
-    }
-
-    pub unsafe fn pre_exec<F>(&mut self, f: F)
-    where
-        F: 'static + FnMut() -> std::io::Result<()> + Send + Sync,
-    {
-        match self {
-            Self::Binary(cmd) => {
-                cmd.pre_exec(f);
-            }
-            Self::Builtin(cmd) => {
-                cmd.pre_exec(f);
-            }
-        }
-    }
-
-    pub fn spawn(self, env: &Env) -> anyhow::Result<Child> {
-        match self {
-            Self::Binary(mut cmd) => Ok(Child::Binary(cmd.spawn()?)),
-            Self::Builtin(cmd) => Ok(Child::Builtin(cmd.spawn(env)?)),
-        }
-    }
-}
-
-pub enum Child {
-    Binary(async_std::process::Child),
-    Builtin(crate::builtins::Child),
-}
-
-impl Child {
-    pub fn id(&self) -> Option<u32> {
-        match self {
-            Self::Binary(child) => Some(child.id()),
-            Self::Builtin(child) => child.id(),
-        }
-    }
-
-    #[async_recursion::async_recursion]
-    pub async fn status(self) -> anyhow::Result<std::process::ExitStatus> {
-        match self {
-            Self::Binary(child) => Ok(child.status_no_drop().await?),
-            Self::Builtin(child) => Ok(child.status().await?),
-        }
-    }
-}
+mod command;
+pub use command::{Child, Command};
 
 pub async fn run() -> anyhow::Result<i32> {
     let (code, pipeline) = read_data().await?;
-    let env = Env::new(code);
+    let env = crate::env::Env::new(code);
     let children = spawn_children(&pipeline, &env)?;
     let count = children.len();
 
@@ -180,7 +60,7 @@ async fn read_data() -> anyhow::Result<(i32, crate::parse::Pipeline)> {
 
 fn spawn_children(
     pipeline: &crate::parse::Pipeline,
-    env: &Env,
+    env: &crate::env::Env,
 ) -> anyhow::Result<Vec<Child>> {
     let mut cmds: Vec<_> = pipeline.exes().iter().map(Command::new).collect();
     for i in 0..(cmds.len() - 1) {

@@ -99,7 +99,7 @@ impl History {
         run_commands(
             ast.clone(),
             async_std::sync::Arc::clone(&entry),
-            crate::command::Env::new(0),
+            crate::env::Env::new(0),
             input_r,
             resize_r,
             event_w,
@@ -516,7 +516,7 @@ impl ExitInfo {
 fn run_commands(
     ast: crate::parse::Commands,
     entry: async_std::sync::Arc<async_std::sync::Mutex<Entry>>,
-    mut env: crate::command::Env,
+    mut env: crate::env::Env,
     input_r: async_std::channel::Receiver<Vec<u8>>,
     resize_r: async_std::channel::Receiver<(u16, u16)>,
     event_w: async_std::channel::Sender<crate::event::Event>,
@@ -560,7 +560,7 @@ fn run_commands(
 async fn run_pipeline(
     pipeline: &crate::parse::Pipeline,
     pty: &pty::Pty,
-    env: &crate::command::Env,
+    env: &crate::env::Env,
 ) -> (async_std::process::ExitStatus, bool) {
     let mut cmd = pty_process::Command::new(std::env::current_exe().unwrap());
     cmd.arg("--internal-cmd-runner");

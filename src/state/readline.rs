@@ -24,11 +24,11 @@ impl Readline {
         focus: bool,
         offset: time::UtcOffset,
     ) -> anyhow::Result<()> {
-        let pwd = crate::env::pwd()?;
-        let user = crate::env::user()?;
-        let hostname = crate::env::hostname()?;
-        let time = crate::env::time(offset)?;
-        let prompt_char = crate::env::prompt_char()?;
+        let pwd = crate::info::pwd()?;
+        let user = crate::info::user()?;
+        let hostname = crate::info::hostname()?;
+        let time = crate::info::time(offset)?;
+        let prompt_char = crate::info::prompt_char()?;
 
         let id = format!("{}@{}", user, hostname);
         let idlen: u16 = id.len().try_into().unwrap();
