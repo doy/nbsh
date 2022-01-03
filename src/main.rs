@@ -42,7 +42,11 @@ fn get_offset() -> time::UtcOffset {
     }
 }
 
-async fn async_main() -> anyhow::Result<()> {
+async fn async_main() -> anyhow::Result<i32> {
+    if std::env::args().nth(1).as_deref() == Some("--internal-pipe-runner") {
+        return pipe::run().await;
+    }
+
     let mut input = textmode::Input::new().await?;
     let mut output = textmode::Output::new().await?;
 
@@ -132,22 +136,14 @@ async fn async_main() -> anyhow::Result<()> {
         }
     }
 
-    Ok(())
+    Ok(0)
 }
 
 fn main() {
-    if std::env::args().nth(1).as_deref() == Some("--internal-pipe-runner") {
-        match pipe::run() {
-            Ok(code) => std::process::exit(code),
-            Err(e) => {
-                eprintln!("nbsh: {}", e);
-                std::process::exit(1);
-            }
-        }
-    }
-
     match async_std::task::block_on(async_main()) {
-        Ok(_) => (),
+        Ok(code) => {
+            std::process::exit(code);
+        }
         Err(e) => {
             eprintln!("nbsh: {}", e);
             std::process::exit(1);
