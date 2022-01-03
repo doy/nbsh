@@ -9,6 +9,7 @@ pub enum Env {
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct V0 {
     pipeline: Option<String>,
+    idx: usize,
     #[serde(
         serialize_with = "serialize_status",
         deserialize_with = "deserialize_status"
@@ -17,9 +18,10 @@ pub struct V0 {
 }
 
 impl Env {
-    pub fn new() -> Self {
+    pub fn new(idx: usize) -> Self {
         Self::V0(V0 {
             pipeline: None,
+            idx,
             latest_status: std::process::ExitStatus::from_raw(0),
         })
     }
@@ -29,6 +31,12 @@ impl Env {
             Self::V0(env) => {
                 env.pipeline = Some(pipeline);
             }
+        }
+    }
+
+    pub fn idx(&self) -> usize {
+        match self {
+            Self::V0(env) => env.idx,
         }
     }
 

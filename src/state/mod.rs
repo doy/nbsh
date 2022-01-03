@@ -194,6 +194,11 @@ impl State {
                     }
                 }
             }
+            crate::event::Event::ChildSuspend(idx) => {
+                if self.focus_idx() == Some(idx) {
+                    self.set_focus(Focus::Readline, None).await;
+                }
+            }
             crate::event::Event::ClockTimer => {}
         };
         Some(Action::Refresh)

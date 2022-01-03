@@ -1,7 +1,7 @@
-use async_std::io::ReadExt as _;
+use async_std::io::{ReadExt as _, WriteExt as _};
 use async_std::stream::StreamExt as _;
 use futures_lite::future::FutureExt as _;
-use std::os::unix::io::FromRawFd as _;
+use std::os::unix::io::{FromRawFd as _, IntoRawFd as _};
 use std::os::unix::process::ExitStatusExt as _;
 
 const PID0: nix::unistd::Pid = nix::unistd::Pid::from_raw(0);
@@ -13,7 +13,7 @@ pub async fn run() -> anyhow::Result<i32> {
     let env = read_data().await?;
     let pipeline = crate::parse::Pipeline::parse(env.pipeline().unwrap())?;
     let (children, pg) = spawn_children(pipeline, &env)?;
-    let status = wait_children(children, pg).await;
+    let status = wait_children(children, pg, &env).await;
     if let Some(signal) = status.signal() {
         nix::sys::signal::raise(signal.try_into().unwrap())?;
     }
@@ -29,6 +29,14 @@ async fn read_data() -> anyhow::Result<crate::env::Env> {
     fd3.read_to_end(&mut data).await?;
     let env = crate::env::Env::from_bytes(&data);
     Ok(env)
+}
+
+async fn write_event(event: crate::event::Event) {
+    let mut fd4 = unsafe { async_std::fs::File::from_raw_fd(4) };
+    fd4.write_all(&bincode::serialize(&event).unwrap())
+        .await
+        .unwrap();
+    let _ = fd4.into_raw_fd();
 }
 
 fn spawn_children(
@@ -69,6 +77,7 @@ fn spawn_children(
 async fn wait_children(
     children: Vec<Child<'_>>,
     pg: Option<nix::unistd::Pid>,
+    env: &crate::env::Env,
 ) -> std::process::ExitStatus {
     enum Res {
         Child(nix::Result<nix::sys::wait::WaitStatus>),
@@ -150,8 +159,10 @@ async fn wait_children(
                 }
                 nix::sys::wait::WaitStatus::Stopped(pid, signal) => {
                     if signal == nix::sys::signal::Signal::SIGTSTP {
-                        // TODO: notify the main shell process and have it
-                        // refocus the readline
+                        write_event(crate::event::Event::ChildSuspend(
+                            env.idx(),
+                        ))
+                        .await;
                         if let Err(e) = nix::sys::signal::kill(
                             pid,
                             nix::sys::signal::Signal::SIGCONT,

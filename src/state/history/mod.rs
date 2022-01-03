@@ -1,5 +1,6 @@
 use async_std::io::WriteExt as _;
-use std::os::unix::io::FromRawFd as _;
+use futures_lite::future::FutureExt as _;
+use std::os::unix::io::{FromRawFd as _, IntoRawFd as _};
 use std::os::unix::process::ExitStatusExt as _;
 
 mod pty;
@@ -104,7 +105,7 @@ impl History {
         run_commands(
             ast,
             async_std::sync::Arc::clone(&entry),
-            crate::env::Env::new(),
+            crate::env::Env::new(self.entries.len()),
             input_r,
             resize_r,
             event_w,
@@ -525,7 +526,7 @@ fn run_commands(
             &entry,
             input_r,
             resize_r,
-            event_w,
+            event_w.clone(),
         ) {
             Ok(pty) => pty,
             Err(e) => {
@@ -542,7 +543,8 @@ fn run_commands(
 
         for pipeline in ast.pipelines() {
             env.set_pipeline(pipeline.input_string().to_string());
-            let (pipeline_status, done) = run_pipeline(&pty, &env).await;
+            let (pipeline_status, done) =
+                run_pipeline(&pty, &env, event_w.clone()).await;
             env.set_status(pipeline_status);
             if done {
                 break;
@@ -558,32 +560,70 @@ fn run_commands(
 async fn run_pipeline(
     pty: &pty::Pty,
     env: &crate::env::Env,
+    event_w: async_std::channel::Sender<crate::event::Event>,
 ) -> (async_std::process::ExitStatus, bool) {
     let mut cmd = pty_process::Command::new(std::env::current_exe().unwrap());
     cmd.arg("--internal-cmd-runner");
-    let (r, w) = nix::unistd::pipe2(nix::fcntl::OFlag::O_CLOEXEC).unwrap();
+    let (to_r, to_w) =
+        nix::unistd::pipe2(nix::fcntl::OFlag::O_CLOEXEC).unwrap();
+    let (from_r, from_w) =
+        nix::unistd::pipe2(nix::fcntl::OFlag::O_CLOEXEC).unwrap();
     unsafe {
         cmd.pre_exec(move || {
-            nix::unistd::dup2(r, 3)?;
+            nix::unistd::dup2(to_r, 3)?;
+            nix::unistd::dup2(from_w, 4)?;
             Ok(())
         });
     }
     let child = pty.spawn(cmd).unwrap();
-    nix::unistd::close(r).unwrap();
+    nix::unistd::close(to_r).unwrap();
+    nix::unistd::close(from_w).unwrap();
 
-    let mut w = unsafe { async_std::fs::File::from_raw_fd(w) };
-    w.write_all(&env.as_bytes()).await.unwrap();
-    drop(w);
+    let mut to_w = unsafe { async_std::fs::File::from_raw_fd(to_w) };
+    to_w.write_all(&env.as_bytes()).await.unwrap();
+    drop(to_w);
 
-    let status = child.status_no_drop().await.unwrap();
-    (
-        status,
-        // i'm not sure what exactly the expected behavior here is - in zsh,
-        // SIGINT kills the whole command line while SIGTERM doesn't, but i
-        // don't know what the precise logic is or how other signals are
-        // handled
-        status.signal() == Some(signal_hook::consts::signal::SIGINT),
-    )
+    loop {
+        enum Res {
+            Read(bincode::Result<crate::event::Event>),
+            Exit(std::io::Result<std::process::ExitStatus>),
+        }
+
+        let read = async move {
+            Res::Read(
+                blocking::unblock(move || {
+                    let fh = unsafe { std::fs::File::from_raw_fd(from_r) };
+                    let env = bincode::deserialize_from(&fh);
+                    let _ = fh.into_raw_fd();
+                    env
+                })
+                .await,
+            )
+        };
+        let exit = async { Res::Exit(child.status_no_drop().await) };
+        match read.or(exit).await {
+            Res::Read(Ok(event)) => event_w.send(event).await.unwrap(),
+            Res::Read(Err(e)) => {
+                eprintln!("nbsh: {}", e);
+                return (std::process::ExitStatus::from_raw(1 << 8), false);
+            }
+            Res::Exit(Ok(status)) => {
+                return (
+                    status,
+                    // i'm not sure what exactly the expected behavior here is
+                    // - in zsh, SIGINT kills the whole command line while
+                    // SIGTERM doesn't, but i don't know what the precise
+                    // logic is or how other signals are handled
+                    status.signal()
+                        == Some(signal_hook::consts::signal::SIGINT),
+                );
+            }
+            Res::Exit(Err(e)) => {
+                eprintln!("nbsh: {}", e);
+                return (std::process::ExitStatus::from_raw(1 << 8), false);
+            }
+        }
+    }
 }
 
 fn set_bgcolor(out: &mut impl textmode::Textmode, idx: usize, focus: bool) {
