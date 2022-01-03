@@ -99,7 +99,7 @@ impl History {
         run_commands(
             ast.clone(),
             async_std::sync::Arc::clone(&entry),
-            crate::command::Env::new(),
+            crate::command::Env::new(0),
             input_r,
             resize_r,
             event_w,
@@ -575,10 +575,13 @@ async fn run_pipeline(
     nix::unistd::close(r).unwrap();
 
     let mut w = unsafe { async_std::fs::File::from_raw_fd(w) };
+    // TODO: actual serialization
+    w.write_all(&env.latest_status().code().unwrap_or(1).to_be_bytes())
+        .await
+        .unwrap();
     w.write_all(pipeline.input_string().as_bytes())
         .await
         .unwrap();
-    // todo: write contents of env also
     drop(w);
 
     let status = child.status_no_drop().await.unwrap();

@@ -12,9 +12,11 @@ pub struct Env {
 }
 
 impl Env {
-    pub fn new() -> Self {
+    pub fn new(code: i32) -> Self {
         Self {
-            latest_status: async_std::process::ExitStatus::from_raw(0),
+            latest_status: async_std::process::ExitStatus::from_raw(
+                code << 8,
+            ),
         }
     }
 
@@ -128,8 +130,8 @@ impl Child {
 }
 
 pub async fn run() -> anyhow::Result<i32> {
-    let pipeline = read_pipeline().await?;
-    let env: Env = Env::new(); // todo
+    let (code, pipeline) = read_data().await?;
+    let env: Env = Env::new(code);
     let mut cmds: Vec<_> = pipeline.exes().iter().map(Command::new).collect();
     for i in 0..(cmds.len() - 1) {
         let (r, w) = pipe()?;
@@ -191,15 +193,18 @@ pub async fn run() -> anyhow::Result<i32> {
     Ok(final_status.code().unwrap())
 }
 
-async fn read_pipeline() -> anyhow::Result<crate::parse::Pipeline> {
+async fn read_data() -> anyhow::Result<(i32, crate::parse::Pipeline)> {
     // Safety: this code is only called by crate::history::run_pipeline, which
     // passes data through on fd 3, and which will not spawn this process
     // unless the pipe was successfully opened on that fd
     let mut fd3 = unsafe { async_std::fs::File::from_raw_fd(3) };
+    let mut be_bytes = [0; 4];
+    fd3.read_exact(&mut be_bytes).await?;
+    let code = i32::from_be_bytes(be_bytes);
     let mut pipeline = String::new();
     fd3.read_to_string(&mut pipeline).await?;
     let ast = crate::parse::Pipeline::parse(&pipeline)?;
-    Ok(ast)
+    Ok((code, ast))
 }
 
 fn pipe() -> anyhow::Result<(std::fs::File, std::fs::File)> {
