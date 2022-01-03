@@ -129,10 +129,7 @@ impl History {
         self.entries.push(async_std::sync::Arc::new(
             async_std::sync::Mutex::new(entry),
         ));
-        event_w
-            .send(crate::event::Event::ProcessExit)
-            .await
-            .unwrap();
+        event_w.send(crate::event::Event::PtyClose).await.unwrap();
     }
 
     pub async fn entry(

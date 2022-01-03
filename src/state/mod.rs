@@ -166,7 +166,7 @@ impl State {
                 self.history.resize(new_size).await;
                 return Some(Action::Resize(new_size.0, new_size.1));
             }
-            crate::event::Event::ProcessOutput => {
+            crate::event::Event::PtyOutput => {
                 // the number of visible lines may have changed, so make sure
                 // the focus is still visible
                 self.history
@@ -178,7 +178,7 @@ impl State {
                     .await;
                 self.scene = self.default_scene(self.focus, None).await;
             }
-            crate::event::Event::ProcessExit => {
+            crate::event::Event::PtyClose => {
                 if let Some(idx) = self.focus_idx() {
                     let entry = self.history.entry(idx).await;
                     if !entry.running() {

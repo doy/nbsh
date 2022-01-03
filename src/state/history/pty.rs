@@ -69,7 +69,7 @@ async fn pty_task(
                 Ok(bytes) => {
                     entry.lock_arc().await.vt.process(&buf[..bytes]);
                     event_w
-                        .send(crate::event::Event::ProcessOutput)
+                        .send(crate::event::Event::PtyOutput)
                         .await
                         .unwrap();
                 }
@@ -100,7 +100,7 @@ async fn pty_task(
             Res::Close(res) => match res {
                 Ok(()) => {
                     event_w
-                        .send(crate::event::Event::ProcessExit)
+                        .send(crate::event::Event::PtyClose)
                         .await
                         .unwrap();
                     return;

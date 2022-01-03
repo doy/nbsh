@@ -2,8 +2,8 @@
 pub enum Event {
     Key(textmode::Key),
     Resize((u16, u16)),
-    ProcessOutput,
-    ProcessExit,
+    PtyOutput,
+    PtyClose,
     ClockTimer,
 }
 
@@ -53,8 +53,8 @@ impl Reader {
 struct Pending {
     key: std::collections::VecDeque<textmode::Key>,
     size: Option<(u16, u16)>,
-    process_output: bool,
-    process_exit: bool,
+    pty_output: bool,
+    pty_close: bool,
     clock_timer: bool,
     done: bool,
 }
@@ -68,8 +68,8 @@ impl Pending {
         self.done
             || !self.key.is_empty()
             || self.size.is_some()
-            || self.process_output
-            || self.process_exit
+            || self.pty_output
+            || self.pty_close
             || self.clock_timer
     }
 
@@ -83,9 +83,9 @@ impl Pending {
         if let Some(size) = self.size.take() {
             return Some(Event::Resize(size));
         }
-        if self.process_exit {
-            self.process_exit = false;
-            return Some(Event::ProcessExit);
+        if self.pty_close {
+            self.pty_close = false;
+            return Some(Event::PtyClose);
         }
         if self.clock_timer {
             self.clock_timer = false;
@@ -94,9 +94,9 @@ impl Pending {
         // process_output should be last because it will often be the case
         // that there is ~always new process output (cat on large files, yes,
         // etc) and that shouldn't prevent other events from happening
-        if self.process_output {
-            self.process_output = false;
-            return Some(Event::ProcessOutput);
+        if self.pty_output {
+            self.pty_output = false;
+            return Some(Event::PtyOutput);
         }
         unreachable!()
     }
@@ -105,8 +105,8 @@ impl Pending {
         match event {
             Some(Event::Key(key)) => self.key.push_back(key.clone()),
             Some(Event::Resize(size)) => self.size = Some(*size),
-            Some(Event::ProcessOutput) => self.process_output = true,
-            Some(Event::ProcessExit) => self.process_exit = true,
+            Some(Event::PtyOutput) => self.pty_output = true,
+            Some(Event::PtyClose) => self.pty_close = true,
             Some(Event::ClockTimer) => self.clock_timer = true,
             None => self.done = true,
         }
