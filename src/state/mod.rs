@@ -141,7 +141,7 @@ impl State {
             crate::event::Event::Key(key) => {
                 return if self.escape {
                     self.escape = false;
-                    self.handle_key_escape(key).await
+                    self.handle_key_escape(key, event_w.clone()).await
                 } else if key == textmode::Key::Ctrl(b'e') {
                     self.escape = true;
                     None
@@ -156,7 +156,7 @@ impl State {
                             None
                         }
                         Focus::Scrolling(_) => {
-                            self.handle_key_escape(key).await
+                            self.handle_key_escape(key, event_w.clone()).await
                         }
                     }
                 };
@@ -202,6 +202,7 @@ impl State {
     async fn handle_key_escape(
         &mut self,
         key: textmode::Key,
+        event_w: async_std::channel::Sender<crate::event::Event>,
     ) -> Option<Action> {
         match key {
             textmode::Key::Ctrl(b'd') => {
@@ -215,6 +216,32 @@ impl State {
                 return Some(Action::HardRefresh);
             }
             textmode::Key::Ctrl(b'm') => {
+                if let Some(idx) = self.focus_idx() {
+                    self.readline.clear_input();
+                    let entry = self.history.entry(idx).await;
+                    let input = entry.cmd();
+                    match self.parse(input) {
+                        Ok(ast) => {
+                            let idx = self
+                                .history
+                                .run(&ast, event_w.clone())
+                                .await
+                                .unwrap();
+                            self.set_focus(Focus::History(idx), Some(entry))
+                                .await;
+                            self.hide_readline = true;
+                        }
+                        Err(e) => {
+                            self.history
+                                .parse_error(e, event_w.clone())
+                                .await;
+                        }
+                    }
+                } else {
+                    self.set_focus(Focus::Readline, None).await;
+                }
+            }
+            textmode::Key::Char(' ') => {
                 let idx = self.focus_idx();
                 let (focus, entry) = if let Some(idx) = idx {
                     let entry = self.history.entry(idx).await;
@@ -230,13 +257,6 @@ impl State {
                         entry,
                     )
                     .await;
-                }
-            }
-            textmode::Key::Char(' ') => {
-                if let Some(idx) = self.focus_idx() {
-                    let entry = self.history.entry(idx).await;
-                    self.readline.set_input(entry.cmd());
-                    self.set_focus(Focus::Readline, Some(entry)).await;
                 }
             }
             textmode::Key::Char('e') => {
@@ -258,6 +278,13 @@ impl State {
                         }
                     }
                     self.set_focus(focus, Some(entry)).await;
+                }
+            }
+            textmode::Key::Char('i') => {
+                if let Some(idx) = self.focus_idx() {
+                    let entry = self.history.entry(idx).await;
+                    self.readline.set_input(entry.cmd());
+                    self.set_focus(Focus::Readline, Some(entry)).await;
                 }
             }
             textmode::Key::Char('j') | textmode::Key::Down => {
