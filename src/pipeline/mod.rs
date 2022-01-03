@@ -185,7 +185,9 @@ async fn wait_children(
                     final_status = Some(status);
                 }
             }
-            Res::Builtin(Some((Err(e), _))) => {}
+            Res::Builtin(Some((Err(e), _))) => {
+                bail!(e);
+            }
             Res::Builtin(None) => {}
         }
     }
