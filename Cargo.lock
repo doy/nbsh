@@ -493,6 +493,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-std",
+ "blocking",
  "futures-lite",
  "futures-util",
  "hostname",
