@@ -27,21 +27,26 @@ impl Env {
     }
 }
 
-enum Command {
+pub enum Command {
     Binary(async_std::process::Command),
-    Builtin(crate::builtins::Builtin),
+    Builtin(crate::builtins::Command),
 }
 
 impl Command {
-    fn new(exe: &crate::parse::Exe) -> Self {
-        crate::builtins::Builtin::new(exe).map_or_else(
-            || {
-                let mut cmd = async_std::process::Command::new(exe.exe());
-                cmd.args(exe.args());
-                Self::Binary(cmd)
-            },
-            Self::Builtin,
-        )
+    pub fn new(exe: &crate::parse::Exe) -> Self {
+        crate::builtins::Command::new(exe)
+            .map_or_else(|| Self::new_binary(exe), Self::Builtin)
+    }
+
+    pub fn new_binary(exe: &crate::parse::Exe) -> Self {
+        let mut cmd = async_std::process::Command::new(exe.exe());
+        cmd.args(exe.args());
+        Self::Binary(cmd)
+    }
+
+    pub fn new_builtin(exe: &crate::parse::Exe) -> Self {
+        crate::builtins::Command::new(exe)
+            .map_or_else(|| todo!(), Self::Builtin)
     }
 
     fn stdin(&mut self, fh: std::fs::File) {
@@ -89,34 +94,35 @@ impl Command {
         }
     }
 
-    fn spawn(self, env: &Env) -> anyhow::Result<Child> {
+    pub fn spawn(self, env: &Env) -> anyhow::Result<Child> {
         match self {
             Self::Binary(mut cmd) => {
                 let child = cmd.spawn()?;
                 Ok(Child::Binary(child))
             }
-            Self::Builtin(cmd) => Ok(Child::Builtin(cmd)),
+            Self::Builtin(cmd) => Ok(Child::Builtin(cmd.spawn(env)?)),
         }
     }
 }
 
-enum Child {
+pub enum Child {
     Binary(async_std::process::Child),
-    Builtin(crate::builtins::Builtin),
+    Builtin(crate::builtins::Child),
 }
 
 impl Child {
-    fn id(&self) -> Option<u32> {
+    pub fn id(&self) -> Option<u32> {
         match self {
             Self::Binary(child) => Some(child.id()),
-            Self::Builtin(child) => todo!(),
+            Self::Builtin(child) => child.id(),
         }
     }
 
-    async fn status(self) -> anyhow::Result<std::process::ExitStatus> {
+    #[async_recursion::async_recursion]
+    pub async fn status(self) -> anyhow::Result<std::process::ExitStatus> {
         match self {
             Self::Binary(child) => Ok(child.status_no_drop().await?),
-            Self::Builtin(child) => todo!(),
+            Self::Builtin(child) => Ok(child.status().await?),
         }
     }
 }
@@ -214,7 +220,15 @@ fn set_foreground_pg(pg: nix::unistd::Pid) -> anyhow::Result<()> {
     )?;
     nix::unistd::tcsetpgrp(pty, pg)?;
     nix::unistd::close(pty)?;
-    nix::sys::signal::kill(neg_pid(pg), nix::sys::signal::Signal::SIGCONT)?;
+    nix::sys::signal::kill(neg_pid(pg), nix::sys::signal::Signal::SIGCONT)
+        .or_else(|e| {
+            // the process group has already exited
+            if e == nix::errno::Errno::ESRCH {
+                Ok(())
+            } else {
+                Err(e)
+            }
+        })?;
     Ok(())
 }
 
@@ -230,8 +244,8 @@ fn setpgid_parent(
     nix::unistd::setpgid(pid, pg.unwrap_or(PID0)).or_else(|e| {
         // EACCES means that the child already called exec, but if it did,
         // then it also must have already called setpgid itself, so we don't
-        // care
-        if e == nix::errno::Errno::EACCES {
+        // care. ESRCH means that the process already exited, which is similar
+        if e == nix::errno::Errno::EACCES || e == nix::errno::Errno::ESRCH {
             Ok(())
         } else {
             Err(e)
