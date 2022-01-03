@@ -87,8 +87,8 @@ impl Readline {
         2 // XXX handle wrapping
     }
 
-    pub fn input(&self) -> String {
-        self.input_line.clone()
+    pub fn input(&self) -> &str {
+        &self.input_line
     }
 
     pub fn add_input(&mut self, s: &str) {

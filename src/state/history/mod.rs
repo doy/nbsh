@@ -87,17 +87,22 @@ impl History {
 
     pub async fn run(
         &mut self,
-        ast: &crate::parse::Commands,
+        ast: crate::parse::Commands,
         event_w: async_std::channel::Sender<crate::event::Event>,
     ) -> anyhow::Result<usize> {
         let (input_w, input_r) = async_std::channel::unbounded();
         let (resize_w, resize_r) = async_std::channel::unbounded();
 
         let entry = async_std::sync::Arc::new(async_std::sync::Mutex::new(
-            Entry::new(Ok(ast.clone()), self.size, input_w, resize_w),
+            Entry::new(
+                ast.input_string().to_string(),
+                self.size,
+                input_w,
+                resize_w,
+            ),
         ));
         run_commands(
-            ast.clone(),
+            ast,
             async_std::sync::Arc::clone(&entry),
             crate::env::Env::new(0),
             input_r,
@@ -123,7 +128,8 @@ impl History {
         resize_r.close();
 
         let err_str = format!("{}", e);
-        let mut entry = Entry::new(Err(e), self.size, input_w, resize_w);
+        let mut entry =
+            Entry::new(e.into_input(), self.size, input_w, resize_w);
         entry.vt.process(err_str.replace('\n', "\r\n").as_bytes());
         let status = async_std::process::ExitStatus::from_raw(1 << 8);
         entry.exit_info = Some(ExitInfo::new(status));
@@ -249,7 +255,7 @@ impl std::iter::DoubleEndedIterator for VisibleEntries {
 }
 
 pub struct Entry {
-    ast: Result<crate::parse::Commands, crate::parse::Error>,
+    cmdline: String,
     vt: vt100::Parser,
     audible_bell_state: usize,
     visual_bell_state: usize,
@@ -263,13 +269,13 @@ pub struct Entry {
 
 impl Entry {
     fn new(
-        ast: Result<crate::parse::Commands, crate::parse::Error>,
+        cmdline: String,
         size: (u16, u16),
         input: async_std::channel::Sender<Vec<u8>>,
         resize: async_std::channel::Sender<(u16, u16)>,
     ) -> Self {
         Self {
-            ast,
+            cmdline,
             vt: vt100::Parser::new(size.0, size.1, 0),
             audible_bell_state: 0,
             visual_bell_state: 0,
@@ -302,7 +308,7 @@ impl Entry {
         out.reset_attributes();
 
         set_bgcolor(out, idx, focused);
-        if let Some(info) = self.exit_info {
+        if let Some(info) = &self.exit_info {
             if info.status.signal().is_some() {
                 out.set_fgcolor(textmode::color::MAGENTA);
             } else if info.status.success() {
@@ -325,7 +331,7 @@ impl Entry {
         out.reset_attributes();
 
         set_bgcolor(out, idx, focused);
-        let time = self.exit_info.map_or_else(
+        let time = self.exit_info.as_ref().map_or_else(
             || {
                 format!(
                     "[{}]",
@@ -436,10 +442,7 @@ impl Entry {
     }
 
     pub fn cmd(&self) -> &str {
-        match &self.ast {
-            Ok(ast) => ast.input_string(),
-            Err(e) => e.input(),
-        }
+        &self.cmdline
     }
 
     pub fn toggle_fullscreen(&mut self) {
@@ -468,10 +471,6 @@ impl Entry {
     }
 
     pub fn output_lines(&self, width: u16, focused: bool) -> usize {
-        if let Err(e) = &self.ast {
-            return e.error().to_string().lines().count();
-        }
-
         if self.binary() {
             return 1;
         }
@@ -498,7 +497,6 @@ impl Entry {
     }
 }
 
-#[derive(Copy, Clone)]
 struct ExitInfo {
     status: async_std::process::ExitStatus,
     instant: std::time::Instant,

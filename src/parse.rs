@@ -4,7 +4,7 @@ use pest::Parser as _;
 #[grammar = "shell.pest"]
 struct Shell;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Word {
     word: String,
     interpolate: bool,
@@ -28,7 +28,7 @@ impl Word {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Exe {
     exe: Word,
     args: Vec<Word>,
@@ -56,7 +56,7 @@ impl Exe {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Pipeline {
     exes: Vec<Exe>,
     input_string: String,
@@ -90,7 +90,7 @@ impl Pipeline {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Commands {
     pipelines: Vec<Pipeline>,
     input_string: String,
@@ -144,12 +144,8 @@ impl Error {
         }
     }
 
-    pub fn input(&self) -> &str {
-        &self.input
-    }
-
-    pub fn error(&self) -> &anyhow::Error {
-        &self.e
+    pub fn into_input(self) -> String {
+        self.input
     }
 }
 

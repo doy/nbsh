@@ -44,7 +44,7 @@ impl Reader {
 
     async fn new_event(&self, event: Option<Event>) {
         let mut pending = self.pending.lock().await;
-        pending.new_event(&event);
+        pending.new_event(event);
         self.cvar.notify_one();
     }
 }
@@ -101,10 +101,10 @@ impl Pending {
         unreachable!()
     }
 
-    fn new_event(&mut self, event: &Option<Event>) {
+    fn new_event(&mut self, event: Option<Event>) {
         match event {
-            Some(Event::Key(key)) => self.key.push_back(key.clone()),
-            Some(Event::Resize(size)) => self.size = Some(*size),
+            Some(Event::Key(key)) => self.key.push_back(key),
+            Some(Event::Resize(size)) => self.size = Some(size),
             Some(Event::PtyOutput) => self.pty_output = true,
             Some(Event::PtyClose) => self.pty_close = true,
             Some(Event::ClockTimer) => self.clock_timer = true,

@@ -224,7 +224,7 @@ impl State {
                         Ok(ast) => {
                             let idx = self
                                 .history
-                                .run(&ast, event_w.clone())
+                                .run(ast, event_w.clone())
                                 .await
                                 .unwrap();
                             self.set_focus(Focus::History(idx), Some(entry))
@@ -336,12 +336,11 @@ impl State {
             textmode::Key::Ctrl(b'm') => {
                 let input = self.readline.input();
                 if !input.is_empty() {
-                    self.readline.clear_input();
-                    match self.parse(&input) {
+                    match self.parse(input) {
                         Ok(ast) => {
                             let idx = self
                                 .history
-                                .run(&ast, event_w.clone())
+                                .run(ast, event_w.clone())
                                 .await
                                 .unwrap();
                             self.set_focus(Focus::History(idx), None).await;
@@ -353,6 +352,7 @@ impl State {
                                 .await;
                         }
                     }
+                    self.readline.clear_input();
                 }
             }
             textmode::Key::Ctrl(b'u') => self.readline.clear_backwards(),
