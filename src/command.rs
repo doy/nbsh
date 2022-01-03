@@ -51,7 +51,7 @@ impl Command {
             .map_or_else(|| todo!(), Self::Builtin)
     }
 
-    fn stdin(&mut self, fh: std::fs::File) {
+    pub fn stdin(&mut self, fh: std::fs::File) {
         match self {
             Self::Binary(cmd) => {
                 cmd.stdin(fh);
@@ -62,7 +62,7 @@ impl Command {
         }
     }
 
-    fn stdout(&mut self, fh: std::fs::File) {
+    pub fn stdout(&mut self, fh: std::fs::File) {
         match self {
             Self::Binary(cmd) => {
                 cmd.stdout(fh);
@@ -73,7 +73,7 @@ impl Command {
         }
     }
 
-    fn stderr(&mut self, fh: std::fs::File) {
+    pub fn stderr(&mut self, fh: std::fs::File) {
         match self {
             Self::Binary(cmd) => {
                 cmd.stderr(fh);
@@ -84,7 +84,7 @@ impl Command {
         }
     }
 
-    unsafe fn pre_exec<F>(&mut self, f: F)
+    pub unsafe fn pre_exec<F>(&mut self, f: F)
     where
         F: 'static + FnMut() -> std::io::Result<()> + Send + Sync,
     {
@@ -92,16 +92,15 @@ impl Command {
             Self::Binary(cmd) => {
                 cmd.pre_exec(f);
             }
-            Self::Builtin(_) => {}
+            Self::Builtin(cmd) => {
+                cmd.pre_exec(f);
+            }
         }
     }
 
     pub fn spawn(self, env: &Env) -> anyhow::Result<Child> {
         match self {
-            Self::Binary(mut cmd) => {
-                let child = cmd.spawn()?;
-                Ok(Child::Binary(child))
-            }
+            Self::Binary(mut cmd) => Ok(Child::Binary(cmd.spawn()?)),
             Self::Builtin(cmd) => Ok(Child::Builtin(cmd.spawn(env)?)),
         }
     }
