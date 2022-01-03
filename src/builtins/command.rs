@@ -8,12 +8,16 @@ pub struct Command {
 }
 
 impl Command {
-    pub fn new(exe: &crate::parse::Exe) -> Option<Self> {
-        super::BUILTINS.get(exe.exe()).map(|f| Self {
-            exe: exe.clone(),
-            f,
-            io: Io::new(),
-        })
+    pub fn new(exe: crate::parse::Exe) -> Result<Self, crate::parse::Exe> {
+        if let Some(f) = super::BUILTINS.get(exe.exe()) {
+            Ok(Self {
+                exe,
+                f,
+                io: Io::new(),
+            })
+        } else {
+            Err(exe)
+        }
     }
 
     pub fn stdin(&mut self, fh: std::fs::File) {
@@ -37,7 +41,7 @@ impl Command {
 
     pub fn spawn(self, env: &crate::env::Env) -> anyhow::Result<Child> {
         let Self { f, exe, io } = self;
-        (f)(&exe, env, io)
+        (f)(exe, env, io)
     }
 }
 
@@ -186,24 +190,25 @@ impl Drop for Io {
     }
 }
 
-pub struct Child {
+pub struct Child<'a> {
     fut: std::pin::Pin<
         Box<
             dyn std::future::Future<Output = std::process::ExitStatus>
                 + Sync
-                + Send,
+                + Send
+                + 'a,
         >,
     >,
-    wrapped_child: Option<Box<crate::pipeline::Child>>,
+    wrapped_child: Option<Box<crate::pipeline::Child<'a>>>,
 }
 
-impl Child {
+impl<'a> Child<'a> {
     pub fn new_fut<F>(fut: F) -> Self
     where
         F: std::future::Future<Output = std::process::ExitStatus>
             + Sync
             + Send
-            + 'static,
+            + 'a,
     {
         Self {
             fut: Box::pin(fut),
@@ -211,7 +216,7 @@ impl Child {
         }
     }
 
-    pub fn new_wrapped(child: crate::pipeline::Child) -> Self {
+    pub fn new_wrapped(child: crate::pipeline::Child<'a>) -> Self {
         Self {
             fut: Box::pin(async move { unreachable!() }),
             wrapped_child: Some(Box::new(child)),
@@ -222,14 +227,24 @@ impl Child {
         self.wrapped_child.as_ref().and_then(|cmd| cmd.id())
     }
 
-    #[async_recursion::async_recursion]
-    pub async fn status(
+    // can't use async_recursion because it enforces a 'static lifetime
+    pub fn status(
         self,
-    ) -> anyhow::Result<async_std::process::ExitStatus> {
-        if let Some(child) = self.wrapped_child {
-            child.status().await
-        } else {
-            Ok(self.fut.await)
-        }
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = anyhow::Result<async_std::process::ExitStatus>,
+                > + Send
+                + Sync
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            if let Some(child) = self.wrapped_child {
+                child.status().await
+            } else {
+                Ok(self.fut.await)
+            }
+        })
     }
 }

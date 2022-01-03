@@ -1,6 +1,5 @@
 use std::os::unix::process::ExitStatusExt as _;
 
-#[derive(Clone)]
 pub struct Env {
     latest_status: async_std::process::ExitStatus,
 }

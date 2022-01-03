@@ -11,7 +11,7 @@ pub use command::{Child, Command};
 pub async fn run() -> anyhow::Result<i32> {
     let (code, pipeline) = read_data().await?;
     let env = crate::env::Env::new(code);
-    let children = spawn_children(&pipeline, &env)?;
+    let children = spawn_children(pipeline, &env)?;
     let count = children.len();
 
     let mut children: futures_util::stream::FuturesUnordered<_> =
@@ -59,10 +59,10 @@ async fn read_data() -> anyhow::Result<(i32, crate::parse::Pipeline)> {
 }
 
 fn spawn_children(
-    pipeline: &crate::parse::Pipeline,
+    pipeline: crate::parse::Pipeline,
     env: &crate::env::Env,
 ) -> anyhow::Result<Vec<Child>> {
-    let mut cmds: Vec<_> = pipeline.exes().iter().map(Command::new).collect();
+    let mut cmds: Vec<_> = pipeline.into_exes().map(Command::new).collect();
     for i in 0..(cmds.len() - 1) {
         let (r, w) = pipe()?;
         cmds[i].stdout(w);

@@ -3,11 +3,11 @@ use std::os::unix::process::ExitStatusExt as _;
 pub mod command;
 pub use command::{Child, Command};
 
-type Builtin = &'static (dyn Fn(
-    &crate::parse::Exe,
-    &crate::env::Env,
+type Builtin = &'static (dyn for<'a> Fn(
+    crate::parse::Exe,
+    &'a crate::env::Env,
     command::Io,
-) -> anyhow::Result<command::Child>
+) -> anyhow::Result<command::Child<'a>>
               + Sync
               + Send);
 
@@ -28,12 +28,12 @@ static BUILTINS: once_cell::sync::Lazy<
 // clippy can't tell that the type is necessary
 #[allow(clippy::unnecessary_wraps)]
 fn cd(
-    exe: &crate::parse::Exe,
+    exe: crate::parse::Exe,
     env: &crate::env::Env,
     io: command::Io,
 ) -> anyhow::Result<command::Child> {
     async fn async_cd(
-        exe: &crate::parse::Exe,
+        exe: crate::parse::Exe,
         _env: &crate::env::Env,
         io: command::Io,
     ) -> std::process::ExitStatus {
@@ -84,10 +84,8 @@ fn cd(
         async_std::process::ExitStatus::from_raw(code << 8)
     }
 
-    let exe = exe.clone();
-    let env = env.clone();
     Ok(command::Child::new_fut(async move {
-        async_cd(&exe, &env, io).await
+        async_cd(exe, env, io).await
     }))
 }
 
@@ -96,12 +94,12 @@ fn cd(
 // mostly just for testing and ensuring that builtins work, i'll likely remove
 // this later, since the binary seems totally fine
 fn echo(
-    exe: &crate::parse::Exe,
+    exe: crate::parse::Exe,
     env: &crate::env::Env,
     io: command::Io,
 ) -> anyhow::Result<command::Child> {
     async fn async_echo(
-        exe: &crate::parse::Exe,
+        exe: crate::parse::Exe,
         _env: &crate::env::Env,
         io: command::Io,
     ) -> std::process::ExitStatus {
@@ -128,63 +126,61 @@ fn echo(
         async_std::process::ExitStatus::from_raw(0)
     }
 
-    let exe = exe.clone();
-    let env = env.clone();
     Ok(command::Child::new_fut(async move {
-        async_echo(&exe, &env, io).await
+        async_echo(exe, env, io).await
     }))
 }
 
 fn and(
-    exe: &crate::parse::Exe,
+    mut exe: crate::parse::Exe,
     env: &crate::env::Env,
     io: command::Io,
 ) -> anyhow::Result<command::Child> {
-    let exe = exe.shift();
+    exe.shift();
     if env.latest_status().success() {
-        let mut cmd = crate::pipeline::Command::new(&exe);
+        let mut cmd = crate::pipeline::Command::new(exe);
         io.setup_command(&mut cmd);
         Ok(command::Child::new_wrapped(cmd.spawn(env)?))
     } else {
-        let env = env.clone();
-        Ok(command::Child::new_fut(async move { *env.latest_status() }))
+        let status = *env.latest_status();
+        Ok(command::Child::new_fut(async move { status }))
     }
 }
 
 fn or(
-    exe: &crate::parse::Exe,
+    mut exe: crate::parse::Exe,
     env: &crate::env::Env,
     io: command::Io,
 ) -> anyhow::Result<command::Child> {
-    let exe = exe.shift();
+    exe.shift();
     if env.latest_status().success() {
-        let env = env.clone();
-        Ok(command::Child::new_fut(async move { *env.latest_status() }))
+        let status = *env.latest_status();
+        Ok(command::Child::new_fut(async move { status }))
     } else {
-        let mut cmd = crate::pipeline::Command::new(&exe);
+        let mut cmd = crate::pipeline::Command::new(exe);
         io.setup_command(&mut cmd);
         Ok(command::Child::new_wrapped(cmd.spawn(env)?))
     }
 }
 
 fn command(
-    exe: &crate::parse::Exe,
+    mut exe: crate::parse::Exe,
     env: &crate::env::Env,
     io: command::Io,
 ) -> anyhow::Result<command::Child> {
-    let exe = exe.shift();
-    let mut cmd = crate::pipeline::Command::new_binary(&exe);
+    exe.shift();
+    let mut cmd = crate::pipeline::Command::new_binary(exe);
     io.setup_command(&mut cmd);
     Ok(command::Child::new_wrapped(cmd.spawn(env)?))
 }
 
 fn builtin(
-    exe: &crate::parse::Exe,
+    mut exe: crate::parse::Exe,
     env: &crate::env::Env,
     io: command::Io,
 ) -> anyhow::Result<command::Child> {
-    let exe = exe.shift();
-    let mut cmd = crate::pipeline::Command::new_builtin(&exe);
+    exe.shift();
+    let mut cmd = crate::pipeline::Command::new_builtin(exe);
     io.setup_command(&mut cmd);
     Ok(command::Child::new_wrapped(cmd.spawn(env)?))
 }

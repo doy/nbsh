@@ -6,20 +6,21 @@ pub enum Command {
 }
 
 impl Command {
-    pub fn new(exe: &crate::parse::Exe) -> Self {
+    pub fn new(exe: crate::parse::Exe) -> Self {
         crate::builtins::Command::new(exe)
-            .map_or_else(|| Self::new_binary(exe), Self::Builtin)
+            .map_or_else(Self::new_binary, Self::Builtin)
     }
 
-    pub fn new_binary(exe: &crate::parse::Exe) -> Self {
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn new_binary(exe: crate::parse::Exe) -> Self {
         let mut cmd = async_std::process::Command::new(exe.exe());
         cmd.args(exe.args());
         Self::Binary(cmd)
     }
 
-    pub fn new_builtin(exe: &crate::parse::Exe) -> Self {
+    pub fn new_builtin(exe: crate::parse::Exe) -> Self {
         crate::builtins::Command::new(exe)
-            .map_or_else(|| todo!(), Self::Builtin)
+            .map_or_else(|_| todo!(), Self::Builtin)
     }
 
     pub fn stdin(&mut self, fh: std::fs::File) {
@@ -77,12 +78,12 @@ impl Command {
     }
 }
 
-pub enum Child {
+pub enum Child<'a> {
     Binary(async_std::process::Child),
-    Builtin(crate::builtins::Child),
+    Builtin(crate::builtins::Child<'a>),
 }
 
-impl Child {
+impl<'a> Child<'a> {
     pub fn id(&self) -> Option<u32> {
         match self {
             Self::Binary(child) => Some(child.id()),
@@ -90,11 +91,23 @@ impl Child {
         }
     }
 
-    #[async_recursion::async_recursion]
-    pub async fn status(self) -> anyhow::Result<std::process::ExitStatus> {
-        match self {
-            Self::Binary(child) => Ok(child.status_no_drop().await?),
-            Self::Builtin(child) => Ok(child.status().await?),
-        }
+    // can't use async_recursion because it enforces a 'static lifetime
+    pub fn status(
+        self,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = anyhow::Result<std::process::ExitStatus>,
+                > + Send
+                + Sync
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            match self {
+                Self::Binary(child) => Ok(child.status_no_drop().await?),
+                Self::Builtin(child) => Ok(child.status().await?),
+            }
+        })
     }
 }

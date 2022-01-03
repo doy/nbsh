@@ -51,11 +51,8 @@ impl Exe {
         self.args.iter().map(|arg| arg.word.as_ref())
     }
 
-    pub fn shift(&self) -> Self {
-        let mut new = self.clone();
-        let new_exe = new.args.remove(0);
-        new.exe = new_exe;
-        new
+    pub fn shift(&mut self) {
+        self.exe = self.args.remove(0);
     }
 }
 
@@ -75,8 +72,8 @@ impl Pipeline {
         ))
     }
 
-    pub fn exes(&self) -> &[Exe] {
-        &self.exes
+    pub fn into_exes(self) -> impl Iterator<Item = Exe> {
+        self.exes.into_iter()
     }
 
     pub fn input_string(&self) -> &str {
