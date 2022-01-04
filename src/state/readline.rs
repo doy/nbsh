@@ -3,6 +3,7 @@ use unicode_width::{UnicodeWidthChar as _, UnicodeWidthStr as _};
 pub struct Readline {
     size: (u16, u16),
     input_line: String,
+    scroll: usize,
     pos: usize,
 }
 
@@ -11,6 +12,7 @@ impl Readline {
         Self {
             size: (24, 80),
             input_line: "".into(),
+            scroll: 0,
             pos: 0,
         }
     }
@@ -68,7 +70,7 @@ impl Readline {
         out.write_str(" ");
         out.reset_attributes();
         out.write(b"\x1b[K");
-        out.write_str(&self.input_line);
+        out.write_str(self.visible_input());
         out.reset_attributes();
         out.move_to(self.size.0 - 1, 2 + self.pos_width());
         if focus {
@@ -93,17 +95,17 @@ impl Readline {
 
     pub fn add_input(&mut self, s: &str) {
         self.input_line.insert_str(self.byte_pos(), s);
-        self.pos += s.chars().count();
+        self.inc_pos(s.chars().count());
     }
 
     pub fn set_input(&mut self, s: &str) {
         self.input_line = s.to_string();
-        self.pos = s.chars().count();
+        self.set_pos(s.chars().count());
     }
 
     pub fn backspace(&mut self) {
         while self.pos > 0 {
-            self.pos -= 1;
+            self.dec_pos(1);
             let width =
                 self.input_line.remove(self.byte_pos()).width().unwrap_or(0);
             if width > 0 {
@@ -114,22 +116,22 @@ impl Readline {
 
     pub fn clear_input(&mut self) {
         self.input_line.clear();
-        self.pos = 0;
+        self.set_pos(0);
     }
 
     pub fn clear_backwards(&mut self) {
         self.input_line = self.input_line.chars().skip(self.pos).collect();
-        self.pos = 0;
+        self.set_pos(0);
     }
 
     pub fn cursor_left(&mut self) {
         if self.pos == 0 {
             return;
         }
-        self.pos -= 1;
+        self.dec_pos(1);
         while let Some(c) = self.input_line.chars().nth(self.pos) {
             if c.width().unwrap_or(0) == 0 {
-                self.pos -= 1;
+                self.dec_pos(1);
             } else {
                 break;
             }
@@ -140,24 +142,54 @@ impl Readline {
         if self.pos == self.input_line.chars().count() {
             return;
         }
-        self.pos += 1;
+        self.inc_pos(1);
         while let Some(c) = self.input_line.chars().nth(self.pos) {
             if c.width().unwrap_or(0) == 0 {
-                self.pos += 1;
+                self.inc_pos(1);
             } else {
                 break;
             }
         }
     }
 
+    fn set_pos(&mut self, pos: usize) {
+        self.pos = pos;
+        if self.pos < self.scroll || self.pos_width() > self.size.1 - 2 {
+            self.scroll = self.pos;
+            let mut extra_scroll = usize::from(self.size.1) / 2;
+            while extra_scroll > 0 && self.scroll > 0 {
+                self.scroll -= 1;
+                extra_scroll -= self
+                    .input_line
+                    .chars()
+                    .nth(self.scroll)
+                    .unwrap()
+                    .width()
+                    .unwrap_or(1);
+            }
+        }
+    }
+
+    fn inc_pos(&mut self, inc: usize) {
+        self.set_pos(self.pos + inc);
+    }
+
+    fn dec_pos(&mut self, dec: usize) {
+        self.set_pos(self.pos - dec);
+    }
+
     fn pos_width(&self) -> u16 {
-        self.input_line
-            .chars()
-            .take(self.pos)
-            .collect::<String>()
-            .width()
-            .try_into()
-            .unwrap()
+        let start = self
+            .input_line
+            .char_indices()
+            .nth(self.scroll)
+            .map_or(self.input_line.len(), |(i, _)| i);
+        let end = self
+            .input_line
+            .char_indices()
+            .nth(self.pos)
+            .map_or(self.input_line.len(), |(i, _)| i);
+        self.input_line[start..end].width().try_into().unwrap()
     }
 
     fn byte_pos(&self) -> usize {
@@ -165,5 +197,23 @@ impl Readline {
             .char_indices()
             .nth(self.pos)
             .map_or(self.input_line.len(), |(i, _)| i)
+    }
+
+    fn visible_input(&self) -> &str {
+        let start = self
+            .input_line
+            .char_indices()
+            .nth(self.scroll)
+            .map_or(self.input_line.len(), |(i, _)| i);
+        let mut end = self.input_line.len();
+        let mut width = 0;
+        for (i, c) in self.input_line.char_indices().skip(self.scroll) {
+            if width >= usize::from(self.size.1) - 2 {
+                end = i;
+                break;
+            }
+            width += c.width().unwrap_or(1);
+        }
+        &self.input_line[start..end]
     }
 }
