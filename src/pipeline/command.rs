@@ -1,56 +1,74 @@
 use async_std::os::unix::process::CommandExt as _;
 
-pub enum Command {
+pub struct Command {
+    inner: Inner,
+    exe: String,
+}
+pub enum Inner {
     Binary(async_std::process::Command),
     Builtin(crate::builtins::Command),
 }
 
 impl Command {
     pub fn new(exe: crate::parse::Exe) -> Self {
-        crate::builtins::Command::new(exe)
-            .map_or_else(Self::new_binary, Self::Builtin)
+        let exe_str = exe.exe().to_string();
+        Self {
+            inner: crate::builtins::Command::new(exe).map_or_else(
+                |exe| Self::new_binary(exe).inner,
+                Inner::Builtin,
+            ),
+            exe: exe_str,
+        }
     }
 
     #[allow(clippy::needless_pass_by_value)]
     pub fn new_binary(exe: crate::parse::Exe) -> Self {
+        let exe_str = exe.exe().to_string();
         let mut cmd = async_std::process::Command::new(exe.exe());
         cmd.args(exe.args());
-        Self::Binary(cmd)
+        Self {
+            inner: Inner::Binary(cmd),
+            exe: exe_str,
+        }
     }
 
     pub fn new_builtin(exe: crate::parse::Exe) -> Self {
-        crate::builtins::Command::new(exe)
-            .map_or_else(|_| todo!(), Self::Builtin)
+        let exe_str = exe.exe().to_string();
+        Self {
+            inner: crate::builtins::Command::new(exe)
+                .map_or_else(|_| todo!(), Inner::Builtin),
+            exe: exe_str,
+        }
     }
 
     pub fn stdin(&mut self, fh: std::fs::File) {
-        match self {
-            Self::Binary(cmd) => {
+        match &mut self.inner {
+            Inner::Binary(cmd) => {
                 cmd.stdin(fh);
             }
-            Self::Builtin(cmd) => {
+            Inner::Builtin(cmd) => {
                 cmd.stdin(fh);
             }
         }
     }
 
     pub fn stdout(&mut self, fh: std::fs::File) {
-        match self {
-            Self::Binary(cmd) => {
+        match &mut self.inner {
+            Inner::Binary(cmd) => {
                 cmd.stdout(fh);
             }
-            Self::Builtin(cmd) => {
+            Inner::Builtin(cmd) => {
                 cmd.stdout(fh);
             }
         }
     }
 
     pub fn stderr(&mut self, fh: std::fs::File) {
-        match self {
-            Self::Binary(cmd) => {
+        match &mut self.inner {
+            Inner::Binary(cmd) => {
                 cmd.stderr(fh);
             }
-            Self::Builtin(cmd) => {
+            Inner::Builtin(cmd) => {
                 cmd.stderr(fh);
             }
         }
@@ -60,20 +78,28 @@ impl Command {
     where
         F: 'static + FnMut() -> std::io::Result<()> + Send + Sync,
     {
-        match self {
-            Self::Binary(cmd) => {
+        match &mut self.inner {
+            Inner::Binary(cmd) => {
                 cmd.pre_exec(f);
             }
-            Self::Builtin(cmd) => {
+            Inner::Builtin(cmd) => {
                 cmd.pre_exec(f);
             }
         }
     }
 
     pub fn spawn(self, env: &crate::env::Env) -> anyhow::Result<Child> {
-        match self {
-            Self::Binary(mut cmd) => Ok(Child::Binary(cmd.spawn()?)),
-            Self::Builtin(cmd) => Ok(Child::Builtin(cmd.spawn(env)?)),
+        match self.inner {
+            Inner::Binary(mut cmd) => {
+                Ok(Child::Binary(cmd.spawn().map_err(|e| {
+                    anyhow::anyhow!(
+                        "{}: {}",
+                        crate::format::io_error(&e),
+                        self.exe
+                    )
+                })?))
+            }
+            Inner::Builtin(cmd) => Ok(Child::Builtin(cmd.spawn(env)?)),
         }
     }
 }
