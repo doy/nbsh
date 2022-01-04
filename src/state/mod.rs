@@ -24,6 +24,7 @@ pub enum Action {
 pub struct State {
     readline: readline::Readline,
     history: history::History,
+    env: crate::env::Env,
     focus: Focus,
     scene: Scene,
     escape: bool,
@@ -36,6 +37,7 @@ impl State {
         Self {
             readline: readline::Readline::new(),
             history: history::History::new(),
+            env: crate::env::Env::new(),
             focus: Focus::Readline,
             scene: Scene::Readline,
             escape: false,
@@ -65,12 +67,7 @@ impl State {
                         )
                         .await?;
                     self.readline
-                        .render(
-                            out,
-                            self.history.entry_count(),
-                            true,
-                            self.offset,
-                        )
+                        .render(out, &self.env, true, self.offset)
                         .await?;
                 }
                 Focus::History(idx) => {
@@ -90,12 +87,7 @@ impl State {
                             .await?;
                         let pos = out.screen().cursor_position();
                         self.readline
-                            .render(
-                                out,
-                                self.history.entry_count(),
-                                false,
-                                self.offset,
-                            )
+                            .render(out, &self.env, false, self.offset)
                             .await?;
                         out.move_to(pos.0, pos.1);
                     }
@@ -111,12 +103,7 @@ impl State {
                         )
                         .await?;
                     self.readline
-                        .render(
-                            out,
-                            self.history.entry_count(),
-                            idx.is_none(),
-                            self.offset,
-                        )
+                        .render(out, &self.env, idx.is_none(), self.offset)
                         .await?;
                     out.hide_cursor(true);
                 }
@@ -178,10 +165,15 @@ impl State {
                     .await;
                 self.scene = self.default_scene(self.focus, None).await;
             }
-            crate::event::Event::PtyClose => {
+            crate::event::Event::PtyClose(env) => {
                 if let Some(idx) = self.focus_idx() {
                     let entry = self.history.entry(idx).await;
                     if !entry.running() {
+                        if self.hide_readline {
+                            let idx = self.env.idx();
+                            self.env = env;
+                            self.env.set_idx(idx);
+                        }
                         self.set_focus(
                             if self.hide_readline {
                                 Focus::Readline
@@ -198,6 +190,10 @@ impl State {
                 if self.focus_idx() == Some(idx) {
                     self.set_focus(Focus::Readline, None).await;
                 }
+            }
+            crate::event::Event::PipelineExit(_) => {
+                // this should be handled by the pipeline runner directly
+                unreachable!();
             }
             crate::event::Event::ClockTimer => {}
         };
@@ -225,23 +221,25 @@ impl State {
                     self.readline.clear_input();
                     let entry = self.history.entry(idx).await;
                     let input = entry.cmd();
-                    match self.parse(input) {
+                    let idx = match self.parse(input) {
                         Ok(ast) => {
                             let idx = self
                                 .history
-                                .run(ast, event_w.clone())
+                                .run(ast, self.env.clone(), event_w.clone())
                                 .await
                                 .unwrap();
                             self.set_focus(Focus::History(idx), Some(entry))
                                 .await;
                             self.hide_readline = true;
+                            idx
                         }
-                        Err(e) => {
-                            self.history
-                                .parse_error(e, event_w.clone())
-                                .await;
-                        }
-                    }
+                        Err(e) => self
+                            .history
+                            .parse_error(e, self.env.clone(), event_w.clone())
+                            .await
+                            .unwrap(),
+                    };
+                    self.env.set_idx(idx + 1);
                 } else {
                     self.set_focus(Focus::Readline, None).await;
                 }
@@ -341,22 +339,24 @@ impl State {
             textmode::Key::Ctrl(b'm') => {
                 let input = self.readline.input();
                 if !input.is_empty() {
-                    match self.parse(input) {
+                    let idx = match self.parse(input) {
                         Ok(ast) => {
                             let idx = self
                                 .history
-                                .run(ast, event_w.clone())
+                                .run(ast, self.env.clone(), event_w.clone())
                                 .await
                                 .unwrap();
                             self.set_focus(Focus::History(idx), None).await;
                             self.hide_readline = true;
+                            idx
                         }
-                        Err(e) => {
-                            self.history
-                                .parse_error(e, event_w.clone())
-                                .await;
-                        }
-                    }
+                        Err(e) => self
+                            .history
+                            .parse_error(e, self.env.clone(), event_w.clone())
+                            .await
+                            .unwrap(),
+                    };
+                    self.env.set_idx(idx + 1);
                     self.readline.clear_input();
                 }
             }

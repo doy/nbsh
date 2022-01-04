@@ -7,8 +7,9 @@ pub enum Event {
     Key(textmode::Key),
     Resize((u16, u16)),
     PtyOutput,
-    PtyClose,
+    PtyClose(crate::env::Env),
     ChildSuspend(usize),
+    PipelineExit(crate::env::Env),
     ClockTimer,
 }
 
@@ -75,8 +76,9 @@ struct Pending {
     key: std::collections::VecDeque<textmode::Key>,
     size: Option<(u16, u16)>,
     pty_output: bool,
-    pty_close: bool,
+    pty_close: std::collections::VecDeque<crate::env::Env>,
     child_suspend: std::collections::VecDeque<usize>,
+    pipeline_exit: std::collections::VecDeque<crate::env::Env>,
     clock_timer: bool,
     done: bool,
 }
@@ -91,8 +93,9 @@ impl Pending {
             || !self.key.is_empty()
             || self.size.is_some()
             || self.pty_output
-            || self.pty_close
+            || !self.pty_close.is_empty()
             || !self.child_suspend.is_empty()
+            || !self.pipeline_exit.is_empty()
             || self.clock_timer
     }
 
@@ -106,12 +109,14 @@ impl Pending {
         if let Some(size) = self.size.take() {
             return Some(Event::Resize(size));
         }
-        if self.pty_close {
-            self.pty_close = false;
-            return Some(Event::PtyClose);
+        if let Some(env) = self.pty_close.pop_front() {
+            return Some(Event::PtyClose(env));
         }
         if let Some(idx) = self.child_suspend.pop_front() {
             return Some(Event::ChildSuspend(idx));
+        }
+        if let Some(env) = self.pipeline_exit.pop_front() {
+            return Some(Event::PipelineExit(env));
         }
         if self.clock_timer {
             self.clock_timer = false;
@@ -132,9 +137,12 @@ impl Pending {
             Some(Event::Key(key)) => self.key.push_back(key),
             Some(Event::Resize(size)) => self.size = Some(size),
             Some(Event::PtyOutput) => self.pty_output = true,
-            Some(Event::PtyClose) => self.pty_close = true,
+            Some(Event::PtyClose(env)) => self.pty_close.push_back(env),
             Some(Event::ChildSuspend(idx)) => {
                 self.child_suspend.push_back(idx);
+            }
+            Some(Event::PipelineExit(env)) => {
+                self.pipeline_exit.push_back(env);
             }
             Some(Event::ClockTimer) => self.clock_timer = true,
             None => self.done = true,

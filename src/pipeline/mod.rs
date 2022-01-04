@@ -10,14 +10,24 @@ mod command;
 pub use command::{Child, Command};
 
 pub async fn run() -> anyhow::Result<i32> {
-    let env = read_data().await?;
-    let pipeline = crate::parse::Pipeline::parse(env.pipeline().unwrap())?;
-    let (children, pg) = spawn_children(pipeline, &env)?;
-    let status = wait_children(children, pg, &env).await;
+    let mut env = read_data().await?;
+    run_with_env(&mut env).await?;
+    let status = *env.latest_status();
+    let pwd = std::env::current_dir()?;
+    env.set_current_dir(pwd);
+    write_event(crate::event::Event::PipelineExit(env)).await?;
     if let Some(signal) = status.signal() {
         nix::sys::signal::raise(signal.try_into().unwrap())?;
     }
     Ok(status.code().unwrap())
+}
+
+async fn run_with_env(env: &mut crate::env::Env) -> anyhow::Result<()> {
+    let pipeline = crate::parse::Pipeline::parse(env.pipeline().unwrap())?;
+    let (children, pg) = spawn_children(pipeline, env)?;
+    let status = wait_children(children, pg, env).await;
+    env.set_status(status);
+    Ok(())
 }
 
 async fn read_data() -> anyhow::Result<crate::env::Env> {
@@ -31,13 +41,12 @@ async fn read_data() -> anyhow::Result<crate::env::Env> {
     Ok(env)
 }
 
-async fn write_event(event: crate::event::Event) {
+async fn write_event(event: crate::event::Event) -> anyhow::Result<()> {
     let mut fd4 = unsafe { async_std::fs::File::from_raw_fd(4) };
-    fd4.write_all(&bincode::serialize(&event).unwrap())
-        .await
-        .unwrap();
-    fd4.flush().await.unwrap();
+    fd4.write_all(&bincode::serialize(&event)?).await?;
+    fd4.flush().await?;
     let _ = fd4.into_raw_fd();
+    Ok(())
 }
 
 fn spawn_children(
@@ -160,10 +169,13 @@ async fn wait_children(
                 }
                 nix::sys::wait::WaitStatus::Stopped(pid, signal) => {
                     if signal == nix::sys::signal::Signal::SIGTSTP {
-                        write_event(crate::event::Event::ChildSuspend(
-                            env.idx(),
-                        ))
-                        .await;
+                        if let Err(e) = write_event(
+                            crate::event::Event::ChildSuspend(env.idx()),
+                        )
+                        .await
+                        {
+                            bail!(e);
+                        }
                         if let Err(e) = nix::sys::signal::kill(
                             pid,
                             nix::sys::signal::Signal::SIGCONT,

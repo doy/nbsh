@@ -89,6 +89,7 @@ impl History {
     pub async fn run(
         &mut self,
         ast: crate::parse::Commands,
+        env: crate::env::Env,
         event_w: async_std::channel::Sender<crate::event::Event>,
     ) -> anyhow::Result<usize> {
         let (input_w, input_r) = async_std::channel::unbounded();
@@ -97,6 +98,7 @@ impl History {
         let entry = async_std::sync::Arc::new(async_std::sync::Mutex::new(
             Entry::new(
                 ast.input_string().to_string(),
+                env.clone(),
                 self.size,
                 input_w,
                 resize_w,
@@ -105,7 +107,7 @@ impl History {
         run_commands(
             ast,
             async_std::sync::Arc::clone(&entry),
-            crate::env::Env::new(self.entries.len()),
+            env.clone(),
             input_r,
             resize_r,
             event_w,
@@ -118,8 +120,9 @@ impl History {
     pub async fn parse_error(
         &mut self,
         e: crate::parse::Error,
+        env: crate::env::Env,
         event_w: async_std::channel::Sender<crate::event::Event>,
-    ) {
+    ) -> anyhow::Result<usize> {
         // XXX would be great to not have to do this
         let (input_w, input_r) = async_std::channel::unbounded();
         let (resize_w, resize_r) = async_std::channel::unbounded();
@@ -129,15 +132,24 @@ impl History {
         resize_r.close();
 
         let err_str = format!("{}", e);
-        let mut entry =
-            Entry::new(e.into_input(), self.size, input_w, resize_w);
+        let mut entry = Entry::new(
+            e.into_input(),
+            env.clone(),
+            self.size,
+            input_w,
+            resize_w,
+        );
         entry.vt.process(err_str.replace('\n', "\r\n").as_bytes());
         let status = async_std::process::ExitStatus::from_raw(1 << 8);
         entry.exit_info = Some(ExitInfo::new(status));
         self.entries.push(async_std::sync::Arc::new(
             async_std::sync::Mutex::new(entry),
         ));
-        event_w.send(crate::event::Event::PtyClose).await.unwrap();
+        event_w
+            .send(crate::event::Event::PtyClose(env.clone()))
+            .await
+            .unwrap();
+        Ok(self.entries.len() - 1)
     }
 
     pub async fn entry(
@@ -257,6 +269,7 @@ impl std::iter::DoubleEndedIterator for VisibleEntries {
 
 pub struct Entry {
     cmdline: String,
+    env: crate::env::Env,
     vt: vt100::Parser,
     audible_bell_state: usize,
     visual_bell_state: usize,
@@ -271,12 +284,14 @@ pub struct Entry {
 impl Entry {
     fn new(
         cmdline: String,
+        env: crate::env::Env,
         size: (u16, u16),
         input: async_std::channel::Sender<Vec<u8>>,
         resize: async_std::channel::Sender<(u16, u16)>,
     ) -> Self {
         Self {
             cmdline,
+            env,
             vt: vt100::Parser::new(size.0, size.1, 0),
             audible_bell_state: 0,
             visual_bell_state: 0,
@@ -544,7 +559,7 @@ fn run_commands(
         for pipeline in ast.pipelines() {
             env.set_pipeline(pipeline.input_string().to_string());
             let (pipeline_status, done) =
-                run_pipeline(&pty, &env, event_w.clone()).await;
+                run_pipeline(&pty, &mut env, event_w.clone()).await;
             env.set_status(pipeline_status);
             if done {
                 break;
@@ -553,17 +568,18 @@ fn run_commands(
         entry.lock_arc().await.exit_info =
             Some(ExitInfo::new(*env.latest_status()));
 
-        pty.close().await;
+        pty.close(env).await;
     });
 }
 
 async fn run_pipeline(
     pty: &pty::Pty,
-    env: &crate::env::Env,
+    env: &mut crate::env::Env,
     event_w: async_std::channel::Sender<crate::event::Event>,
 ) -> (async_std::process::ExitStatus, bool) {
     let mut cmd = pty_process::Command::new(std::env::current_exe().unwrap());
     cmd.arg("--internal-cmd-runner");
+    env.apply(&mut cmd);
     let (to_r, to_w) =
         nix::unistd::pipe2(nix::fcntl::OFlag::O_CLOEXEC).unwrap();
     let (from_r, from_w) =
@@ -602,6 +618,9 @@ async fn run_pipeline(
         };
         let exit = async { Res::Exit(child.status_no_drop().await) };
         match read.or(exit).await {
+            Res::Read(Ok(crate::event::Event::PipelineExit(new_env))) => {
+                *env = new_env;
+            }
             Res::Read(Ok(event)) => event_w.send(event).await.unwrap(),
             Res::Read(Err(e)) => {
                 if let bincode::ErrorKind::Io(e) = &*e {

@@ -1,12 +1,12 @@
 use serde::Deserialize as _;
 use std::os::unix::process::ExitStatusExt as _;
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Env {
     V0(V0),
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct V0 {
     pipeline: Option<String>,
     idx: usize,
@@ -15,14 +15,16 @@ pub struct V0 {
         deserialize_with = "deserialize_status"
     )]
     latest_status: async_std::process::ExitStatus,
+    pwd: std::path::PathBuf,
 }
 
 impl Env {
-    pub fn new(idx: usize) -> Self {
+    pub fn new() -> Self {
         Self::V0(V0 {
             pipeline: None,
-            idx,
+            idx: 0,
             latest_status: std::process::ExitStatus::from_raw(0),
+            pwd: std::env::current_dir().unwrap(),
         })
     }
 
@@ -40,11 +42,31 @@ impl Env {
         }
     }
 
+    pub fn set_idx(&mut self, idx: usize) {
+        match self {
+            Self::V0(env) => env.idx = idx,
+        }
+    }
+
     pub fn set_status(&mut self, status: async_std::process::ExitStatus) {
         match self {
             Self::V0(env) => {
                 env.latest_status = status;
             }
+        }
+    }
+
+    pub fn set_current_dir(&mut self, pwd: std::path::PathBuf) {
+        match self {
+            Self::V0(env) => {
+                env.pwd = pwd;
+            }
+        }
+    }
+
+    pub fn current_dir(&self) -> &std::path::Path {
+        match self {
+            Self::V0(env) => &env.pwd,
         }
     }
 
@@ -57,6 +79,14 @@ impl Env {
     pub fn latest_status(&self) -> &async_std::process::ExitStatus {
         match self {
             Self::V0(env) => &env.latest_status,
+        }
+    }
+
+    pub fn apply(&self, cmd: &mut pty_process::Command) {
+        match self {
+            Self::V0(env) => {
+                cmd.current_dir(&env.pwd);
+            }
         }
     }
 

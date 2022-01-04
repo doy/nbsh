@@ -20,11 +20,11 @@ impl Readline {
     pub async fn render(
         &self,
         out: &mut impl textmode::Textmode,
-        entry_count: usize,
+        env: &crate::env::Env,
         focus: bool,
         offset: time::UtcOffset,
     ) -> anyhow::Result<()> {
-        let pwd = crate::info::pwd()?;
+        let pwd = env.current_dir();
         let user = crate::info::user()?;
         let hostname = crate::info::hostname()?;
         let time = crate::info::time(offset)?;
@@ -37,24 +37,24 @@ impl Readline {
         out.move_to(self.size.0 - 2, 0);
         if focus {
             out.set_bgcolor(textmode::Color::Rgb(0x56, 0x1b, 0x8b));
-        } else if entry_count % 2 == 0 {
+        } else if env.idx() % 2 == 0 {
             out.set_bgcolor(textmode::Color::Rgb(0x24, 0x21, 0x00));
         } else {
             out.set_bgcolor(textmode::Color::Rgb(0x20, 0x20, 0x20));
         }
         out.write(b"\x1b[K");
         out.set_fgcolor(textmode::color::YELLOW);
-        out.write_str(&format!("{}", entry_count + 1));
+        out.write_str(&format!("{}", env.idx() + 1));
         out.reset_attributes();
         if focus {
             out.set_bgcolor(textmode::Color::Rgb(0x56, 0x1b, 0x8b));
-        } else if entry_count % 2 == 0 {
+        } else if env.idx() % 2 == 0 {
             out.set_bgcolor(textmode::Color::Rgb(0x24, 0x21, 0x00));
         } else {
             out.set_bgcolor(textmode::Color::Rgb(0x20, 0x20, 0x20));
         }
         out.write_str(" (");
-        out.write_str(&pwd);
+        out.write_str(&crate::format::path(pwd));
         out.write_str(")");
         out.move_to(self.size.0 - 2, self.size.1 - 4 - idlen - timelen);
         out.write_str(&id);

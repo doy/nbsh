@@ -1,13 +1,3 @@
-pub fn pwd() -> anyhow::Result<String> {
-    let mut pwd = std::env::current_dir()?.display().to_string();
-    if let Ok(home) = std::env::var("HOME") {
-        if pwd.starts_with(&home) {
-            pwd.replace_range(..home.len(), "~");
-        }
-    }
-    Ok(pwd)
-}
-
 pub fn user() -> anyhow::Result<String> {
     Ok(users::get_current_username()
         .ok_or_else(|| anyhow::anyhow!("couldn't get username"))?

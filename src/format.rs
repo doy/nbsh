@@ -1,5 +1,15 @@
 use std::os::unix::process::ExitStatusExt as _;
 
+pub fn path(path: &std::path::Path) -> String {
+    let mut path = path.display().to_string();
+    if let Ok(home) = std::env::var("HOME") {
+        if path.starts_with(&home) {
+            path.replace_range(..home.len(), "~");
+        }
+    }
+    path
+}
+
 pub fn exit_status(status: std::process::ExitStatus) -> String {
     status.signal().map_or_else(
         || format!("{:03}  ", status.code().unwrap()),
