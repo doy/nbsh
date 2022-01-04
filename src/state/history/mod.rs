@@ -560,9 +560,13 @@ fn run_commands(
                 entry.vt.process(
                     format!("nbsh: failed to allocate pty: {}", e).as_bytes(),
                 );
-                entry.exit_info = Some(ExitInfo::new(
-                    async_std::process::ExitStatus::from_raw(1 << 8),
-                ));
+                let status = async_std::process::ExitStatus::from_raw(1 << 8);
+                entry.exit_info = Some(ExitInfo::new(status));
+                env.set_status(status);
+                event_w
+                    .send(crate::event::Event::PtyClose(env))
+                    .await
+                    .unwrap();
                 return;
             }
         };
