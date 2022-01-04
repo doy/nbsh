@@ -225,7 +225,7 @@ impl State {
                         Ok(ast) => {
                             let idx = self
                                 .history
-                                .run(ast, self.env.clone(), event_w.clone())
+                                .run(ast, &self.env, event_w.clone())
                                 .await
                                 .unwrap();
                             self.set_focus(Focus::History(idx), Some(entry))
@@ -235,7 +235,7 @@ impl State {
                         }
                         Err(e) => self
                             .history
-                            .parse_error(e, self.env.clone(), event_w.clone())
+                            .parse_error(e, &self.env, event_w.clone())
                             .await
                             .unwrap(),
                     };
@@ -343,7 +343,7 @@ impl State {
                         Ok(ast) => {
                             let idx = self
                                 .history
-                                .run(ast, self.env.clone(), event_w.clone())
+                                .run(ast, &self.env, event_w.clone())
                                 .await
                                 .unwrap();
                             self.set_focus(Focus::History(idx), None).await;
@@ -352,7 +352,7 @@ impl State {
                         }
                         Err(e) => self
                             .history
-                            .parse_error(e, self.env.clone(), event_w.clone())
+                            .parse_error(e, &self.env, event_w.clone())
                             .await
                             .unwrap(),
                     };

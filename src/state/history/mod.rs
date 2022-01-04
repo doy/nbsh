@@ -89,7 +89,7 @@ impl History {
     pub async fn run(
         &mut self,
         ast: crate::parse::Commands,
-        env: crate::env::Env,
+        env: &crate::env::Env,
         event_w: async_std::channel::Sender<crate::event::Event>,
     ) -> anyhow::Result<usize> {
         let (input_w, input_r) = async_std::channel::unbounded();
@@ -120,7 +120,7 @@ impl History {
     pub async fn parse_error(
         &mut self,
         e: crate::parse::Error,
-        env: crate::env::Env,
+        env: &crate::env::Env,
         event_w: async_std::channel::Sender<crate::event::Event>,
     ) -> anyhow::Result<usize> {
         // XXX would be great to not have to do this
