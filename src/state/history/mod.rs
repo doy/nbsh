@@ -314,6 +314,24 @@ impl Entry {
         scrolling: bool,
         offset: time::UtcOffset,
     ) {
+        let time = self.exit_info.as_ref().map_or_else(
+            || {
+                format!(
+                    "[{}]",
+                    crate::format::time(self.start_time.to_offset(offset))
+                )
+            },
+            |info| {
+                format!(
+                    "({}) [{}]",
+                    crate::format::duration(
+                        info.instant - self.start_instant
+                    ),
+                    crate::format::time(self.start_time.to_offset(offset)),
+                )
+            },
+        );
+
         set_bgcolor(out, idx, focused);
         out.set_fgcolor(textmode::color::YELLOW);
         let entry_count_width = format!("{}", entry_count + 1).len();
@@ -343,27 +361,20 @@ impl Entry {
         if self.running() {
             out.set_bgcolor(textmode::Color::Rgb(16, 64, 16));
         }
-        out.write_str(self.cmd());
+        let cmd = self.cmd();
+        let start = usize::from(out.screen().cursor_position().1);
+        let end = usize::from(width) - time.len() - 2;
+        let max_len = end - start;
+        if cmd.len() > max_len {
+            out.write_str(&cmd[..(max_len - 4)]);
+            out.set_fgcolor(textmode::color::BLUE);
+            out.write_str(" ...");
+        } else {
+            out.write_str(cmd);
+        }
         out.reset_attributes();
 
         set_bgcolor(out, idx, focused);
-        let time = self.exit_info.as_ref().map_or_else(
-            || {
-                format!(
-                    "[{}]",
-                    crate::format::time(self.start_time.to_offset(offset))
-                )
-            },
-            |info| {
-                format!(
-                    "({}) [{}]",
-                    crate::format::duration(
-                        info.instant - self.start_instant
-                    ),
-                    crate::format::time(self.start_time.to_offset(offset)),
-                )
-            },
-        );
         let cur_pos = out.screen().cursor_position();
         out.write_str(&" ".repeat(
             usize::from(width) - time.len() - 1 - usize::from(cur_pos.1),
