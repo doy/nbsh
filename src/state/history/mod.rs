@@ -132,23 +132,23 @@ impl History {
         resize_r.close();
 
         let err_str = format!("{}", e);
-        let mut entry = Entry::new(
-            e.into_input(),
-            env.clone(),
-            self.size,
-            input_w,
-            resize_w,
-        );
-        entry.vt.process(err_str.replace('\n', "\r\n").as_bytes());
-        let status = async_std::process::ExitStatus::from_raw(1 << 8);
-        entry.exit_info = Some(ExitInfo::new(status));
-        self.entries.push(async_std::sync::Arc::new(
-            async_std::sync::Mutex::new(entry),
+        let entry = async_std::sync::Arc::new(async_std::sync::Mutex::new(
+            Entry::new(
+                e.into_input(),
+                env.clone(),
+                self.size,
+                input_w,
+                resize_w,
+            ),
         ));
-        event_w
-            .send(crate::event::Event::PtyClose(env.clone()))
-            .await
-            .unwrap();
+        self.entries.push(async_std::sync::Arc::clone(&entry));
+
+        let mut entry = entry.lock_arc().await;
+        entry.vt.process(err_str.replace('\n', "\r\n").as_bytes());
+        let mut env = env.clone();
+        env.set_status(async_std::process::ExitStatus::from_raw(1 << 8));
+        entry.finish(env, event_w).await;
+
         Ok(self.entries.len() - 1)
     }
 
@@ -472,6 +472,10 @@ impl Entry {
         &self.cmdline
     }
 
+    pub fn env(&self) -> &crate::env::Env {
+        &self.env
+    }
+
     pub fn toggle_fullscreen(&mut self) {
         if let Some(fullscreen) = self.fullscreen {
             self.fullscreen = Some(!fullscreen);
@@ -522,6 +526,16 @@ impl Entry {
         self.fullscreen
             .unwrap_or_else(|| self.vt.screen().alternate_screen())
     }
+
+    async fn finish(
+        &mut self,
+        env: crate::env::Env,
+        event_w: async_std::channel::Sender<crate::event::Event>,
+    ) {
+        self.exit_info = Some(ExitInfo::new(*env.latest_status()));
+        self.env = env;
+        event_w.send(crate::event::Event::PtyClose).await.unwrap();
+    }
 }
 
 struct ExitInfo {
@@ -560,13 +574,10 @@ fn run_commands(
                 entry.vt.process(
                     format!("nbsh: failed to allocate pty: {}", e).as_bytes(),
                 );
-                let status = async_std::process::ExitStatus::from_raw(1 << 8);
-                entry.exit_info = Some(ExitInfo::new(status));
-                env.set_status(status);
-                event_w
-                    .send(crate::event::Event::PtyClose(env))
-                    .await
-                    .unwrap();
+                env.set_status(async_std::process::ExitStatus::from_raw(
+                    1 << 8,
+                ));
+                entry.finish(env, event_w).await;
                 return;
             }
         };
@@ -580,10 +591,9 @@ fn run_commands(
                 break;
             }
         }
-        entry.lock_arc().await.exit_info =
-            Some(ExitInfo::new(*env.latest_status()));
+        entry.lock_arc().await.finish(env, event_w).await;
 
-        pty.close(env).await;
+        pty.close().await;
     });
 }
 

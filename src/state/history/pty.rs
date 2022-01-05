@@ -3,7 +3,7 @@ use futures_lite::future::FutureExt as _;
 
 pub struct Pty {
     pty: async_std::sync::Arc<pty_process::Pty>,
-    close_w: async_std::channel::Sender<crate::env::Env>,
+    close_w: async_std::channel::Sender<()>,
 }
 
 impl Pty {
@@ -39,8 +39,8 @@ impl Pty {
         Ok(cmd.spawn(&self.pty)?)
     }
 
-    pub async fn close(&self, env: crate::env::Env) {
-        self.close_w.send(env).await.unwrap();
+    pub async fn close(&self) {
+        self.close_w.send(()).await.unwrap();
     }
 }
 
@@ -49,7 +49,7 @@ async fn pty_task(
     entry: async_std::sync::Arc<async_std::sync::Mutex<super::Entry>>,
     input_r: async_std::channel::Receiver<Vec<u8>>,
     resize_r: async_std::channel::Receiver<(u16, u16)>,
-    close_r: async_std::channel::Receiver<crate::env::Env>,
+    close_r: async_std::channel::Receiver<()>,
     event_w: async_std::channel::Sender<crate::event::Event>,
 ) {
     loop {
@@ -57,7 +57,7 @@ async fn pty_task(
             Read(Result<usize, std::io::Error>),
             Write(Result<Vec<u8>, async_std::channel::RecvError>),
             Resize(Result<(u16, u16), async_std::channel::RecvError>),
-            Close(Result<crate::env::Env, async_std::channel::RecvError>),
+            Close(Result<(), async_std::channel::RecvError>),
         }
         let mut buf = [0_u8; 4096];
         let read = async { Res::Read((&*pty).read(&mut buf).await) };
@@ -98,9 +98,9 @@ async fn pty_task(
                 }
             },
             Res::Close(res) => match res {
-                Ok(env) => {
+                Ok(()) => {
                     event_w
-                        .send(crate::event::Event::PtyClose(env))
+                        .send(crate::event::Event::PtyClose)
                         .await
                         .unwrap();
                     return;

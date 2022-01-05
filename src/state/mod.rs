@@ -165,14 +165,12 @@ impl State {
                     .await;
                 self.scene = self.default_scene(self.focus, None).await;
             }
-            crate::event::Event::PtyClose(env) => {
+            crate::event::Event::PtyClose => {
                 if let Some(idx) = self.focus_idx() {
                     let entry = self.history.entry(idx).await;
                     if !entry.running() {
                         if self.hide_readline {
-                            let idx = self.env.idx();
-                            self.env = env;
-                            self.env.set_idx(idx);
+                            self.env = entry.env().clone();
                         }
                         self.set_focus(
                             if self.hide_readline {

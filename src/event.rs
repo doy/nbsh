@@ -7,7 +7,7 @@ pub enum Event {
     Key(textmode::Key),
     Resize((u16, u16)),
     PtyOutput,
-    PtyClose(crate::env::Env),
+    PtyClose,
     ChildSuspend(usize),
     PipelineExit(crate::env::Env),
     ClockTimer,
@@ -76,7 +76,7 @@ struct Pending {
     key: std::collections::VecDeque<textmode::Key>,
     size: Option<(u16, u16)>,
     pty_output: bool,
-    pty_close: std::collections::VecDeque<crate::env::Env>,
+    pty_close: bool,
     child_suspend: std::collections::VecDeque<usize>,
     pipeline_exit: std::collections::VecDeque<crate::env::Env>,
     clock_timer: bool,
@@ -93,7 +93,7 @@ impl Pending {
             || !self.key.is_empty()
             || self.size.is_some()
             || self.pty_output
-            || !self.pty_close.is_empty()
+            || self.pty_close
             || !self.child_suspend.is_empty()
             || !self.pipeline_exit.is_empty()
             || self.clock_timer
@@ -109,8 +109,8 @@ impl Pending {
         if let Some(size) = self.size.take() {
             return Some(Event::Resize(size));
         }
-        if let Some(env) = self.pty_close.pop_front() {
-            return Some(Event::PtyClose(env));
+        if self.pty_close {
+            return Some(Event::PtyClose);
         }
         if let Some(idx) = self.child_suspend.pop_front() {
             return Some(Event::ChildSuspend(idx));
@@ -137,7 +137,7 @@ impl Pending {
             Some(Event::Key(key)) => self.key.push_back(key),
             Some(Event::Resize(size)) => self.size = Some(size),
             Some(Event::PtyOutput) => self.pty_output = true,
-            Some(Event::PtyClose(env)) => self.pty_close.push_back(env),
+            Some(Event::PtyClose) => self.pty_close = true,
             Some(Event::ChildSuspend(idx)) => {
                 self.child_suspend.push_back(idx);
             }
