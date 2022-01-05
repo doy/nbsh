@@ -112,8 +112,8 @@ async fn wait_children(
     }
 
     macro_rules! bail {
-        ($msg:expr) => {
-            eprintln!("{}", $msg);
+        ($e:expr) => {
+            eprintln!("nbsh: {}", $e);
             return std::process::ExitStatus::from_raw(1 << 8);
         };
     }
