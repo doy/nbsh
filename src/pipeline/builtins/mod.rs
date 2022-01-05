@@ -1,4 +1,6 @@
+use std::os::unix::ffi::OsStrExt as _;
 use std::os::unix::process::ExitStatusExt as _;
+use users::os::unix::UserExt as _;
 
 pub mod command;
 pub use command::{Child, Command};
@@ -37,6 +39,29 @@ fn cd(
         _env: &crate::env::Env,
         io: command::Io,
     ) -> std::process::ExitStatus {
+        macro_rules! bail {
+            ($msg:literal $(,)?) => {
+                io.write_stderr(format!("cd: {}\n", $msg).as_bytes())
+                    .await
+                    .unwrap();
+                return std::process::ExitStatus::from_raw(1 << 8);
+            };
+            ($msg:expr $(,)?) => {
+                io.write_stderr(format!("cd: {}\n", $msg).as_bytes())
+                    .await
+                    .unwrap();
+                return std::process::ExitStatus::from_raw(1 << 8);
+            };
+            ($msg:expr, $($arg:tt)*) => {
+                io.write_stderr(b"cd: ").await.unwrap();
+                io.write_stderr(format!($msg, $($arg)*).as_bytes())
+                    .await
+                    .unwrap();
+                io.write_stderr(b"\n").await.unwrap();
+                return std::process::ExitStatus::from_raw(1 << 8);
+            };
+        }
+
         let dir = exe
             .args()
             .into_iter()
@@ -45,18 +70,33 @@ fn cd(
             .unwrap_or("");
 
         let dir = if dir.is_empty() {
-            home()
+            if let Some(dir) = home(None) {
+                dir
+            } else {
+                bail!("couldn't find current user");
+            }
         } else if dir.starts_with('~') {
             let path: std::path::PathBuf = dir.into();
             if let std::path::Component::Normal(prefix) =
                 path.components().next().unwrap()
             {
-                if prefix.to_str() == Some("~") {
-                    home().join(path.strip_prefix(prefix).unwrap())
+                let prefix_bytes = prefix.as_bytes();
+                let name = if prefix_bytes == b"~" {
+                    None
                 } else {
-                    // TODO
-                    io.write_stderr(b"unimplemented\n").await.unwrap();
-                    return async_std::process::ExitStatus::from_raw(1 << 8);
+                    Some(std::ffi::OsStr::from_bytes(&prefix_bytes[1..]))
+                };
+                if let Some(home) = home(name) {
+                    home.join(path.strip_prefix(prefix).unwrap())
+                } else {
+                    bail!(
+                        "no such user: {}",
+                        name.map(std::ffi::OsStr::to_string_lossy)
+                            .as_ref()
+                            .unwrap_or(&std::borrow::Cow::Borrowed(
+                                "(deleted)"
+                            ))
+                    );
                 }
             } else {
                 unreachable!()
@@ -64,24 +104,10 @@ fn cd(
         } else {
             dir.into()
         };
-        let code = match std::env::set_current_dir(&dir) {
-            Ok(()) => 0,
-            Err(e) => {
-                io.write_stderr(
-                    format!(
-                        "{}: {}: {}\n",
-                        exe.exe(),
-                        crate::format::io_error(&e),
-                        dir.display()
-                    )
-                    .as_bytes(),
-                )
-                .await
-                .unwrap();
-                1
-            }
-        };
-        async_std::process::ExitStatus::from_raw(code << 8)
+        if let Err(e) = std::env::set_current_dir(&dir) {
+            bail!("{}: {}", crate::format::io_error(&e), dir.display());
+        }
+        async_std::process::ExitStatus::from_raw(0)
     }
 
     Ok(command::Child::new_fut(async move {
@@ -185,6 +211,10 @@ fn builtin(
     Ok(command::Child::new_wrapped(cmd.spawn(env)?))
 }
 
-fn home() -> std::path::PathBuf {
-    std::env::var_os("HOME").unwrap().into()
+fn home(user: Option<&std::ffi::OsStr>) -> Option<std::path::PathBuf> {
+    let user = user.map_or_else(
+        || users::get_user_by_uid(users::get_current_uid()),
+        users::get_user_by_name,
+    );
+    user.map(|user| user.home_dir().to_path_buf())
 }
