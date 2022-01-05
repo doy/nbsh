@@ -12,6 +12,7 @@ pub enum Event {
     Exit(crate::env::Env),
 }
 
+mod builtins;
 mod command;
 pub use command::{Child, Command};
 

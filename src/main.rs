@@ -12,7 +12,6 @@
 #![allow(clippy::too_many_lines)]
 #![allow(clippy::type_complexity)]
 
-mod builtins;
 mod env;
 mod event;
 mod format;

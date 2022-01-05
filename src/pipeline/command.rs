@@ -6,14 +6,14 @@ pub struct Command {
 }
 pub enum Inner {
     Binary(async_std::process::Command),
-    Builtin(crate::builtins::Command),
+    Builtin(super::builtins::Command),
 }
 
 impl Command {
     pub fn new(exe: crate::parse::Exe) -> Self {
         let exe_str = exe.exe().to_string();
         Self {
-            inner: crate::builtins::Command::new(exe).map_or_else(
+            inner: super::builtins::Command::new(exe).map_or_else(
                 |exe| Self::new_binary(exe).inner,
                 Inner::Builtin,
             ),
@@ -35,7 +35,7 @@ impl Command {
     pub fn new_builtin(exe: crate::parse::Exe) -> Self {
         let exe_str = exe.exe().to_string();
         Self {
-            inner: crate::builtins::Command::new(exe)
+            inner: super::builtins::Command::new(exe)
                 .map_or_else(|_| todo!(), Inner::Builtin),
             exe: exe_str,
         }
@@ -108,7 +108,7 @@ impl Command {
 
 pub enum Child<'a> {
     Binary(async_std::process::Child),
-    Builtin(crate::builtins::Child<'a>),
+    Builtin(super::builtins::Child<'a>),
 }
 
 impl<'a> Child<'a> {
