@@ -125,6 +125,8 @@ impl Command {
         );
         match inner {
             Inner::Binary(mut cmd) => {
+                // Safety: open, dup2, and close are async-signal-safe
+                // functions
                 unsafe { cmd.pre_exec(pre_exec) };
                 Ok(Child::Binary(cmd.spawn().map_err(|e| {
                     anyhow::anyhow!(
@@ -135,6 +137,8 @@ impl Command {
                 })?))
             }
             Inner::Builtin(mut cmd) => {
+                // Safety: open, dup2, and close are async-signal-safe
+                // functions
                 unsafe { cmd.pre_exec(pre_exec) };
                 Ok(Child::Builtin(cmd.spawn(env)?))
             }
