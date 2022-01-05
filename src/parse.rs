@@ -10,7 +10,7 @@ pub enum RedirectTarget {
     File(std::path::PathBuf),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum Direction {
     In,
     Out,
@@ -22,6 +22,34 @@ impl Direction {
             b'>' => Self::Out,
             b'<' => Self::In,
             _ => return None,
+        })
+    }
+
+    pub fn open(
+        self,
+        path: &std::path::Path,
+    ) -> nix::Result<std::os::unix::io::RawFd> {
+        use nix::fcntl::OFlag;
+        use nix::sys::stat::Mode;
+        Ok(match self {
+            crate::parse::Direction::In => nix::fcntl::open(
+                path,
+                OFlag::O_NOCTTY | OFlag::O_RDONLY,
+                Mode::empty(),
+            )?,
+            crate::parse::Direction::Out => nix::fcntl::open(
+                path,
+                OFlag::O_CREAT
+                    | OFlag::O_NOCTTY
+                    | OFlag::O_WRONLY
+                    | OFlag::O_TRUNC,
+                Mode::S_IRUSR
+                    | Mode::S_IWUSR
+                    | Mode::S_IRGRP
+                    | Mode::S_IWGRP
+                    | Mode::S_IROTH
+                    | Mode::S_IWOTH,
+            )?,
         })
     }
 }

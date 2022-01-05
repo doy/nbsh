@@ -189,28 +189,7 @@ fn apply_redirects(
                 nix::unistd::dup2(*fd, redirect.from)?;
             }
             crate::parse::RedirectTarget::File(path) => {
-                use nix::fcntl::OFlag;
-                use nix::sys::stat::Mode;
-                let fd = match redirect.dir {
-                    crate::parse::Direction::In => nix::fcntl::open(
-                        path,
-                        OFlag::O_NOCTTY | OFlag::O_RDONLY,
-                        Mode::empty(),
-                    )?,
-                    crate::parse::Direction::Out => nix::fcntl::open(
-                        path,
-                        OFlag::O_CREAT
-                            | OFlag::O_NOCTTY
-                            | OFlag::O_WRONLY
-                            | OFlag::O_TRUNC,
-                        Mode::S_IRUSR
-                            | Mode::S_IWUSR
-                            | Mode::S_IRGRP
-                            | Mode::S_IWGRP
-                            | Mode::S_IROTH
-                            | Mode::S_IWOTH,
-                    )?,
-                };
+                let fd = redirect.dir.open(path)?;
                 if fd != redirect.from {
                     nix::unistd::dup2(fd, redirect.from)?;
                     nix::unistd::close(fd)?;
