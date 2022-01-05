@@ -1,4 +1,4 @@
-use async_std::os::unix::process::CommandExt as _;
+use crate::pipeline::prelude::*;
 
 pub struct Command {
     inner: Inner,
@@ -90,7 +90,7 @@ impl Command {
         }
     }
 
-    pub fn spawn(self, env: &crate::Env) -> anyhow::Result<Child> {
+    pub fn spawn(self, env: &Env) -> anyhow::Result<Child> {
         match self.inner {
             Inner::Binary(mut cmd) => {
                 Ok(Child::Binary(cmd.spawn().map_err(|e| {

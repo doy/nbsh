@@ -1,5 +1,4 @@
-use async_std::io::{ReadExt as _, WriteExt as _};
-use std::os::unix::io::{AsRawFd as _, FromRawFd as _, IntoRawFd as _};
+use crate::pipeline::prelude::*;
 
 pub struct Command {
     exe: crate::parse::Exe,
@@ -41,7 +40,7 @@ impl Command {
         self.io.pre_exec(f);
     }
 
-    pub fn spawn(self, env: &crate::Env) -> anyhow::Result<Child> {
+    pub fn spawn(self, env: &Env) -> anyhow::Result<Child> {
         let Self { f, exe, io } = self;
         (f)(exe, env, io)
     }

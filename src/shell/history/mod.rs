@@ -1,10 +1,5 @@
 use crate::shell::prelude::*;
 
-use async_std::io::WriteExt as _;
-use futures_lite::future::FutureExt as _;
-use std::os::unix::io::{FromRawFd as _, IntoRawFd as _};
-use std::os::unix::process::ExitStatusExt as _;
-
 mod entry;
 pub use entry::Entry;
 mod pty;
@@ -93,7 +88,7 @@ impl History {
     pub async fn run(
         &mut self,
         ast: crate::parse::Commands,
-        env: &crate::Env,
+        env: &Env,
         event_w: async_std::channel::Sender<Event>,
     ) -> anyhow::Result<usize> {
         let (input_w, input_r) = async_std::channel::unbounded();
@@ -124,7 +119,7 @@ impl History {
     pub async fn parse_error(
         &mut self,
         e: crate::parse::Error,
-        env: &crate::Env,
+        env: &Env,
         event_w: async_std::channel::Sender<Event>,
     ) -> anyhow::Result<usize> {
         // XXX would be great to not have to do this
@@ -274,7 +269,7 @@ impl std::iter::DoubleEndedIterator for VisibleEntries {
 fn run_commands(
     ast: crate::parse::Commands,
     entry: async_std::sync::Arc<async_std::sync::Mutex<Entry>>,
-    mut env: crate::Env,
+    mut env: Env,
     input_r: async_std::channel::Receiver<Vec<u8>>,
     resize_r: async_std::channel::Receiver<(u16, u16)>,
     event_w: async_std::channel::Sender<Event>,
@@ -330,7 +325,7 @@ fn run_commands(
 
 async fn run_pipeline(
     pty: &pty::Pty,
-    env: &mut crate::Env,
+    env: &mut Env,
     event_w: async_std::channel::Sender<Event>,
 ) -> anyhow::Result<(async_std::process::ExitStatus, bool)> {
     let mut cmd = pty_process::Command::new(std::env::current_exe().unwrap());

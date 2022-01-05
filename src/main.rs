@@ -13,11 +13,11 @@
 #![allow(clippy::type_complexity)]
 
 mod env;
-pub use env::Env;
 mod format;
 mod info;
 mod parse;
 mod pipeline;
+mod prelude;
 mod shell;
 
 async fn async_main() -> anyhow::Result<i32> {

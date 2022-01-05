@@ -1,3 +1,5 @@
+use crate::shell::prelude::*;
+
 use unicode_width::{UnicodeWidthChar as _, UnicodeWidthStr as _};
 
 pub struct Readline {
@@ -22,7 +24,7 @@ impl Readline {
     pub async fn render(
         &self,
         out: &mut impl textmode::Textmode,
-        env: &crate::Env,
+        env: &Env,
         focus: bool,
         offset: time::UtcOffset,
     ) -> anyhow::Result<()> {

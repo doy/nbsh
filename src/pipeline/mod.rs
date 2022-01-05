@@ -1,20 +1,17 @@
-use async_std::io::{ReadExt as _, WriteExt as _};
-use async_std::stream::StreamExt as _;
-use futures_lite::future::FutureExt as _;
-use std::os::unix::io::FromRawFd as _;
-use std::os::unix::process::ExitStatusExt as _;
+use crate::pipeline::prelude::*;
 
 const PID0: nix::unistd::Pid = nix::unistd::Pid::from_raw(0);
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum Event {
     Suspend(usize),
-    Exit(crate::Env),
+    Exit(Env),
 }
 
 mod builtins;
 mod command;
 pub use command::{Child, Command};
+mod prelude;
 
 pub async fn run() -> anyhow::Result<i32> {
     cloexec(3)?;
@@ -37,7 +34,7 @@ pub async fn run() -> anyhow::Result<i32> {
 }
 
 async fn run_with_env(
-    env: &mut crate::Env,
+    env: &mut Env,
     shell_write: &async_std::fs::File,
 ) -> anyhow::Result<()> {
     let pipeline = crate::parse::Pipeline::parse(env.pipeline().unwrap())?;
@@ -47,12 +44,10 @@ async fn run_with_env(
     Ok(())
 }
 
-async fn read_data(
-    mut fh: async_std::fs::File,
-) -> anyhow::Result<crate::Env> {
+async fn read_data(mut fh: async_std::fs::File) -> anyhow::Result<Env> {
     let mut data = vec![];
     fh.read_to_end(&mut data).await?;
-    let env = crate::Env::from_bytes(&data);
+    let env = Env::from_bytes(&data);
     Ok(env)
 }
 
@@ -67,7 +62,7 @@ async fn write_event(
 
 fn spawn_children(
     pipeline: crate::parse::Pipeline,
-    env: &crate::Env,
+    env: &Env,
 ) -> anyhow::Result<(Vec<Child>, Option<nix::unistd::Pid>)> {
     let mut cmds: Vec<_> = pipeline.into_exes().map(Command::new).collect();
     for i in 0..(cmds.len() - 1) {
@@ -103,7 +98,7 @@ fn spawn_children(
 async fn wait_children(
     children: Vec<Child<'_>>,
     pg: Option<nix::unistd::Pid>,
-    env: &crate::Env,
+    env: &Env,
     shell_write: &async_std::fs::File,
 ) -> std::process::ExitStatus {
     enum Res {

@@ -1,5 +1,6 @@
+use crate::prelude::*;
+
 use serde::Deserialize as _;
-use std::os::unix::process::ExitStatusExt as _;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Env {

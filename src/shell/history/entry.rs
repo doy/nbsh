@@ -1,10 +1,8 @@
 use crate::shell::prelude::*;
 
-use std::os::unix::process::ExitStatusExt as _;
-
 pub struct Entry {
     cmdline: String,
-    env: crate::Env,
+    env: Env,
     vt: vt100::Parser,
     audible_bell_state: usize,
     visual_bell_state: usize,
@@ -19,7 +17,7 @@ pub struct Entry {
 impl Entry {
     pub fn new(
         cmdline: String,
-        env: crate::Env,
+        env: Env,
         size: (u16, u16),
         input: async_std::channel::Sender<Vec<u8>>,
         resize: async_std::channel::Sender<(u16, u16)>,
@@ -216,7 +214,7 @@ impl Entry {
         &self.cmdline
     }
 
-    pub fn env(&self) -> &crate::Env {
+    pub fn env(&self) -> &Env {
         &self.env
     }
 
@@ -273,7 +271,7 @@ impl Entry {
 
     pub async fn finish(
         &mut self,
-        env: crate::Env,
+        env: Env,
         event_w: async_std::channel::Sender<Event>,
     ) {
         self.exit_info = Some(ExitInfo::new(*env.latest_status()));

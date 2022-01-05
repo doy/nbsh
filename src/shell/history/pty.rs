@@ -1,8 +1,5 @@
 use crate::shell::prelude::*;
 
-use async_std::io::{ReadExt as _, WriteExt as _};
-use futures_lite::future::FutureExt as _;
-
 pub struct Pty {
     pty: async_std::sync::Arc<pty_process::Pty>,
     close_w: async_std::channel::Sender<()>,

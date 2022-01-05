@@ -1,4 +1,4 @@
-use std::os::unix::process::ExitStatusExt as _;
+use crate::prelude::*;
 
 pub fn path(path: &std::path::Path) -> String {
     let mut path = path.display().to_string();

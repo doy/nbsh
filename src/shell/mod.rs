@@ -1,6 +1,5 @@
 use crate::shell::prelude::*;
 
-use async_std::stream::StreamExt as _;
 use textmode::Textmode as _;
 
 mod event;
@@ -128,7 +127,7 @@ pub enum Action {
 pub struct Shell {
     readline: readline::Readline,
     history: history::History,
-    env: crate::Env,
+    env: Env,
     focus: Focus,
     scene: Scene,
     escape: bool,
@@ -141,7 +140,7 @@ impl Shell {
         Self {
             readline: readline::Readline::new(),
             history: history::History::new(),
-            env: crate::Env::new(),
+            env: Env::new(),
             focus: Focus::Readline,
             scene: Scene::Readline,
             escape: false,
