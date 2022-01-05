@@ -572,7 +572,8 @@ fn run_commands(
             Err(e) => {
                 let mut entry = entry.lock_arc().await;
                 entry.vt.process(
-                    format!("nbsh: failed to allocate pty: {}", e).as_bytes(),
+                    format!("nbsh: failed to allocate pty: {}\r\n", e)
+                        .as_bytes(),
                 );
                 env.set_status(async_std::process::ExitStatus::from_raw(
                     1 << 8,
@@ -584,11 +585,23 @@ fn run_commands(
 
         for pipeline in ast.pipelines() {
             env.set_pipeline(pipeline.input_string().to_string());
-            let (pipeline_status, done) =
-                run_pipeline(&pty, &mut env, event_w.clone()).await;
-            env.set_status(pipeline_status);
-            if done {
-                break;
+            match run_pipeline(&pty, &mut env, event_w.clone()).await {
+                Ok((pipeline_status, done)) => {
+                    env.set_status(pipeline_status);
+                    if done {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    entry
+                        .lock_arc()
+                        .await
+                        .vt
+                        .process(format!("nbsh: {}\r\n", e).as_bytes());
+                    env.set_status(async_std::process::ExitStatus::from_raw(
+                        1 << 8,
+                    ));
+                }
             }
         }
         entry.lock_arc().await.finish(env, event_w).await;
@@ -601,7 +614,7 @@ async fn run_pipeline(
     pty: &pty::Pty,
     env: &mut crate::env::Env,
     event_w: async_std::channel::Sender<crate::event::Event>,
-) -> (async_std::process::ExitStatus, bool) {
+) -> anyhow::Result<(async_std::process::ExitStatus, bool)> {
     let mut cmd = pty_process::Command::new(std::env::current_exe().unwrap());
     cmd.arg("--internal-cmd-runner");
     env.apply(&mut cmd);
@@ -656,13 +669,12 @@ async fn run_pipeline(
                         continue;
                     }
                 }
-                eprintln!("nbsh: {}", e);
-                return (std::process::ExitStatus::from_raw(1 << 8), false);
+                anyhow::bail!(e);
             }
             Res::Exit(Ok(status)) => {
                 // nix::sys::signal::Signal is repr(i32)
                 #[allow(clippy::as_conversions)]
-                return (
+                return Ok((
                     status,
                     // i'm not sure what exactly the expected behavior here is
                     // - in zsh, SIGINT kills the whole command line while
@@ -670,11 +682,10 @@ async fn run_pipeline(
                     // logic is or how other signals are handled
                     status.signal()
                         == Some(nix::sys::signal::Signal::SIGINT as i32),
-                );
+                ));
             }
             Res::Exit(Err(e)) => {
-                eprintln!("nbsh: {}", e);
-                return (std::process::ExitStatus::from_raw(1 << 8), false);
+                anyhow::bail!(e);
             }
         }
     }
