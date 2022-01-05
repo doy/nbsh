@@ -110,6 +110,7 @@ impl Pending {
             return Some(Event::Resize(size));
         }
         if self.pty_close {
+            self.pty_close = false;
             return Some(Event::PtyClose);
         }
         if let Some(idx) = self.child_suspend.pop_front() {
