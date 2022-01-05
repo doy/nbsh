@@ -16,6 +16,8 @@ mod command;
 pub use command::{Child, Command};
 
 pub async fn run() -> anyhow::Result<i32> {
+    cloexec(3)?;
+    cloexec(4)?;
     // Safety: we don't create File instances for fd 3 or 4 anywhere else
     let shell_read = unsafe { async_std::fs::File::from_raw_fd(3) };
     let shell_write = unsafe { async_std::fs::File::from_raw_fd(4) };
@@ -282,6 +284,14 @@ fn setpgid_parent(
             Err(e)
         }
     })?;
+    Ok(())
+}
+
+fn cloexec(fd: std::os::unix::io::RawFd) -> anyhow::Result<()> {
+    nix::fcntl::fcntl(
+        fd,
+        nix::fcntl::FcntlArg::F_SETFD(nix::fcntl::FdFlag::FD_CLOEXEC),
+    )?;
     Ok(())
 }
 
