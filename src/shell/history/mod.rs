@@ -1,3 +1,5 @@
+use crate::shell::prelude::*;
+
 use async_std::io::WriteExt as _;
 use futures_lite::future::FutureExt as _;
 use std::os::unix::io::{FromRawFd as _, IntoRawFd as _};
@@ -92,7 +94,7 @@ impl History {
         &mut self,
         ast: crate::parse::Commands,
         env: &crate::Env,
-        event_w: async_std::channel::Sender<crate::Event>,
+        event_w: async_std::channel::Sender<Event>,
     ) -> anyhow::Result<usize> {
         let (input_w, input_r) = async_std::channel::unbounded();
         let (resize_w, resize_r) = async_std::channel::unbounded();
@@ -123,7 +125,7 @@ impl History {
         &mut self,
         e: crate::parse::Error,
         env: &crate::Env,
-        event_w: async_std::channel::Sender<crate::Event>,
+        event_w: async_std::channel::Sender<Event>,
     ) -> anyhow::Result<usize> {
         // XXX would be great to not have to do this
         let (input_w, input_r) = async_std::channel::unbounded();
@@ -275,7 +277,7 @@ fn run_commands(
     mut env: crate::Env,
     input_r: async_std::channel::Receiver<Vec<u8>>,
     resize_r: async_std::channel::Receiver<(u16, u16)>,
-    event_w: async_std::channel::Sender<crate::Event>,
+    event_w: async_std::channel::Sender<Event>,
 ) {
     async_std::task::spawn(async move {
         let pty = match pty::Pty::new(
@@ -329,7 +331,7 @@ fn run_commands(
 async fn run_pipeline(
     pty: &pty::Pty,
     env: &mut crate::Env,
-    event_w: async_std::channel::Sender<crate::Event>,
+    event_w: async_std::channel::Sender<Event>,
 ) -> anyhow::Result<(async_std::process::ExitStatus, bool)> {
     let mut cmd = pty_process::Command::new(std::env::current_exe().unwrap());
     cmd.arg("--internal-cmd-runner");
@@ -379,10 +381,9 @@ async fn run_pipeline(
         let exit = async { Res::Exit(child.status_no_drop().await) };
         match read.or(exit).await {
             Res::Read(Ok(event)) => match event {
-                crate::pipeline::Event::Suspend(idx) => event_w
-                    .send(crate::Event::ChildSuspend(idx))
-                    .await
-                    .unwrap(),
+                crate::pipeline::Event::Suspend(idx) => {
+                    event_w.send(Event::ChildSuspend(idx)).await.unwrap();
+                }
                 crate::pipeline::Event::Exit(new_env) => *env = new_env,
             },
             Res::Read(Err(e)) => {

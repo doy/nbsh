@@ -1,3 +1,5 @@
+use crate::shell::prelude::*;
+
 use async_std::io::{ReadExt as _, WriteExt as _};
 use futures_lite::future::FutureExt as _;
 
@@ -12,7 +14,7 @@ impl Pty {
         entry: &async_std::sync::Arc<async_std::sync::Mutex<super::Entry>>,
         input_r: async_std::channel::Receiver<Vec<u8>>,
         resize_r: async_std::channel::Receiver<(u16, u16)>,
-        event_w: async_std::channel::Sender<crate::Event>,
+        event_w: async_std::channel::Sender<Event>,
     ) -> anyhow::Result<Self> {
         let (close_w, close_r) = async_std::channel::unbounded();
 
@@ -50,7 +52,7 @@ async fn pty_task(
     input_r: async_std::channel::Receiver<Vec<u8>>,
     resize_r: async_std::channel::Receiver<(u16, u16)>,
     close_r: async_std::channel::Receiver<()>,
-    event_w: async_std::channel::Sender<crate::Event>,
+    event_w: async_std::channel::Sender<Event>,
 ) {
     loop {
         enum Res {
@@ -68,7 +70,7 @@ async fn pty_task(
             Res::Read(res) => match res {
                 Ok(bytes) => {
                     entry.lock_arc().await.process(&buf[..bytes]);
-                    event_w.send(crate::Event::PtyOutput).await.unwrap();
+                    event_w.send(Event::PtyOutput).await.unwrap();
                 }
                 Err(e) => {
                     if e.raw_os_error() != Some(libc::EIO) {
@@ -95,7 +97,7 @@ async fn pty_task(
             },
             Res::Close(res) => match res {
                 Ok(()) => {
-                    event_w.send(crate::Event::PtyClose).await.unwrap();
+                    event_w.send(Event::PtyClose).await.unwrap();
                     return;
                 }
                 Err(e) => {

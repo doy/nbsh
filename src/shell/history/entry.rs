@@ -1,3 +1,5 @@
+use crate::shell::prelude::*;
+
 use std::os::unix::process::ExitStatusExt as _;
 
 pub struct Entry {
@@ -272,11 +274,11 @@ impl Entry {
     pub async fn finish(
         &mut self,
         env: crate::Env,
-        event_w: async_std::channel::Sender<crate::Event>,
+        event_w: async_std::channel::Sender<Event>,
     ) {
         self.exit_info = Some(ExitInfo::new(*env.latest_status()));
         self.env = env;
-        event_w.send(crate::Event::PtyClose).await.unwrap();
+        event_w.send(Event::PtyClose).await.unwrap();
     }
 }
 

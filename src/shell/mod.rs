@@ -1,5 +1,109 @@
+use crate::shell::prelude::*;
+
+use async_std::stream::StreamExt as _;
+use textmode::Textmode as _;
+
+mod event;
 mod history;
+mod prelude;
 mod readline;
+
+pub async fn run() -> anyhow::Result<i32> {
+    let mut input = textmode::Input::new().await?;
+    let mut output = textmode::Output::new().await?;
+
+    // avoid the guards getting stuck in a task that doesn't run to
+    // completion
+    let _input_guard = input.take_raw_guard();
+    let _output_guard = output.take_screen_guard();
+
+    let (event_w, event_r) = async_std::channel::unbounded();
+
+    {
+        // nix::sys::signal::Signal is repr(i32)
+        #[allow(clippy::as_conversions)]
+        let signals = signal_hook_async_std::Signals::new(&[
+            nix::sys::signal::Signal::SIGWINCH as i32,
+        ])?;
+        let event_w = event_w.clone();
+        async_std::task::spawn(async move {
+            // nix::sys::signal::Signal is repr(i32)
+            #[allow(clippy::as_conversions)]
+            let mut signals = async_std::stream::once(
+                nix::sys::signal::Signal::SIGWINCH as i32,
+            )
+            .chain(signals);
+            while signals.next().await.is_some() {
+                event_w
+                    .send(Event::Resize(
+                        terminal_size::terminal_size().map_or(
+                            (24, 80),
+                            |(
+                                terminal_size::Width(w),
+                                terminal_size::Height(h),
+                            )| { (h, w) },
+                        ),
+                    ))
+                    .await
+                    .unwrap();
+            }
+        });
+    }
+
+    {
+        let event_w = event_w.clone();
+        async_std::task::spawn(async move {
+            while let Some(key) = input.read_key().await.unwrap() {
+                event_w.send(Event::Key(key)).await.unwrap();
+            }
+        });
+    }
+
+    // redraw the clock every second
+    {
+        let event_w = event_w.clone();
+        async_std::task::spawn(async move {
+            let first_sleep = 1_000_000_000_u64.saturating_sub(
+                time::OffsetDateTime::now_utc().nanosecond().into(),
+            );
+            async_std::task::sleep(std::time::Duration::from_nanos(
+                first_sleep,
+            ))
+            .await;
+            let mut interval = async_std::stream::interval(
+                std::time::Duration::from_secs(1),
+            );
+            event_w.send(Event::ClockTimer).await.unwrap();
+            while interval.next().await.is_some() {
+                event_w.send(Event::ClockTimer).await.unwrap();
+            }
+        });
+    }
+
+    let mut shell = Shell::new(crate::info::get_offset());
+    let event_reader = event::Reader::new(event_r);
+    while let Some(event) = event_reader.recv().await {
+        match shell.handle_event(event, &event_w).await {
+            Some(Action::Refresh) => {
+                shell.render(&mut output).await?;
+                output.refresh().await?;
+            }
+            Some(Action::HardRefresh) => {
+                shell.render(&mut output).await?;
+                output.hard_refresh().await?;
+            }
+            Some(Action::Resize(rows, cols)) => {
+                output.set_size(rows, cols);
+                shell.render(&mut output).await?;
+                output.hard_refresh().await?;
+            }
+            Some(Action::Quit) => break,
+            None => {}
+        }
+    }
+
+    Ok(0)
+}
 
 #[derive(Copy, Clone, Debug)]
 enum Focus {
@@ -21,7 +125,7 @@ pub enum Action {
     Quit,
 }
 
-pub struct State {
+pub struct Shell {
     readline: readline::Readline,
     history: history::History,
     env: crate::Env,
@@ -32,7 +136,7 @@ pub struct State {
     offset: time::UtcOffset,
 }
 
-impl State {
+impl Shell {
     pub fn new(offset: time::UtcOffset) -> Self {
         Self {
             readline: readline::Readline::new(),
@@ -121,11 +225,11 @@ impl State {
 
     pub async fn handle_event(
         &mut self,
-        event: crate::Event,
-        event_w: &async_std::channel::Sender<crate::Event>,
+        event: Event,
+        event_w: &async_std::channel::Sender<Event>,
     ) -> Option<Action> {
         match event {
-            crate::Event::Key(key) => {
+            Event::Key(key) => {
                 return if self.escape {
                     self.escape = false;
                     self.handle_key_escape(key, event_w.clone()).await
@@ -148,12 +252,12 @@ impl State {
                     }
                 };
             }
-            crate::Event::Resize(new_size) => {
+            Event::Resize(new_size) => {
                 self.readline.resize(new_size).await;
                 self.history.resize(new_size).await;
                 return Some(Action::Resize(new_size.0, new_size.1));
             }
-            crate::Event::PtyOutput => {
+            Event::PtyOutput => {
                 // the number of visible lines may have changed, so make sure
                 // the focus is still visible
                 self.history
@@ -165,7 +269,7 @@ impl State {
                     .await;
                 self.scene = self.default_scene(self.focus, None).await;
             }
-            crate::Event::PtyClose => {
+            Event::PtyClose => {
                 if let Some(idx) = self.focus_idx() {
                     let entry = self.history.entry(idx).await;
                     if !entry.running() {
@@ -186,12 +290,12 @@ impl State {
                     }
                 }
             }
-            crate::Event::ChildSuspend(idx) => {
+            Event::ChildSuspend(idx) => {
                 if self.focus_idx() == Some(idx) {
                     self.set_focus(Focus::Readline, None).await;
                 }
             }
-            crate::Event::ClockTimer => {}
+            Event::ClockTimer => {}
         };
         Some(Action::Refresh)
     }
@@ -199,7 +303,7 @@ impl State {
     async fn handle_key_escape(
         &mut self,
         key: textmode::Key,
-        event_w: async_std::channel::Sender<crate::Event>,
+        event_w: async_std::channel::Sender<Event>,
     ) -> Option<Action> {
         match key {
             textmode::Key::Ctrl(b'd') => {
@@ -319,7 +423,7 @@ impl State {
     async fn handle_key_readline(
         &mut self,
         key: textmode::Key,
-        event_w: async_std::channel::Sender<crate::Event>,
+        event_w: async_std::channel::Sender<Event>,
     ) -> Option<Action> {
         match key {
             textmode::Key::Char(c) => {
