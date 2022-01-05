@@ -119,7 +119,6 @@ impl<'a> Child<'a> {
         }
     }
 
-    // can't use async_recursion because it enforces a 'static lifetime
     pub fn status(
         self,
     ) -> std::pin::Pin<

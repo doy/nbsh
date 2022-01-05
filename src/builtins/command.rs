@@ -244,7 +244,6 @@ impl<'a> Child<'a> {
         self.wrapped_child.as_ref().and_then(|cmd| cmd.id())
     }
 
-    // can't use async_recursion because it enforces a 'static lifetime
     pub fn status(
         self,
     ) -> std::pin::Pin<
