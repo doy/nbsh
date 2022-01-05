@@ -1,7 +1,7 @@
 use async_std::io::{ReadExt as _, WriteExt as _};
 use async_std::stream::StreamExt as _;
 use futures_lite::future::FutureExt as _;
-use std::os::unix::io::{FromRawFd as _, IntoRawFd as _};
+use std::os::unix::io::FromRawFd as _;
 use std::os::unix::process::ExitStatusExt as _;
 
 const PID0: nix::unistd::Pid = nix::unistd::Pid::from_raw(0);
@@ -16,42 +16,48 @@ mod command;
 pub use command::{Child, Command};
 
 pub async fn run() -> anyhow::Result<i32> {
-    let mut env = read_data().await?;
-    run_with_env(&mut env).await?;
+    let shell_read = unsafe { async_std::fs::File::from_raw_fd(3) };
+    let shell_write = unsafe { async_std::fs::File::from_raw_fd(4) };
+
+    let mut env = read_data(shell_read).await?;
+    run_with_env(&mut env, &shell_write).await?;
     let status = *env.latest_status();
     let pwd = std::env::current_dir()?;
     env.set_current_dir(pwd);
-    write_event(Event::Exit(env)).await?;
+
+    write_event(&shell_write, Event::Exit(env)).await?;
     if let Some(signal) = status.signal() {
         nix::sys::signal::raise(signal.try_into().unwrap())?;
     }
     Ok(status.code().unwrap())
 }
 
-async fn run_with_env(env: &mut crate::env::Env) -> anyhow::Result<()> {
+async fn run_with_env(
+    env: &mut crate::env::Env,
+    shell_write: &async_std::fs::File,
+) -> anyhow::Result<()> {
     let pipeline = crate::parse::Pipeline::parse(env.pipeline().unwrap())?;
     let (children, pg) = spawn_children(pipeline, env)?;
-    let status = wait_children(children, pg, env).await;
+    let status = wait_children(children, pg, env, shell_write).await;
     env.set_status(status);
     Ok(())
 }
 
-async fn read_data() -> anyhow::Result<crate::env::Env> {
-    // Safety: this code is only called by crate::history::run_pipeline, which
-    // passes data through on fd 3, and which will not spawn this process
-    // unless the pipe was successfully opened on that fd
-    let mut fd3 = unsafe { async_std::fs::File::from_raw_fd(3) };
+async fn read_data(
+    mut fh: async_std::fs::File,
+) -> anyhow::Result<crate::env::Env> {
     let mut data = vec![];
-    fd3.read_to_end(&mut data).await?;
+    fh.read_to_end(&mut data).await?;
     let env = crate::env::Env::from_bytes(&data);
     Ok(env)
 }
 
-async fn write_event(event: Event) -> anyhow::Result<()> {
-    let mut fd4 = unsafe { async_std::fs::File::from_raw_fd(4) };
-    fd4.write_all(&bincode::serialize(&event)?).await?;
-    fd4.flush().await?;
-    let _ = fd4.into_raw_fd();
+async fn write_event(
+    mut fh: &async_std::fs::File,
+    event: Event,
+) -> anyhow::Result<()> {
+    fh.write_all(&bincode::serialize(&event)?).await?;
+    fh.flush().await?;
     Ok(())
 }
 
@@ -94,6 +100,7 @@ async fn wait_children(
     children: Vec<Child<'_>>,
     pg: Option<nix::unistd::Pid>,
     env: &crate::env::Env,
+    shell_write: &async_std::fs::File,
 ) -> std::process::ExitStatus {
     enum Res {
         Child(nix::Result<nix::sys::wait::WaitStatus>),
@@ -177,8 +184,11 @@ async fn wait_children(
                 }
                 nix::sys::wait::WaitStatus::Stopped(pid, signal) => {
                     if signal == nix::sys::signal::Signal::SIGTSTP {
-                        if let Err(e) =
-                            write_event(Event::Suspend(env.idx())).await
+                        if let Err(e) = write_event(
+                            shell_write,
+                            Event::Suspend(env.idx()),
+                        )
+                        .await
                         {
                             bail!(e);
                         }
