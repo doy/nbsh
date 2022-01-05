@@ -16,6 +16,7 @@ mod command;
 pub use command::{Child, Command};
 
 pub async fn run() -> anyhow::Result<i32> {
+    // Safety: we don't create File instances for fd 3 or 4 anywhere else
     let shell_read = unsafe { async_std::fs::File::from_raw_fd(3) };
     let shell_write = unsafe { async_std::fs::File::from_raw_fd(4) };
 
@@ -234,9 +235,9 @@ async fn wait_children(
 
 fn pipe() -> anyhow::Result<(std::fs::File, std::fs::File)> {
     let (r, w) = nix::unistd::pipe2(nix::fcntl::OFlag::O_CLOEXEC)?;
-    // Safety: these file descriptors were just returned by pipe2 above, which
-    // means they must be valid otherwise that call would have returned an
-    // error
+    // Safety: these file descriptors were just returned by pipe2 above, and
+    // are only available in this function, so nothing else can be accessing
+    // them
     Ok((unsafe { std::fs::File::from_raw_fd(r) }, unsafe {
         std::fs::File::from_raw_fd(w)
     }))

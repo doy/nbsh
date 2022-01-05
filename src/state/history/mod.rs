@@ -622,6 +622,7 @@ async fn run_pipeline(
         nix::unistd::pipe2(nix::fcntl::OFlag::O_CLOEXEC).unwrap();
     let (from_r, from_w) =
         nix::unistd::pipe2(nix::fcntl::OFlag::O_CLOEXEC).unwrap();
+    // Safety: dup2 is an async-signal-safe function
     unsafe {
         cmd.pre_exec(move || {
             nix::unistd::dup2(to_r, 3)?;
@@ -633,6 +634,8 @@ async fn run_pipeline(
     nix::unistd::close(to_r).unwrap();
     nix::unistd::close(from_w).unwrap();
 
+    // Safety: to_w was just opened above, was not used until now, and can't
+    // be used after this because we rebound the variable
     let mut to_w = unsafe { async_std::fs::File::from_raw_fd(to_w) };
     to_w.write_all(&env.as_bytes()).await.unwrap();
     drop(to_w);
@@ -646,6 +649,9 @@ async fn run_pipeline(
         let read = async move {
             Res::Read(
                 blocking::unblock(move || {
+                    // Safety: from_r was just opened above and is only
+                    // referenced in this closure, which takes ownership of it
+                    // at the start and returns ownership of it at the end
                     let fh = unsafe { std::fs::File::from_raw_fd(from_r) };
                     let event = bincode::deserialize_from(&fh);
                     let _ = fh.into_raw_fd();

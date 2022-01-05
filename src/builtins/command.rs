@@ -32,6 +32,8 @@ impl Command {
         self.io.set_stderr(fh);
     }
 
+    // Safety: see pre_exec in async_std::os::unix::process::CommandExt (this
+    // is just a wrapper)
     pub unsafe fn pre_exec<F>(&mut self, f: F)
     where
         F: 'static + FnMut() -> std::io::Result<()> + Send + Sync,
