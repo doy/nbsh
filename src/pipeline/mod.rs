@@ -154,6 +154,8 @@ async fn wait_children(
         };
         match child.race(builtin).await {
             Res::Child(Ok(status)) => match status {
+                // we can't call child.status() here to unify these branches
+                // because our waitpid call already collected the status
                 nix::sys::wait::WaitStatus::Exited(pid, code) => {
                     let (_, last) = children.remove(&pid).unwrap();
                     if last {
