@@ -3,6 +3,10 @@ use crate::pipeline::prelude::*;
 pub struct Command {
     inner: Inner,
     exe: String,
+    redirects: Vec<crate::parse::Redirect>,
+    pre_exec: Option<
+        Box<dyn FnMut() -> std::io::Result<()> + Send + Sync + 'static>,
+    >,
 }
 pub enum Inner {
     Binary(async_std::process::Command),
@@ -12,32 +16,41 @@ pub enum Inner {
 impl Command {
     pub fn new(exe: crate::parse::Exe) -> Self {
         let exe_str = exe.exe().to_string();
+        let redirects = exe.redirects().to_vec();
         Self {
             inner: super::builtins::Command::new(exe).map_or_else(
                 |exe| Self::new_binary(exe).inner,
                 Inner::Builtin,
             ),
             exe: exe_str,
+            redirects,
+            pre_exec: None,
         }
     }
 
     #[allow(clippy::needless_pass_by_value)]
     pub fn new_binary(exe: crate::parse::Exe) -> Self {
         let exe_str = exe.exe().to_string();
+        let redirects = exe.redirects().to_vec();
         let mut cmd = async_std::process::Command::new(exe.exe());
         cmd.args(exe.args());
         Self {
             inner: Inner::Binary(cmd),
             exe: exe_str,
+            redirects,
+            pre_exec: None,
         }
     }
 
     pub fn new_builtin(exe: crate::parse::Exe) -> Self {
         let exe_str = exe.exe().to_string();
+        let redirects = exe.redirects().to_vec();
         Self {
             inner: super::builtins::Command::new(exe)
                 .map_or_else(|_| todo!(), Inner::Builtin),
             exe: exe_str,
+            redirects,
+            pre_exec: None,
         }
     }
 
@@ -80,28 +93,51 @@ impl Command {
     where
         F: 'static + FnMut() -> std::io::Result<()> + Send + Sync,
     {
-        match &mut self.inner {
-            Inner::Binary(cmd) => {
-                cmd.pre_exec(f);
-            }
-            Inner::Builtin(cmd) => {
-                cmd.pre_exec(f);
-            }
-        }
+        self.pre_exec = Some(Box::new(f));
     }
 
     pub fn spawn(self, env: &Env) -> anyhow::Result<Child> {
-        match self.inner {
+        let Self {
+            inner,
+            exe,
+            redirects,
+            pre_exec,
+        } = self;
+
+        #[allow(clippy::as_conversions)]
+        let pre_exec = pre_exec.map_or_else(
+            || {
+                let redirects = redirects.clone();
+                Box::new(move || {
+                    apply_redirects(&redirects)?;
+                    Ok(())
+                })
+                    as Box<dyn FnMut() -> std::io::Result<()> + Send + Sync>
+            },
+            |mut pre_exec| {
+                let redirects = redirects.clone();
+                Box::new(move || {
+                    apply_redirects(&redirects)?;
+                    pre_exec()?;
+                    Ok(())
+                })
+            },
+        );
+        match inner {
             Inner::Binary(mut cmd) => {
+                unsafe { cmd.pre_exec(pre_exec) };
                 Ok(Child::Binary(cmd.spawn().map_err(|e| {
                     anyhow::anyhow!(
                         "{}: {}",
                         crate::format::io_error(&e),
-                        self.exe
+                        exe
                     )
                 })?))
             }
-            Inner::Builtin(cmd) => Ok(Child::Builtin(cmd.spawn(env)?)),
+            Inner::Builtin(mut cmd) => {
+                unsafe { cmd.pre_exec(pre_exec) };
+                Ok(Child::Builtin(cmd.spawn(env)?))
+            }
         }
     }
 }
@@ -137,4 +173,45 @@ impl<'a> Child<'a> {
             }
         })
     }
+}
+
+fn apply_redirects(
+    redirects: &[crate::parse::Redirect],
+) -> std::io::Result<()> {
+    for redirect in redirects {
+        match &redirect.to {
+            crate::parse::RedirectTarget::Fd(fd) => {
+                nix::unistd::dup2(*fd, redirect.from)?;
+            }
+            crate::parse::RedirectTarget::File(path) => {
+                use nix::fcntl::OFlag;
+                use nix::sys::stat::Mode;
+                let fd = match redirect.dir {
+                    crate::parse::Direction::In => nix::fcntl::open(
+                        path,
+                        OFlag::O_NOCTTY | OFlag::O_RDONLY,
+                        Mode::empty(),
+                    )?,
+                    crate::parse::Direction::Out => nix::fcntl::open(
+                        path,
+                        OFlag::O_CREAT
+                            | OFlag::O_NOCTTY
+                            | OFlag::O_WRONLY
+                            | OFlag::O_TRUNC,
+                        Mode::S_IRUSR
+                            | Mode::S_IWUSR
+                            | Mode::S_IRGRP
+                            | Mode::S_IWGRP
+                            | Mode::S_IROTH
+                            | Mode::S_IWOTH,
+                    )?,
+                };
+                if fd != redirect.from {
+                    nix::unistd::dup2(fd, redirect.from)?;
+                    nix::unistd::close(fd)?;
+                }
+            }
+        }
+    }
+    Ok(())
 }

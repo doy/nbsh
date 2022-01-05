@@ -4,10 +4,60 @@ use pest::Parser as _;
 #[grammar = "shell.pest"]
 struct Shell;
 
+#[derive(Debug, Clone)]
+pub enum RedirectTarget {
+    Fd(std::os::unix::io::RawFd),
+    File(std::path::PathBuf),
+}
+
+#[derive(Debug, Clone)]
+pub enum Direction {
+    In,
+    Out,
+}
+
+impl Direction {
+    fn parse(c: u8) -> Option<Self> {
+        Some(match c {
+            b'>' => Self::Out,
+            b'<' => Self::In,
+            _ => return None,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Redirect {
+    pub from: std::os::unix::io::RawFd,
+    pub to: RedirectTarget,
+    pub dir: Direction,
+}
+
+impl Redirect {
+    fn parse(s: &str) -> Self {
+        let (from, to) = s.split_once(&['<', '>'][..]).unwrap();
+        let dir = Direction::parse(s.as_bytes()[from.len()]).unwrap();
+        let from = if from.is_empty() {
+            match dir {
+                Direction::In => 0,
+                Direction::Out => 1,
+            }
+        } else {
+            from.parse().unwrap()
+        };
+        let to = to.strip_prefix('&').map_or_else(
+            || RedirectTarget::File(to.into()),
+            |fd| RedirectTarget::Fd(fd.parse().unwrap()),
+        );
+        Self { from, to, dir }
+    }
+}
+
 #[derive(Debug)]
 pub struct Word {
     word: String,
     interpolate: bool,
+    quoted: bool,
 }
 
 impl Word {
@@ -24,6 +74,10 @@ impl Word {
                 word.as_rule(),
                 Rule::bareword | Rule::double_string
             ),
+            quoted: matches!(
+                word.as_rule(),
+                Rule::single_string | Rule::double_string
+            ),
         }
     }
 }
@@ -32,6 +86,7 @@ impl Word {
 pub struct Exe {
     exe: Word,
     args: Vec<Word>,
+    redirects: Vec<Redirect>,
 }
 
 impl Exe {
@@ -39,8 +94,17 @@ impl Exe {
         assert!(matches!(pair.as_rule(), Rule::exe));
         let mut iter = pair.into_inner();
         let exe = Word::build_ast(iter.next().unwrap());
-        let args = iter.map(Word::build_ast).collect();
-        Self { exe, args }
+        let (args, redirects): (_, Vec<_>) =
+            iter.map(Word::build_ast).partition(|word| {
+                word.quoted || !word.word.contains(&['<', '>'][..])
+            });
+        let redirects =
+            redirects.iter().map(|r| Redirect::parse(&r.word)).collect();
+        Self {
+            exe,
+            args,
+            redirects,
+        }
     }
 
     pub fn exe(&self) -> &str {
@@ -49,6 +113,10 @@ impl Exe {
 
     pub fn args(&self) -> impl Iterator<Item = &str> {
         self.args.iter().map(|arg| arg.word.as_ref())
+    }
+
+    pub fn redirects(&self) -> &[Redirect] {
+        &self.redirects
     }
 
     pub fn shift(&mut self) {
