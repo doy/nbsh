@@ -189,10 +189,6 @@ impl State {
                     self.set_focus(Focus::Readline, None).await;
                 }
             }
-            crate::event::Event::PipelineExit(_) => {
-                // this should be handled by the pipeline runner directly
-                unreachable!();
-            }
             crate::event::Event::ClockTimer => {}
         };
         Some(Action::Refresh)

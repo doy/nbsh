@@ -6,6 +6,12 @@ use std::os::unix::process::ExitStatusExt as _;
 
 const PID0: nix::unistd::Pid = nix::unistd::Pid::from_raw(0);
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub enum Event {
+    Suspend(usize),
+    Exit(crate::env::Env),
+}
+
 mod command;
 pub use command::{Child, Command};
 
@@ -15,7 +21,7 @@ pub async fn run() -> anyhow::Result<i32> {
     let status = *env.latest_status();
     let pwd = std::env::current_dir()?;
     env.set_current_dir(pwd);
-    write_event(crate::event::Event::PipelineExit(env)).await?;
+    write_event(Event::Exit(env)).await?;
     if let Some(signal) = status.signal() {
         nix::sys::signal::raise(signal.try_into().unwrap())?;
     }
@@ -41,7 +47,7 @@ async fn read_data() -> anyhow::Result<crate::env::Env> {
     Ok(env)
 }
 
-async fn write_event(event: crate::event::Event) -> anyhow::Result<()> {
+async fn write_event(event: Event) -> anyhow::Result<()> {
     let mut fd4 = unsafe { async_std::fs::File::from_raw_fd(4) };
     fd4.write_all(&bincode::serialize(&event)?).await?;
     fd4.flush().await?;
@@ -169,10 +175,8 @@ async fn wait_children(
                 }
                 nix::sys::wait::WaitStatus::Stopped(pid, signal) => {
                     if signal == nix::sys::signal::Signal::SIGTSTP {
-                        if let Err(e) = write_event(
-                            crate::event::Event::ChildSuspend(env.idx()),
-                        )
-                        .await
+                        if let Err(e) =
+                            write_event(Event::Suspend(env.idx())).await
                         {
                             bail!(e);
                         }

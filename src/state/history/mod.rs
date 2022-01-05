@@ -626,7 +626,7 @@ async fn run_pipeline(
 
     loop {
         enum Res {
-            Read(bincode::Result<crate::event::Event>),
+            Read(bincode::Result<crate::pipeline::Event>),
             Exit(std::io::Result<std::process::ExitStatus>),
         }
 
@@ -643,10 +643,13 @@ async fn run_pipeline(
         };
         let exit = async { Res::Exit(child.status_no_drop().await) };
         match read.or(exit).await {
-            Res::Read(Ok(crate::event::Event::PipelineExit(new_env))) => {
-                *env = new_env;
-            }
-            Res::Read(Ok(event)) => event_w.send(event).await.unwrap(),
+            Res::Read(Ok(event)) => match event {
+                crate::pipeline::Event::Suspend(idx) => event_w
+                    .send(crate::event::Event::ChildSuspend(idx))
+                    .await
+                    .unwrap(),
+                crate::pipeline::Event::Exit(new_env) => *env = new_env,
+            },
             Res::Read(Err(e)) => {
                 if let bincode::ErrorKind::Io(e) = &*e {
                     if e.kind() == std::io::ErrorKind::UnexpectedEof {

@@ -1,32 +1,11 @@
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug)]
 pub enum Event {
-    #[serde(
-        serialize_with = "serialize_key",
-        deserialize_with = "deserialize_key"
-    )]
     Key(textmode::Key),
     Resize((u16, u16)),
     PtyOutput,
     PtyClose,
     ChildSuspend(usize),
-    PipelineExit(crate::env::Env),
     ClockTimer,
-}
-
-#[allow(clippy::trivially_copy_pass_by_ref, clippy::needless_pass_by_value)]
-fn serialize_key<S>(_key: &textmode::Key, _s: S) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    todo!()
-}
-
-#[allow(clippy::trivially_copy_pass_by_ref, clippy::needless_pass_by_value)]
-fn deserialize_key<'de, D>(_d: D) -> Result<textmode::Key, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    todo!()
 }
 
 pub struct Reader {
@@ -78,7 +57,6 @@ struct Pending {
     pty_output: bool,
     pty_close: bool,
     child_suspend: std::collections::VecDeque<usize>,
-    pipeline_exit: std::collections::VecDeque<crate::env::Env>,
     clock_timer: bool,
     done: bool,
 }
@@ -95,7 +73,6 @@ impl Pending {
             || self.pty_output
             || self.pty_close
             || !self.child_suspend.is_empty()
-            || !self.pipeline_exit.is_empty()
             || self.clock_timer
     }
 
@@ -115,9 +92,6 @@ impl Pending {
         }
         if let Some(idx) = self.child_suspend.pop_front() {
             return Some(Event::ChildSuspend(idx));
-        }
-        if let Some(env) = self.pipeline_exit.pop_front() {
-            return Some(Event::PipelineExit(env));
         }
         if self.clock_timer {
             self.clock_timer = false;
@@ -141,9 +115,6 @@ impl Pending {
             Some(Event::PtyClose) => self.pty_close = true,
             Some(Event::ChildSuspend(idx)) => {
                 self.child_suspend.push_back(idx);
-            }
-            Some(Event::PipelineExit(env)) => {
-                self.pipeline_exit.push_back(env);
             }
             Some(Event::ClockTimer) => self.clock_timer = true,
             None => self.done = true,
