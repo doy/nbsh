@@ -35,7 +35,8 @@ impl History {
             self.visible(repl_lines, focus, scrolling).await.rev()
         {
             let focused = focus.map_or(false, |focus| idx == focus);
-            used_lines += entry.lines(self.size.1, focused && !scrolling);
+            used_lines +=
+                entry.lines(self.entry_count(), focused && !scrolling);
             out.move_to(
                 (usize::from(self.size.0) - used_lines).try_into().unwrap(),
                 0,
@@ -44,7 +45,7 @@ impl History {
                 out,
                 idx,
                 self.entry_count(),
-                self.size.1,
+                self.size,
                 focused,
                 scrolling,
                 offset,
@@ -218,7 +219,8 @@ impl History {
         {
             let entry = entry.lock_arc().await;
             let focused = focus.map_or(false, |focus| idx == focus);
-            used_lines += entry.lines(self.size.1, focused && !scrolling);
+            used_lines +=
+                entry.lines(self.entry_count(), focused && !scrolling);
             if used_lines > usize::from(self.size.0) {
                 break;
             }

@@ -42,7 +42,7 @@ impl Entry {
         out: &mut impl textmode::Textmode,
         idx: usize,
         entry_count: usize,
-        width: u16,
+        size: (u16, u16),
         focused: bool,
         scrolling: bool,
         offset: time::UtcOffset,
@@ -96,7 +96,7 @@ impl Entry {
         }
         let cmd = self.cmd();
         let start = usize::from(out.screen().cursor_position().1);
-        let end = usize::from(width) - time.len() - 2;
+        let end = usize::from(size.1) - time.len() - 2;
         let max_len = end - start;
         if cmd.len() > max_len {
             out.write_str(&cmd[..(max_len - 4)]);
@@ -110,7 +110,7 @@ impl Entry {
         set_bgcolor(out, idx, focused);
         let cur_pos = out.screen().cursor_position();
         out.write_str(&" ".repeat(
-            usize::from(width) - time.len() - 1 - usize::from(cur_pos.1),
+            usize::from(size.1) - time.len() - 1 - usize::from(cur_pos.1),
         ));
         out.write_str(&time);
         out.write_str(" ");
@@ -121,18 +121,20 @@ impl Entry {
             let len: u16 = msg.len().try_into().unwrap();
             out.move_to(
                 out.screen().cursor_position().0 + 1,
-                (width - len) / 2,
+                (size.1 - len) / 2,
             );
             out.set_fgcolor(textmode::color::RED);
             out.write_str(msg);
             out.hide_cursor(true);
         } else {
-            let last_row = self.output_lines(width, focused && !scrolling);
-            if last_row > 5 {
+            let last_row = self.output_lines(focused && !scrolling);
+            let mut max_lines = self.max_lines(entry_count);
+            if last_row > max_lines {
                 out.write(b"\r\n");
                 out.set_fgcolor(textmode::color::BLUE);
                 out.write_str("...");
                 out.reset_attributes();
+                max_lines -= 1;
             }
             let mut out_row = out.screen().cursor_position().0 + 1;
             let screen = self.vt.screen();
@@ -140,10 +142,10 @@ impl Entry {
             let mut wrapped = false;
             let mut cursor_found = None;
             for (idx, row) in screen
-                .rows_formatted(0, width)
+                .rows_formatted(0, size.1)
                 .enumerate()
                 .take(last_row)
-                .skip(last_row.saturating_sub(5))
+                .skip(last_row.saturating_sub(max_lines))
             {
                 let idx: u16 = idx.try_into().unwrap();
                 out.reset_attributes();
@@ -238,19 +240,29 @@ impl Entry {
         self.vt.screen().errors() > 5
     }
 
-    pub fn lines(&self, width: u16, focused: bool) -> usize {
-        let lines = self.output_lines(width, focused);
-        1 + std::cmp::min(6, lines)
+    pub fn lines(&self, entry_count: usize, focused: bool) -> usize {
+        1 + std::cmp::min(
+            self.output_lines(focused),
+            self.max_lines(entry_count),
+        )
     }
 
-    pub fn output_lines(&self, width: u16, focused: bool) -> usize {
+    fn max_lines(&self, entry_count: usize) -> usize {
+        if self.env.idx() == entry_count - 1 {
+            usize::from(self.size().0) * 2 / 3
+        } else {
+            5
+        }
+    }
+
+    pub fn output_lines(&self, focused: bool) -> usize {
         if self.binary() {
             return 1;
         }
 
         let screen = self.vt.screen();
         let mut last_row = 0;
-        for (idx, row) in screen.rows(0, width).enumerate() {
+        for (idx, row) in screen.rows(0, self.size().1).enumerate() {
             if !row.is_empty() {
                 last_row = idx + 1;
             }
