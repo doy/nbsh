@@ -67,7 +67,7 @@ async fn pty_task(
         match read.race(write).race(resize).or(close).await {
             Res::Read(res) => match res {
                 Ok(bytes) => {
-                    entry.lock_arc().await.vt.process(&buf[..bytes]);
+                    entry.lock_arc().await.process(&buf[..bytes]);
                     event_w
                         .send(crate::event::Event::PtyOutput)
                         .await
@@ -91,7 +91,6 @@ async fn pty_task(
                 Ok(size) => {
                     pty.resize(pty_process::Size::new(size.0, size.1))
                         .unwrap();
-                    entry.lock_arc().await.vt.set_size(size.0, size.1);
                 }
                 Err(e) => {
                     panic!("failed to read from resize channel: {}", e);
