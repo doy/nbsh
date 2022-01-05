@@ -26,10 +26,10 @@ pub async fn run() -> anyhow::Result<i32> {
     let mut env = read_data(shell_read).await?;
     run_with_env(&mut env, &shell_write).await?;
     let status = *env.latest_status();
-    let pwd = std::env::current_dir()?;
-    env.set_current_dir(pwd);
 
+    env.update()?;
     write_event(&shell_write, Event::Exit(env)).await?;
+
     if let Some(signal) = status.signal() {
         nix::sys::signal::raise(signal.try_into().unwrap())?;
     }

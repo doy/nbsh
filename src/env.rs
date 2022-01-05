@@ -90,6 +90,11 @@ impl Env {
         }
     }
 
+    pub fn update(&mut self) -> anyhow::Result<()> {
+        self.set_current_dir(std::env::current_dir()?);
+        Ok(())
+    }
+
     pub fn as_bytes(&self) -> Vec<u8> {
         bincode::serialize(self).unwrap()
     }
