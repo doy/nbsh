@@ -9,7 +9,7 @@ const PID0: nix::unistd::Pid = nix::unistd::Pid::from_raw(0);
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum Event {
     Suspend(usize),
-    Exit(crate::env::Env),
+    Exit(crate::Env),
 }
 
 mod builtins;
@@ -37,7 +37,7 @@ pub async fn run() -> anyhow::Result<i32> {
 }
 
 async fn run_with_env(
-    env: &mut crate::env::Env,
+    env: &mut crate::Env,
     shell_write: &async_std::fs::File,
 ) -> anyhow::Result<()> {
     let pipeline = crate::parse::Pipeline::parse(env.pipeline().unwrap())?;
@@ -49,10 +49,10 @@ async fn run_with_env(
 
 async fn read_data(
     mut fh: async_std::fs::File,
-) -> anyhow::Result<crate::env::Env> {
+) -> anyhow::Result<crate::Env> {
     let mut data = vec![];
     fh.read_to_end(&mut data).await?;
-    let env = crate::env::Env::from_bytes(&data);
+    let env = crate::Env::from_bytes(&data);
     Ok(env)
 }
 
@@ -67,7 +67,7 @@ async fn write_event(
 
 fn spawn_children(
     pipeline: crate::parse::Pipeline,
-    env: &crate::env::Env,
+    env: &crate::Env,
 ) -> anyhow::Result<(Vec<Child>, Option<nix::unistd::Pid>)> {
     let mut cmds: Vec<_> = pipeline.into_exes().map(Command::new).collect();
     for i in 0..(cmds.len() - 1) {
@@ -103,7 +103,7 @@ fn spawn_children(
 async fn wait_children(
     children: Vec<Child<'_>>,
     pg: Option<nix::unistd::Pid>,
-    env: &crate::env::Env,
+    env: &crate::Env,
     shell_write: &async_std::fs::File,
 ) -> std::process::ExitStatus {
     enum Res {

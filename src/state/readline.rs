@@ -22,7 +22,7 @@ impl Readline {
     pub async fn render(
         &self,
         out: &mut impl textmode::Textmode,
-        env: &crate::env::Env,
+        env: &crate::Env,
         focus: bool,
         offset: time::UtcOffset,
     ) -> anyhow::Result<()> {

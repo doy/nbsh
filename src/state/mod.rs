@@ -24,7 +24,7 @@ pub enum Action {
 pub struct State {
     readline: readline::Readline,
     history: history::History,
-    env: crate::env::Env,
+    env: crate::Env,
     focus: Focus,
     scene: Scene,
     escape: bool,
@@ -37,7 +37,7 @@ impl State {
         Self {
             readline: readline::Readline::new(),
             history: history::History::new(),
-            env: crate::env::Env::new(),
+            env: crate::Env::new(),
             focus: Focus::Readline,
             scene: Scene::Readline,
             escape: false,
@@ -121,11 +121,11 @@ impl State {
 
     pub async fn handle_event(
         &mut self,
-        event: crate::event::Event,
-        event_w: &async_std::channel::Sender<crate::event::Event>,
+        event: crate::Event,
+        event_w: &async_std::channel::Sender<crate::Event>,
     ) -> Option<Action> {
         match event {
-            crate::event::Event::Key(key) => {
+            crate::Event::Key(key) => {
                 return if self.escape {
                     self.escape = false;
                     self.handle_key_escape(key, event_w.clone()).await
@@ -148,12 +148,12 @@ impl State {
                     }
                 };
             }
-            crate::event::Event::Resize(new_size) => {
+            crate::Event::Resize(new_size) => {
                 self.readline.resize(new_size).await;
                 self.history.resize(new_size).await;
                 return Some(Action::Resize(new_size.0, new_size.1));
             }
-            crate::event::Event::PtyOutput => {
+            crate::Event::PtyOutput => {
                 // the number of visible lines may have changed, so make sure
                 // the focus is still visible
                 self.history
@@ -165,7 +165,7 @@ impl State {
                     .await;
                 self.scene = self.default_scene(self.focus, None).await;
             }
-            crate::event::Event::PtyClose => {
+            crate::Event::PtyClose => {
                 if let Some(idx) = self.focus_idx() {
                     let entry = self.history.entry(idx).await;
                     if !entry.running() {
@@ -186,12 +186,12 @@ impl State {
                     }
                 }
             }
-            crate::event::Event::ChildSuspend(idx) => {
+            crate::Event::ChildSuspend(idx) => {
                 if self.focus_idx() == Some(idx) {
                     self.set_focus(Focus::Readline, None).await;
                 }
             }
-            crate::event::Event::ClockTimer => {}
+            crate::Event::ClockTimer => {}
         };
         Some(Action::Refresh)
     }
@@ -199,7 +199,7 @@ impl State {
     async fn handle_key_escape(
         &mut self,
         key: textmode::Key,
-        event_w: async_std::channel::Sender<crate::event::Event>,
+        event_w: async_std::channel::Sender<crate::Event>,
     ) -> Option<Action> {
         match key {
             textmode::Key::Ctrl(b'd') => {
@@ -319,7 +319,7 @@ impl State {
     async fn handle_key_readline(
         &mut self,
         key: textmode::Key,
-        event_w: async_std::channel::Sender<crate::event::Event>,
+        event_w: async_std::channel::Sender<crate::Event>,
     ) -> Option<Action> {
         match key {
             textmode::Key::Char(c) => {

@@ -13,7 +13,9 @@
 #![allow(clippy::type_complexity)]
 
 mod env;
+pub use env::Env;
 mod event;
+pub use event::Event;
 mod format;
 mod info;
 mod parse;
@@ -74,7 +76,7 @@ async fn async_main() -> anyhow::Result<i32> {
             .chain(signals);
             while signals.next().await.is_some() {
                 event_w
-                    .send(crate::event::Event::Resize(
+                    .send(Event::Resize(
                         terminal_size::terminal_size().map_or(
                             (24, 80),
                             |(
@@ -93,7 +95,7 @@ async fn async_main() -> anyhow::Result<i32> {
         let event_w = event_w.clone();
         async_std::task::spawn(async move {
             while let Some(key) = input.read_key().await.unwrap() {
-                event_w.send(event::Event::Key(key)).await.unwrap();
+                event_w.send(Event::Key(key)).await.unwrap();
             }
         });
     }
@@ -112,9 +114,9 @@ async fn async_main() -> anyhow::Result<i32> {
             let mut interval = async_std::stream::interval(
                 std::time::Duration::from_secs(1),
             );
-            event_w.send(crate::event::Event::ClockTimer).await.unwrap();
+            event_w.send(Event::ClockTimer).await.unwrap();
             while interval.next().await.is_some() {
-                event_w.send(crate::event::Event::ClockTimer).await.unwrap();
+                event_w.send(Event::ClockTimer).await.unwrap();
             }
         });
     }

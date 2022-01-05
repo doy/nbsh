@@ -7,7 +7,7 @@ pub use command::{Child, Command};
 
 type Builtin = &'static (dyn for<'a> Fn(
     crate::parse::Exe,
-    &'a crate::env::Env,
+    &'a crate::Env,
     command::Io,
 ) -> anyhow::Result<command::Child<'a>>
               + Sync
@@ -31,12 +31,12 @@ static BUILTINS: once_cell::sync::Lazy<
 #[allow(clippy::unnecessary_wraps)]
 fn cd(
     exe: crate::parse::Exe,
-    env: &crate::env::Env,
+    env: &crate::Env,
     io: command::Io,
 ) -> anyhow::Result<command::Child> {
     async fn async_cd(
         exe: crate::parse::Exe,
-        _env: &crate::env::Env,
+        _env: &crate::Env,
         io: command::Io,
     ) -> std::process::ExitStatus {
         macro_rules! bail {
@@ -121,12 +121,12 @@ fn cd(
 // this later, since the binary seems totally fine
 fn echo(
     exe: crate::parse::Exe,
-    env: &crate::env::Env,
+    env: &crate::Env,
     io: command::Io,
 ) -> anyhow::Result<command::Child> {
     async fn async_echo(
         exe: crate::parse::Exe,
-        _env: &crate::env::Env,
+        _env: &crate::Env,
         io: command::Io,
     ) -> std::process::ExitStatus {
         macro_rules! write_stdout {
@@ -159,7 +159,7 @@ fn echo(
 
 fn and(
     mut exe: crate::parse::Exe,
-    env: &crate::env::Env,
+    env: &crate::Env,
     io: command::Io,
 ) -> anyhow::Result<command::Child> {
     exe.shift();
@@ -175,7 +175,7 @@ fn and(
 
 fn or(
     mut exe: crate::parse::Exe,
-    env: &crate::env::Env,
+    env: &crate::Env,
     io: command::Io,
 ) -> anyhow::Result<command::Child> {
     exe.shift();
@@ -191,7 +191,7 @@ fn or(
 
 fn command(
     mut exe: crate::parse::Exe,
-    env: &crate::env::Env,
+    env: &crate::Env,
     io: command::Io,
 ) -> anyhow::Result<command::Child> {
     exe.shift();
@@ -202,7 +202,7 @@ fn command(
 
 fn builtin(
     mut exe: crate::parse::Exe,
-    env: &crate::env::Env,
+    env: &crate::Env,
     io: command::Io,
 ) -> anyhow::Result<command::Child> {
     exe.shift();

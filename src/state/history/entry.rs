@@ -2,7 +2,7 @@ use std::os::unix::process::ExitStatusExt as _;
 
 pub struct Entry {
     cmdline: String,
-    env: crate::env::Env,
+    env: crate::Env,
     vt: vt100::Parser,
     audible_bell_state: usize,
     visual_bell_state: usize,
@@ -17,7 +17,7 @@ pub struct Entry {
 impl Entry {
     pub fn new(
         cmdline: String,
-        env: crate::env::Env,
+        env: crate::Env,
         size: (u16, u16),
         input: async_std::channel::Sender<Vec<u8>>,
         resize: async_std::channel::Sender<(u16, u16)>,
@@ -214,7 +214,7 @@ impl Entry {
         &self.cmdline
     }
 
-    pub fn env(&self) -> &crate::env::Env {
+    pub fn env(&self) -> &crate::Env {
         &self.env
     }
 
@@ -271,12 +271,12 @@ impl Entry {
 
     pub async fn finish(
         &mut self,
-        env: crate::env::Env,
-        event_w: async_std::channel::Sender<crate::event::Event>,
+        env: crate::Env,
+        event_w: async_std::channel::Sender<crate::Event>,
     ) {
         self.exit_info = Some(ExitInfo::new(*env.latest_status()));
         self.env = env;
-        event_w.send(crate::event::Event::PtyClose).await.unwrap();
+        event_w.send(crate::Event::PtyClose).await.unwrap();
     }
 }
 

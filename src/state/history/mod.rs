@@ -91,8 +91,8 @@ impl History {
     pub async fn run(
         &mut self,
         ast: crate::parse::Commands,
-        env: &crate::env::Env,
-        event_w: async_std::channel::Sender<crate::event::Event>,
+        env: &crate::Env,
+        event_w: async_std::channel::Sender<crate::Event>,
     ) -> anyhow::Result<usize> {
         let (input_w, input_r) = async_std::channel::unbounded();
         let (resize_w, resize_r) = async_std::channel::unbounded();
@@ -122,8 +122,8 @@ impl History {
     pub async fn parse_error(
         &mut self,
         e: crate::parse::Error,
-        env: &crate::env::Env,
-        event_w: async_std::channel::Sender<crate::event::Event>,
+        env: &crate::Env,
+        event_w: async_std::channel::Sender<crate::Event>,
     ) -> anyhow::Result<usize> {
         // XXX would be great to not have to do this
         let (input_w, input_r) = async_std::channel::unbounded();
@@ -272,10 +272,10 @@ impl std::iter::DoubleEndedIterator for VisibleEntries {
 fn run_commands(
     ast: crate::parse::Commands,
     entry: async_std::sync::Arc<async_std::sync::Mutex<Entry>>,
-    mut env: crate::env::Env,
+    mut env: crate::Env,
     input_r: async_std::channel::Receiver<Vec<u8>>,
     resize_r: async_std::channel::Receiver<(u16, u16)>,
-    event_w: async_std::channel::Sender<crate::event::Event>,
+    event_w: async_std::channel::Sender<crate::Event>,
 ) {
     async_std::task::spawn(async move {
         let pty = match pty::Pty::new(
@@ -328,8 +328,8 @@ fn run_commands(
 
 async fn run_pipeline(
     pty: &pty::Pty,
-    env: &mut crate::env::Env,
-    event_w: async_std::channel::Sender<crate::event::Event>,
+    env: &mut crate::Env,
+    event_w: async_std::channel::Sender<crate::Event>,
 ) -> anyhow::Result<(async_std::process::ExitStatus, bool)> {
     let mut cmd = pty_process::Command::new(std::env::current_exe().unwrap());
     cmd.arg("--internal-cmd-runner");
@@ -380,7 +380,7 @@ async fn run_pipeline(
         match read.or(exit).await {
             Res::Read(Ok(event)) => match event {
                 crate::pipeline::Event::Suspend(idx) => event_w
-                    .send(crate::event::Event::ChildSuspend(idx))
+                    .send(crate::Event::ChildSuspend(idx))
                     .await
                     .unwrap(),
                 crate::pipeline::Event::Exit(new_env) => *env = new_env,

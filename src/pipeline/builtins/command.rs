@@ -41,7 +41,7 @@ impl Command {
         self.io.pre_exec(f);
     }
 
-    pub fn spawn(self, env: &crate::env::Env) -> anyhow::Result<Child> {
+    pub fn spawn(self, env: &crate::Env) -> anyhow::Result<Child> {
         let Self { f, exe, io } = self;
         (f)(exe, env, io)
     }
