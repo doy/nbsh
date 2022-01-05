@@ -73,12 +73,14 @@ impl Io {
         self.fds
             .get(&0.as_raw_fd())
             .copied()
+            // Safety: TODO this is likely unsafe
             .map(|fd| unsafe { async_std::fs::File::from_raw_fd(fd) })
     }
 
     fn set_stdin<T: std::os::unix::io::IntoRawFd>(&mut self, stdin: T) {
         if let Some(fd) = self.fds.get(&0.as_raw_fd()) {
             if *fd > 2 {
+                // Safety: TODO this is likely unsafe
                 drop(unsafe { async_std::fs::File::from_raw_fd(*fd) });
             }
         }
@@ -89,12 +91,14 @@ impl Io {
         self.fds
             .get(&1.as_raw_fd())
             .copied()
+            // Safety: TODO this is likely unsafe
             .map(|fd| unsafe { async_std::fs::File::from_raw_fd(fd) })
     }
 
     fn set_stdout<T: std::os::unix::io::IntoRawFd>(&mut self, stdout: T) {
         if let Some(fd) = self.fds.get(&1.as_raw_fd()) {
             if *fd > 2 {
+                // Safety: TODO this is likely unsafe
                 drop(unsafe { async_std::fs::File::from_raw_fd(*fd) });
             }
         }
@@ -105,18 +109,22 @@ impl Io {
         self.fds
             .get(&2.as_raw_fd())
             .copied()
+            // Safety: TODO this is likely unsafe
             .map(|fd| unsafe { async_std::fs::File::from_raw_fd(fd) })
     }
 
     fn set_stderr<T: std::os::unix::io::IntoRawFd>(&mut self, stderr: T) {
         if let Some(fd) = self.fds.get(&2.as_raw_fd()) {
             if *fd > 2 {
+                // Safety: TODO this is likely unsafe
                 drop(unsafe { async_std::fs::File::from_raw_fd(*fd) });
             }
         }
         self.fds.insert(2.as_raw_fd(), stderr.into_raw_fd());
     }
 
+    // Safety: see pre_exec in async_std::os::unix::process::CommandExt (this
+    // is just a wrapper)
     pub unsafe fn pre_exec<F>(&mut self, f: F)
     where
         F: 'static + FnMut() -> std::io::Result<()> + Send + Sync,
@@ -158,6 +166,7 @@ impl Io {
         if let Some(stdin) = self.stdin() {
             let stdin = stdin.into_raw_fd();
             if stdin != 0 {
+                // Safety: TODO this is likely unsafe
                 cmd.stdin(unsafe { std::fs::File::from_raw_fd(stdin) });
                 self.fds.remove(&0.as_raw_fd());
             }
@@ -165,6 +174,7 @@ impl Io {
         if let Some(stdout) = self.stdout() {
             let stdout = stdout.into_raw_fd();
             if stdout != 1 {
+                // Safety: TODO this is likely unsafe
                 cmd.stdout(unsafe { std::fs::File::from_raw_fd(stdout) });
                 self.fds.remove(&1.as_raw_fd());
             }
@@ -172,11 +182,15 @@ impl Io {
         if let Some(stderr) = self.stderr() {
             let stderr = stderr.into_raw_fd();
             if stderr != 2 {
+                // Safety: TODO this is likely unsafe
                 cmd.stderr(unsafe { std::fs::File::from_raw_fd(stderr) });
                 self.fds.remove(&2.as_raw_fd());
             }
         }
         if let Some(pre_exec) = self.pre_exec.take() {
+            // Safety: pre_exec can only have been set by calling the pre_exec
+            // method, which is itself unsafe, so the safety comments at the
+            // point where that is called are the relevant ones
             unsafe { cmd.pre_exec(pre_exec) };
         }
     }
@@ -186,6 +200,7 @@ impl Drop for Io {
     fn drop(&mut self) {
         for fd in self.fds.values() {
             if *fd > 2 {
+                // Safety: TODO this is likely unsafe
                 drop(unsafe { std::fs::File::from_raw_fd(*fd) });
             }
         }
