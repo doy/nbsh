@@ -28,6 +28,12 @@ impl Env {
         })
     }
 
+    pub fn pipeline(&self) -> Option<&str> {
+        match self {
+            Self::V0(env) => env.pipeline.as_deref(),
+        }
+    }
+
     pub fn set_pipeline(&mut self, pipeline: String) {
         match self {
             Self::V0(env) => {
@@ -48,18 +54,16 @@ impl Env {
         }
     }
 
+    pub fn latest_status(&self) -> &async_std::process::ExitStatus {
+        match self {
+            Self::V0(env) => &env.latest_status,
+        }
+    }
+
     pub fn set_status(&mut self, status: async_std::process::ExitStatus) {
         match self {
             Self::V0(env) => {
                 env.latest_status = status;
-            }
-        }
-    }
-
-    pub fn set_current_dir(&mut self, pwd: std::path::PathBuf) {
-        match self {
-            Self::V0(env) => {
-                env.pwd = pwd;
             }
         }
     }
@@ -70,15 +74,11 @@ impl Env {
         }
     }
 
-    pub fn pipeline(&self) -> Option<&str> {
+    pub fn set_current_dir(&mut self, pwd: std::path::PathBuf) {
         match self {
-            Self::V0(env) => env.pipeline.as_deref(),
-        }
-    }
-
-    pub fn latest_status(&self) -> &async_std::process::ExitStatus {
-        match self {
-            Self::V0(env) => &env.latest_status,
+            Self::V0(env) => {
+                env.pwd = pwd;
+            }
         }
     }
 
