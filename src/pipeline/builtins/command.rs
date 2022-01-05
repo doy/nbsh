@@ -40,6 +40,10 @@ impl Command {
         self.io.pre_exec(f);
     }
 
+    pub fn apply_redirects(&mut self, redirects: &[crate::parse::Redirect]) {
+        self.io.apply_redirects(redirects);
+    }
+
     pub fn spawn(self, env: &Env) -> anyhow::Result<Child> {
         let Self { f, exe, io } = self;
         (f)(exe, env, io)
@@ -129,6 +133,43 @@ impl Io {
         F: 'static + FnMut() -> std::io::Result<()> + Send + Sync,
     {
         self.pre_exec = Some(Box::new(f));
+    }
+
+    pub fn apply_redirects(&mut self, redirects: &[crate::parse::Redirect]) {
+        for redirect in redirects {
+            match &redirect.to {
+                crate::parse::RedirectTarget::Fd(fd) => {
+                    self.fds.insert(redirect.from, self.fds[fd]);
+                }
+                crate::parse::RedirectTarget::File(path) => {
+                    use nix::fcntl::OFlag;
+                    use nix::sys::stat::Mode;
+                    let fd = match redirect.dir {
+                        crate::parse::Direction::In => nix::fcntl::open(
+                            path,
+                            OFlag::O_NOCTTY | OFlag::O_RDONLY,
+                            Mode::empty(),
+                        )
+                        .unwrap(),
+                        crate::parse::Direction::Out => nix::fcntl::open(
+                            path,
+                            OFlag::O_CREAT
+                                | OFlag::O_NOCTTY
+                                | OFlag::O_WRONLY
+                                | OFlag::O_TRUNC,
+                            Mode::S_IRUSR
+                                | Mode::S_IWUSR
+                                | Mode::S_IRGRP
+                                | Mode::S_IWGRP
+                                | Mode::S_IROTH
+                                | Mode::S_IWOTH,
+                        )
+                        .unwrap(),
+                    };
+                    self.fds.insert(redirect.from, fd);
+                }
+            }
+        }
     }
 
     pub async fn read_stdin(&self, buf: &mut [u8]) -> anyhow::Result<usize> {

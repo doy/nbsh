@@ -140,6 +140,7 @@ impl Command {
                 // Safety: open, dup2, and close are async-signal-safe
                 // functions
                 unsafe { cmd.pre_exec(pre_exec) };
+                cmd.apply_redirects(&redirects);
                 Ok(Child::Builtin(cmd.spawn(env)?))
             }
         }
