@@ -170,7 +170,9 @@ impl State {
                     let entry = self.history.entry(idx).await;
                     if !entry.running() {
                         if self.hide_readline {
+                            let idx = self.env.idx();
                             self.env = entry.env().clone();
+                            self.env.set_idx(idx);
                         }
                         self.set_focus(
                             if self.hide_readline {
