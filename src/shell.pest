@@ -2,21 +2,24 @@ bareword_char      = @{ !("|" | ";" | "\"" | "'" | WHITESPACE | COMMENT) ~ ANY }
 single_string_char = @{ "\\'" | (!"'" ~ ANY) }
 double_string_char = @{ "\\\"" | (!"\"" ~ ANY) }
 
+redir_prefix  = @{ (ASCII_DIGIT* ~ (">" | "<" | ">>") ~ WHITESPACE*) }
 bareword      = @{ bareword_char+ }
 single_string = @{ single_string_char+ }
 double_string = @{ double_string_char+ }
 
 word     = ${
-    bareword |
+    redir_prefix? ~
+    (bareword |
     "'" ~ single_string ~ "'" |
-    "\"" ~ double_string ~ "\""
+    "\"" ~ double_string ~ "\"")
 }
 
-exe      = { word+ }
-pipeline = { exe ~ ("|" ~ exe)* }
-commands = { pipeline ~ (";" ~ pipeline)* }
+exe      = ${ word ~ (w ~ word)* }
+pipeline = ${ exe ~ (w ~ "|" ~ w ~ exe)* }
+commands = ${ pipeline ~ (w ~ ";" ~ w ~ pipeline)* }
 
-line = { SOI ~ commands ~ EOI }
+line = ${ SOI ~ w ~ commands ~ w ~ EOI }
 
+w          = _{ (WHITESPACE | COMMENT)* }
 WHITESPACE = _{ (" " | "\t" | "\n") }
 COMMENT    = _{ "#" ~ ANY* }
