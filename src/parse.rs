@@ -4,13 +4,13 @@ use pest::Parser as _;
 #[grammar = "shell.pest"]
 struct Shell;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RedirectTarget {
     Fd(std::os::unix::io::RawFd),
     File(std::path::PathBuf),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
     In,
     Out,
@@ -54,7 +54,7 @@ impl Direction {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Redirect {
     pub from: std::os::unix::io::RawFd,
     pub to: RedirectTarget,
@@ -81,7 +81,7 @@ impl Redirect {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Word {
     word: String,
     interpolate: bool,
@@ -110,7 +110,7 @@ impl Word {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Exe {
     exe: Word,
     args: Vec<Word>,
@@ -152,7 +152,7 @@ impl Exe {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Pipeline {
     exes: Vec<Exe>,
     input_string: String,
@@ -186,7 +186,7 @@ impl Pipeline {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Commands {
     pipelines: Vec<Pipeline>,
     input_string: String,
@@ -254,5 +254,165 @@ impl std::fmt::Display for Error {
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         Some(&*self.e)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    macro_rules! c {
+        ($input_string:expr, $($pipelines:expr),*) => {
+            Commands {
+                pipelines: vec![$($pipelines),*],
+                input_string: $input_string.to_string(),
+            }
+        };
+    }
+
+    macro_rules! p {
+        ($input_string:expr, $($exes:expr),*) => {
+            Pipeline {
+                exes: vec![$($exes),*],
+                input_string: $input_string.to_string(),
+            }
+        };
+    }
+
+    macro_rules! e {
+        ($word:expr) => {
+            Exe {
+                exe: $word,
+                args: vec![],
+                redirects: vec![], // todo
+            }
+        };
+        ($word:expr, $($args:expr),*) => {
+            Exe {
+                exe: $word,
+                args: vec![$($args),*],
+                redirects: vec![], // todo
+            }
+        };
+    }
+
+    macro_rules! w {
+        ($word:expr) => {
+            Word {
+                word: $word.to_string(),
+                interpolate: true,
+                quoted: false,
+            }
+        };
+        ($word:expr, $interpolate:expr) => {
+            Word {
+                word: $word.to_string(),
+                interpolate: $interpolate,
+                quoted: false,
+            }
+        };
+        ($word:expr, $interpolate:expr, $quoted:expr) => {
+            Word {
+                word: $word.to_string(),
+                interpolate: $interpolate,
+                quoted: $quoted,
+            }
+        };
+    }
+
+    #[test]
+    fn test_basic() {
+        assert_eq!(
+            &Commands::parse("foo").unwrap(),
+            &c!("foo", p!("foo", e!(w!("foo")))),
+        );
+        assert_eq!(
+            &Commands::parse("foo bar").unwrap(),
+            &c!("foo bar", p!("foo bar", e!(w!("foo"), w!("bar")))),
+        );
+        assert_eq!(
+            &Commands::parse("foo bar baz").unwrap(),
+            &c!(
+                "foo bar baz",
+                p!("foo bar baz", e!(w!("foo"), w!("bar"), w!("baz")))
+            ),
+        );
+        assert_eq!(
+            &Commands::parse("foo | bar").unwrap(),
+            &c!("foo | bar", p!("foo | bar", e!(w!("foo")), e!(w!("bar")))),
+        );
+        assert_eq!(
+            &Commands::parse(
+                "command ls; perl -E 'say foo' | tr a-z A-Z; builtin echo bar"
+            ).unwrap(),
+            &c!(
+                "command ls; perl -E 'say foo' | tr a-z A-Z; builtin echo bar",
+                p!(
+                    "command ls",
+                    e!(w!("command"), w!("ls"))
+                ),
+                p!(
+                    "perl -E 'say foo' | tr a-z A-Z",
+                    e!(w!("perl"), w!("-E"), w!("say foo", false, true)),
+                    e!(w!("tr"), w!("a-z"), w!("A-Z"))
+                ),
+                p!(
+                    "builtin echo bar",
+                    e!(w!("builtin"), w!("echo"), w!("bar"))
+                )
+            ),
+        );
+    }
+
+    #[test]
+    fn test_whitespace() {
+        assert_eq!(
+            &Commands::parse("   foo    ").unwrap(),
+            &c!("foo", p!("foo", e!(w!("foo")))),
+        );
+        assert_eq!(
+            &Commands::parse("   foo    # this is a comment").unwrap(),
+            &c!("foo", p!("foo", e!(w!("foo")))),
+        );
+        assert_eq!(
+            &Commands::parse("foo    | bar  ").unwrap(),
+            &c!(
+                "foo    | bar",
+                p!("foo    | bar", e!(w!("foo")), e!(w!("bar")))
+            ),
+        );
+        assert_eq!(
+            &Commands::parse(
+                "  abc def  ghi   |jkl mno|   pqr stu; vwxyz  # comment"
+            )
+            .unwrap(),
+            &c!(
+                "abc def  ghi   |jkl mno|   pqr stu; vwxyz",
+                p!(
+                    "abc def  ghi   |jkl mno|   pqr stu",
+                    e!(w!("abc"), w!("def"), w!("ghi")),
+                    e!(w!("jkl"), w!("mno")),
+                    e!(w!("pqr"), w!("stu"))
+                ),
+                p!("vwxyz", e!(w!("vwxyz")))
+            ),
+        );
+        assert_eq!(
+            &Commands::parse(
+                "foo 'bar # baz' \"quux # not a comment\" # comment"
+            )
+            .unwrap(),
+            &c!(
+                "foo 'bar # baz' \"quux # not a comment\"",
+                p!(
+                    "foo 'bar # baz' \"quux # not a comment\"",
+                    e!(
+                        w!("foo"),
+                        w!("bar # baz", false, true),
+                        w!("quux # not a comment", true, true)
+                    )
+                )
+            ),
+        );
     }
 }
