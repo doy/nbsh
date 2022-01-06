@@ -14,13 +14,15 @@ pub enum RedirectTarget {
 pub enum Direction {
     In,
     Out,
+    Append,
 }
 
 impl Direction {
-    fn parse(c: u8) -> Option<Self> {
-        Some(match c {
-            b'>' => Self::Out,
-            b'<' => Self::In,
+    fn parse(c: u8, append: bool) -> Option<Self> {
+        Some(match (c, append) {
+            (b'<', false) => Self::In,
+            (b'>', false) => Self::Out,
+            (b'>', true) => Self::Append,
             _ => return None,
         })
     }
@@ -50,6 +52,19 @@ impl Direction {
                     | Mode::S_IROTH
                     | Mode::S_IWOTH,
             )?,
+            crate::parse::Direction::Append => nix::fcntl::open(
+                path,
+                OFlag::O_APPEND
+                    | OFlag::O_CREAT
+                    | OFlag::O_NOCTTY
+                    | OFlag::O_WRONLY,
+                Mode::S_IRUSR
+                    | Mode::S_IWUSR
+                    | Mode::S_IRGRP
+                    | Mode::S_IWGRP
+                    | Mode::S_IROTH
+                    | Mode::S_IWOTH,
+            )?,
         })
     }
 }
@@ -63,12 +78,17 @@ pub struct Redirect {
 
 impl Redirect {
     fn parse(s: &str) -> Self {
-        let (from, to) = s.split_once(&['<', '>'][..]).unwrap();
-        let dir = Direction::parse(s.as_bytes()[from.len()]).unwrap();
+        let (from, mut to) = s.split_once(&['<', '>'][..]).unwrap();
+        let mut append = false;
+        if let Some(s) = to.strip_prefix('>') {
+            to = s;
+            append = true;
+        }
+        let dir = Direction::parse(s.as_bytes()[from.len()], append).unwrap();
         let from = if from.is_empty() {
             match dir {
                 Direction::In => 0,
-                Direction::Out => 1,
+                Direction::Out | Direction::Append => 1,
             }
         } else {
             from.parse().unwrap()
@@ -91,13 +111,20 @@ pub struct Word {
 impl Word {
     fn build_ast(pair: pest::iterators::Pair<Rule>) -> Self {
         assert!(matches!(pair.as_rule(), Rule::word));
-        let word = pair.into_inner().next().unwrap();
+        let mut inner = pair.into_inner();
+        let mut word = inner.next().unwrap();
+        let mut word_str = String::new();
+        if matches!(word.as_rule(), Rule::redir_prefix) {
+            word_str = word.as_str().trim().to_string();
+            word = inner.next().unwrap();
+        }
         assert!(matches!(
             word.as_rule(),
             Rule::bareword | Rule::single_string | Rule::double_string
         ));
+        word_str.push_str(word.as_str());
         Self {
-            word: word.as_str().to_string(),
+            word: word_str,
             interpolate: matches!(
                 word.as_rule(),
                 Rule::bareword | Rule::double_string
