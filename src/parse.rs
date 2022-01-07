@@ -288,6 +288,25 @@ impl std::error::Error for Error {
 mod test {
     use super::*;
 
+    impl From<std::os::unix::io::RawFd> for RedirectTarget {
+        fn from(fd: std::os::unix::io::RawFd) -> Self {
+            Self::Fd(fd)
+        }
+    }
+
+    impl From<std::path::PathBuf> for RedirectTarget {
+        fn from(path: std::path::PathBuf) -> Self {
+            Self::File(path)
+        }
+    }
+
+    #[allow(clippy::fallible_impl_from)]
+    impl From<&str> for RedirectTarget {
+        fn from(path: &str) -> Self {
+            Self::File(path.try_into().unwrap())
+        }
+    }
+
     macro_rules! c {
         ($input_string:expr, $($pipelines:expr),*) => {
             Commands {
@@ -311,14 +330,38 @@ mod test {
             Exe {
                 exe: $word,
                 args: vec![],
-                redirects: vec![], // todo
+                redirects: vec![],
             }
         };
         ($word:expr, $($args:expr),*) => {
             Exe {
                 exe: $word,
                 args: vec![$($args),*],
-                redirects: vec![], // todo
+                redirects: vec![],
+            }
+        };
+        ($word:expr ; $($redirects:expr),*) => {
+            Exe {
+                exe: $word,
+                args: vec![],
+                redirects: vec![$($redirects),*],
+            }
+        };
+        ($word:expr, $($args:expr),* ; $($redirects:expr),*) => {
+            Exe {
+                exe: $word,
+                args: vec![$($args),*],
+                redirects: vec![$($redirects),*],
+            }
+        };
+    }
+
+    macro_rules! r {
+        ($from:literal, $to:literal, $dir:ident) => {
+            Redirect {
+                from: $from,
+                to: $to.into(),
+                dir: Direction::$dir,
             }
         };
     }
@@ -399,6 +442,16 @@ mod test {
             "   foo    # this is a comment",
             c!("foo", p!("foo", e!(w!("foo"))))
         );
+        parse_eq!("foo#comment", c!("foo", p!("foo", e!(w!("foo")))));
+        parse_eq!(
+            "foo;bar|baz;quux#comment",
+            c!(
+                "foo;bar|baz;quux",
+                p!("foo", e!(w!("foo"))),
+                p!("bar|baz", e!(w!("bar")), e!(w!("baz"))),
+                p!("quux", e!(w!("quux")))
+            )
+        );
         parse_eq!(
             "foo    | bar  ",
             c!(
@@ -431,6 +484,38 @@ mod test {
                         w!("quux # not a comment", true, true)
                     )
                 )
+            )
+        );
+    }
+
+    #[test]
+    fn test_redirect() {
+        parse_eq!(
+            "foo > bar",
+            c!(
+                "foo > bar",
+                p!("foo > bar", e!(w!("foo") ; r!(1, "bar", Out)))
+            )
+        );
+        parse_eq!(
+            "foo <bar",
+            c!("foo <bar", p!("foo <bar", e!(w!("foo") ; r!(0, "bar", In))))
+        );
+        parse_eq!(
+            "foo > /dev/null 2>&1",
+            c!(
+                "foo > /dev/null 2>&1",
+                p!(
+                    "foo > /dev/null 2>&1",
+                    e!(w!("foo") ; r!(1, "/dev/null", Out), r!(2, 1, Out))
+                )
+            )
+        );
+        parse_eq!(
+            "foo >>bar",
+            c!(
+                "foo >>bar",
+                p!("foo >>bar", e!(w!("foo") ; r!(1, "bar", Append)))
             )
         );
     }
