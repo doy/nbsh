@@ -125,19 +125,35 @@ impl WordOrRedirect {
                 word.as_rule(),
                 Rule::bareword | Rule::single_string | Rule::double_string
             ));
+            let interpolate = matches!(
+                word.as_rule(),
+                Rule::bareword | Rule::double_string
+            );
             word_str.push_str(word.as_str());
-            Self::Redirect(Redirect::parse(&word_str))
+            if interpolate {
+                word_str = strip_escape(&word_str);
+            } else {
+                word_str = strip_basic_escape(&word_str);
+            }
+            Self::Redirect(Redirect::parse(&strip_escape(&word_str)))
         } else {
             assert!(matches!(
                 word.as_rule(),
                 Rule::bareword | Rule::single_string | Rule::double_string
             ));
+            let interpolate = matches!(
+                word.as_rule(),
+                Rule::bareword | Rule::double_string
+            );
+            let mut word_str = word.as_str().to_string();
+            if interpolate {
+                word_str = strip_escape(&word_str);
+            } else {
+                word_str = strip_basic_escape(&word_str);
+            }
             Self::Word(Word {
-                word: word.as_str().to_string(),
-                interpolate: matches!(
-                    word.as_rule(),
-                    Rule::bareword | Rule::double_string
-                ),
+                word: word_str,
+                interpolate,
                 quoted: matches!(
                     word.as_rule(),
                     Rule::single_string | Rule::double_string
@@ -275,6 +291,44 @@ impl Commands {
             input_string,
         }
     }
+}
+
+fn strip_escape(s: &str) -> String {
+    let mut new = String::new();
+    let mut escape = false;
+    for c in s.chars() {
+        if escape {
+            new.push(c);
+            escape = false;
+        } else {
+            match c {
+                '\\' => escape = true,
+                _ => new.push(c),
+            }
+        }
+    }
+    new
+}
+
+fn strip_basic_escape(s: &str) -> String {
+    let mut new = String::new();
+    let mut escape = false;
+    for c in s.chars() {
+        if escape {
+            match c {
+                '\\' | '\'' => {}
+                _ => new.push('\\'),
+            }
+            new.push(c);
+            escape = false;
+        } else {
+            match c {
+                '\\' => escape = true,
+                _ => new.push(c),
+            }
+        }
+    }
+    new
 }
 
 #[derive(Debug)]
@@ -554,6 +608,49 @@ mod test {
             c!(
                 "foo > 'bar baz'",
                 p!("foo > 'bar baz'", e!(w!("foo") ; r!(1, "bar baz", Out)))
+            )
+        );
+    }
+
+    #[test]
+    fn test_escape() {
+        parse_eq!(
+            "foo\\ bar",
+            c!("foo\\ bar", p!("foo\\ bar", e!(w!("foo bar"))))
+        );
+        parse_eq!(
+            "'foo\\ bar'",
+            c!(
+                "'foo\\ bar'",
+                p!("'foo\\ bar'", e!(w!("foo\\ bar", false, true)))
+            )
+        );
+        parse_eq!(
+            "\"foo\\ bar\"",
+            c!(
+                "\"foo\\ bar\"",
+                p!("\"foo\\ bar\"", e!(w!("foo bar", true, true)))
+            )
+        );
+        parse_eq!(
+            "\"foo\\\"bar\"",
+            c!(
+                "\"foo\\\"bar\"",
+                p!("\"foo\\\"bar\"", e!(w!("foo\"bar", true, true)))
+            )
+        );
+        parse_eq!(
+            "'foo\\'bar\\\\'",
+            c!(
+                "'foo\\'bar\\\\'",
+                p!("'foo\\'bar\\\\'", e!(w!("foo'bar\\", false, true)))
+            )
+        );
+        parse_eq!(
+            "foo > bar\\ baz",
+            c!(
+                "foo > bar\\ baz",
+                p!("foo > bar\\ baz", e!(w!("foo") ; r!(1, "bar baz", Out)))
             )
         );
     }

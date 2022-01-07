@@ -1,6 +1,12 @@
-bareword_char      = @{ !("|" | ";" | "\"" | "'" | WHITESPACE | COMMENT) ~ ANY }
-single_string_char = @{ "\\'" | (!"'" ~ ANY) }
-double_string_char = @{ "\\\"" | (!"\"" ~ ANY) }
+basic_escape_char = @{ "\\\\" | "\\'" }
+escape_char       = @{ "\\" ~ ANY }
+
+bareword_char = @{
+    escape_char |
+    !("|" | ";" | "\"" | "'" | WHITESPACE | COMMENT) ~ ANY
+}
+single_string_char = @{ basic_escape_char | (!"'" ~ ANY) }
+double_string_char = @{ escape_char | (!"\"" ~ ANY) }
 
 redir_prefix  = @{ ASCII_DIGIT* ~ (">>" | ">" | "<") ~ WHITESPACE* }
 bareword      = @{ bareword_char+ }
