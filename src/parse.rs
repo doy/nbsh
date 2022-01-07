@@ -518,5 +518,12 @@ mod test {
                 p!("foo >>bar", e!(w!("foo") ; r!(1, "bar", Append)))
             )
         );
+        parse_eq!(
+            "foo >> bar",
+            c!(
+                "foo >> bar",
+                p!("foo >> bar", e!(w!("foo") ; r!(1, "bar", Append)))
+            )
+        );
     }
 }
