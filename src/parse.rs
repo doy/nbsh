@@ -347,32 +347,33 @@ mod test {
         };
     }
 
+    macro_rules! parse_eq {
+        ($line:literal, $parsed:expr) => {
+            assert_eq!(&Commands::parse($line).unwrap(), &$parsed)
+        };
+    }
+
     #[test]
     fn test_basic() {
-        assert_eq!(
-            &Commands::parse("foo").unwrap(),
-            &c!("foo", p!("foo", e!(w!("foo")))),
+        parse_eq!("foo", c!("foo", p!("foo", e!(w!("foo")))));
+        parse_eq!(
+            "foo bar",
+            c!("foo bar", p!("foo bar", e!(w!("foo"), w!("bar"))))
         );
-        assert_eq!(
-            &Commands::parse("foo bar").unwrap(),
-            &c!("foo bar", p!("foo bar", e!(w!("foo"), w!("bar")))),
-        );
-        assert_eq!(
-            &Commands::parse("foo bar baz").unwrap(),
-            &c!(
+        parse_eq!(
+            "foo bar baz",
+            c!(
                 "foo bar baz",
                 p!("foo bar baz", e!(w!("foo"), w!("bar"), w!("baz")))
-            ),
+            )
         );
-        assert_eq!(
-            &Commands::parse("foo | bar").unwrap(),
-            &c!("foo | bar", p!("foo | bar", e!(w!("foo")), e!(w!("bar")))),
+        parse_eq!(
+            "foo | bar",
+            c!("foo | bar", p!("foo | bar", e!(w!("foo")), e!(w!("bar"))))
         );
-        assert_eq!(
-            &Commands::parse(
-                "command ls; perl -E 'say foo' | tr a-z A-Z; builtin echo bar"
-            ).unwrap(),
-            &c!(
+        parse_eq!(
+            "command ls; perl -E 'say foo' | tr a-z A-Z; builtin echo bar",
+            c!(
                 "command ls; perl -E 'say foo' | tr a-z A-Z; builtin echo bar",
                 p!(
                     "command ls",
@@ -387,33 +388,27 @@ mod test {
                     "builtin echo bar",
                     e!(w!("builtin"), w!("echo"), w!("bar"))
                 )
-            ),
+            )
         );
     }
 
     #[test]
     fn test_whitespace() {
-        assert_eq!(
-            &Commands::parse("   foo    ").unwrap(),
-            &c!("foo", p!("foo", e!(w!("foo")))),
+        parse_eq!("   foo    ", c!("foo", p!("foo", e!(w!("foo")))));
+        parse_eq!(
+            "   foo    # this is a comment",
+            c!("foo", p!("foo", e!(w!("foo"))))
         );
-        assert_eq!(
-            &Commands::parse("   foo    # this is a comment").unwrap(),
-            &c!("foo", p!("foo", e!(w!("foo")))),
-        );
-        assert_eq!(
-            &Commands::parse("foo    | bar  ").unwrap(),
-            &c!(
+        parse_eq!(
+            "foo    | bar  ",
+            c!(
                 "foo    | bar",
                 p!("foo    | bar", e!(w!("foo")), e!(w!("bar")))
-            ),
-        );
-        assert_eq!(
-            &Commands::parse(
-                "  abc def  ghi   |jkl mno|   pqr stu; vwxyz  # comment"
             )
-            .unwrap(),
-            &c!(
+        );
+        parse_eq!(
+            "  abc def  ghi   |jkl mno|   pqr stu; vwxyz  # comment",
+            c!(
                 "abc def  ghi   |jkl mno|   pqr stu; vwxyz",
                 p!(
                     "abc def  ghi   |jkl mno|   pqr stu",
@@ -422,14 +417,11 @@ mod test {
                     e!(w!("pqr"), w!("stu"))
                 ),
                 p!("vwxyz", e!(w!("vwxyz")))
-            ),
-        );
-        assert_eq!(
-            &Commands::parse(
-                "foo 'bar # baz' \"quux # not a comment\" # comment"
             )
-            .unwrap(),
-            &c!(
+        );
+        parse_eq!(
+            "foo 'bar # baz' \"quux # not a comment\" # comment",
+            c!(
                 "foo 'bar # baz' \"quux # not a comment\"",
                 p!(
                     "foo 'bar # baz' \"quux # not a comment\"",
@@ -439,7 +431,7 @@ mod test {
                         w!("quux # not a comment", true, true)
                     )
                 )
-            ),
+            )
         );
     }
 }
