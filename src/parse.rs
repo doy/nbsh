@@ -108,31 +108,41 @@ pub struct Word {
     quoted: bool,
 }
 
-impl Word {
+enum WordOrRedirect {
+    Word(Word),
+    Redirect(Redirect),
+}
+
+impl WordOrRedirect {
     fn build_ast(pair: pest::iterators::Pair<Rule>) -> Self {
         assert!(matches!(pair.as_rule(), Rule::word));
         let mut inner = pair.into_inner();
         let mut word = inner.next().unwrap();
-        let mut word_str = String::new();
         if matches!(word.as_rule(), Rule::redir_prefix) {
-            word_str = word.as_str().trim().to_string();
+            let mut word_str = word.as_str().trim().to_string();
             word = inner.next().unwrap();
-        }
-        assert!(matches!(
-            word.as_rule(),
-            Rule::bareword | Rule::single_string | Rule::double_string
-        ));
-        word_str.push_str(word.as_str());
-        Self {
-            word: word_str,
-            interpolate: matches!(
+            assert!(matches!(
                 word.as_rule(),
-                Rule::bareword | Rule::double_string
-            ),
-            quoted: matches!(
+                Rule::bareword | Rule::single_string | Rule::double_string
+            ));
+            word_str.push_str(word.as_str());
+            Self::Redirect(Redirect::parse(&word_str))
+        } else {
+            assert!(matches!(
                 word.as_rule(),
-                Rule::single_string | Rule::double_string
-            ),
+                Rule::bareword | Rule::single_string | Rule::double_string
+            ));
+            Self::Word(Word {
+                word: word.as_str().to_string(),
+                interpolate: matches!(
+                    word.as_rule(),
+                    Rule::bareword | Rule::double_string
+                ),
+                quoted: matches!(
+                    word.as_rule(),
+                    Rule::single_string | Rule::double_string
+                ),
+            })
         }
     }
 }
@@ -148,13 +158,27 @@ impl Exe {
     fn build_ast(pair: pest::iterators::Pair<Rule>) -> Self {
         assert!(matches!(pair.as_rule(), Rule::exe));
         let mut iter = pair.into_inner();
-        let exe = Word::build_ast(iter.next().unwrap());
-        let (args, redirects): (_, Vec<_>) =
-            iter.map(Word::build_ast).partition(|word| {
-                word.quoted || !word.word.contains(&['<', '>'][..])
-            });
-        let redirects =
-            redirects.iter().map(|r| Redirect::parse(&r.word)).collect();
+        let exe = match WordOrRedirect::build_ast(iter.next().unwrap()) {
+            WordOrRedirect::Word(word) => word,
+            WordOrRedirect::Redirect(_) => todo!(),
+        };
+        let (args, redirects): (_, Vec<_>) = iter
+            .map(WordOrRedirect::build_ast)
+            .partition(|word| matches!(word, WordOrRedirect::Word(_)));
+        let args = args
+            .into_iter()
+            .map(|word| match word {
+                WordOrRedirect::Word(word) => word,
+                WordOrRedirect::Redirect(_) => unreachable!(),
+            })
+            .collect();
+        let redirects = redirects
+            .into_iter()
+            .map(|word| match word {
+                WordOrRedirect::Word(_) => unreachable!(),
+                WordOrRedirect::Redirect(redirect) => redirect,
+            })
+            .collect();
         Self {
             exe,
             args,
@@ -523,6 +547,13 @@ mod test {
             c!(
                 "foo >> bar",
                 p!("foo >> bar", e!(w!("foo") ; r!(1, "bar", Append)))
+            )
+        );
+        parse_eq!(
+            "foo > 'bar baz'",
+            c!(
+                "foo > 'bar baz'",
+                p!("foo > 'bar baz'", e!(w!("foo") ; r!(1, "bar baz", Out)))
             )
         );
     }
