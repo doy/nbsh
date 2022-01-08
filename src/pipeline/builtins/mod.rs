@@ -60,7 +60,7 @@ fn cd(
     async fn async_cd(
         exe: crate::parse::Exe,
         _env: &Env,
-        io: command::Io,
+        mut io: command::Io,
     ) -> std::process::ExitStatus {
         let dir = exe.args().get(0).map_or("", String::as_str);
         let dir = if dir.is_empty() {
@@ -126,7 +126,7 @@ fn setenv(
     async fn async_setenv(
         exe: crate::parse::Exe,
         _env: &Env,
-        io: command::Io,
+        mut io: command::Io,
     ) -> std::process::ExitStatus {
         let k = if let Some(k) = exe.args().get(0).map(String::as_str) {
             k
@@ -157,7 +157,7 @@ fn unsetenv(
     async fn async_unsetenv(
         exe: crate::parse::Exe,
         _env: &Env,
-        io: command::Io,
+        mut io: command::Io,
     ) -> std::process::ExitStatus {
         let k = if let Some(k) = exe.args().get(0).map(String::as_str) {
             k
@@ -186,7 +186,7 @@ fn echo(
     async fn async_echo(
         exe: crate::parse::Exe,
         _env: &Env,
-        io: command::Io,
+        mut io: command::Io,
     ) -> std::process::ExitStatus {
         macro_rules! write_stdout {
             ($bytes:expr) => {
