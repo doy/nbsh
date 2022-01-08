@@ -58,10 +58,8 @@ impl Command {
         let next = command.into_inner().next().unwrap();
         match next.as_rule() {
             Rule::pipeline => Self::Pipeline(Pipeline::build_ast(next)),
-            Rule::command => {
-                let control = next.into_inner().next().unwrap();
-                assert!(matches!(control.as_rule(), Rule::control));
-                let ty = control.into_inner().next().unwrap();
+            Rule::control => {
+                let ty = next.into_inner().next().unwrap();
                 match ty.as_rule() {
                     Rule::control_if => Self::If(Pipeline::build_ast(
                         ty.into_inner().next().unwrap(),

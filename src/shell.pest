@@ -35,7 +35,7 @@ control_for   = ${ "for" ~ w ~ bareword ~ w ~ "in" ~ w ~ pipeline }
 control_end   = ${ "end" }
 control       = ${ control_if | control_while | control_for | control_end }
 
-command  = ${ pipeline | control }
+command  = ${ control | pipeline }
 commands = ${ command ~ (w? ~ ";" ~ w? ~ command)* }
 
 line = ${ SOI ~ w? ~ commands ~ w? ~ EOI }
