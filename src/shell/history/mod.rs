@@ -268,6 +268,39 @@ impl std::iter::DoubleEndedIterator for VisibleEntries {
     }
 }
 
+struct Stack {
+    frames: Vec<Frame>,
+}
+
+impl Stack {
+    fn new() -> Self {
+        Self { frames: vec![] }
+    }
+
+    fn push(&mut self, frame: Frame) {
+        self.frames.push(frame);
+    }
+
+    fn pop(&mut self) -> Frame {
+        self.frames.pop().unwrap()
+    }
+
+    fn should_execute(&self) -> bool {
+        for frame in &self.frames {
+            if let Frame::If(false) = frame {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+enum Frame {
+    If(bool),
+    While,
+    For,
+}
+
 fn run_commands(
     ast: crate::parse::ast::Commands,
     entry: async_std::sync::Arc<async_std::sync::Mutex<Entry>>,
@@ -330,14 +363,21 @@ fn run_commands(
 
         let commands = ast.commands();
         let mut pc = 0;
+        let mut stack = Stack::new();
         while pc < commands.len() {
             match &commands[pc] {
                 crate::parse::ast::Command::Pipeline(pipeline) => {
-                    run_pipeline!(pipeline);
+                    if stack.should_execute() {
+                        run_pipeline!(pipeline);
+                    }
                     pc += 1;
                 }
-                crate::parse::ast::Command::If(_pipeline) => {
-                    todo!();
+                crate::parse::ast::Command::If(pipeline) => {
+                    if stack.should_execute() {
+                        run_pipeline!(pipeline);
+                    }
+                    stack.push(Frame::If(env.latest_status().success()));
+                    pc += 1;
                 }
                 crate::parse::ast::Command::While(_pipeline) => {
                     todo!();
@@ -345,9 +385,17 @@ fn run_commands(
                 crate::parse::ast::Command::For(_var, _pipeline) => {
                     todo!();
                 }
-                crate::parse::ast::Command::End => {
-                    todo!();
-                }
+                crate::parse::ast::Command::End => match stack.pop() {
+                    Frame::If(_) => {
+                        pc += 1;
+                    }
+                    Frame::While => {
+                        todo!()
+                    }
+                    Frame::For => {
+                        todo!()
+                    }
+                },
             }
         }
         entry.lock_arc().await.finish(env, event_w).await;
