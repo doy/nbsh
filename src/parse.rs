@@ -18,15 +18,6 @@ pub enum Direction {
 }
 
 impl Direction {
-    fn parse(c: u8, append: bool) -> Option<Self> {
-        Some(match (c, append) {
-            (b'<', false) => Self::In,
-            (b'>', false) => Self::Out,
-            (b'>', true) => Self::Append,
-            _ => return None,
-        })
-    }
-
     pub fn open(
         self,
         path: &std::path::Path,
@@ -77,14 +68,16 @@ pub struct Redirect {
 }
 
 impl Redirect {
-    fn parse(s: &str) -> Self {
-        let (from, mut to) = s.split_once(&['<', '>'][..]).unwrap();
-        let mut append = false;
-        if let Some(s) = to.strip_prefix('>') {
-            to = s;
-            append = true;
-        }
-        let dir = Direction::parse(s.as_bytes()[from.len()], append).unwrap();
+    fn parse(prefix: &str, to: &str) -> Self {
+        let (from, dir) = if let Some(from) = prefix.strip_suffix(">>") {
+            (from, Direction::Append)
+        } else if let Some(from) = prefix.strip_suffix('>') {
+            (from, Direction::Out)
+        } else if let Some(from) = prefix.strip_suffix('<') {
+            (from, Direction::In)
+        } else {
+            unreachable!()
+        };
         let from = if from.is_empty() {
             match dir {
                 Direction::In => 0,
@@ -108,6 +101,22 @@ pub struct Word {
     quoted: bool,
 }
 
+impl Word {
+    fn parse(s: &str, interpolate: bool, quoted: bool) -> Self {
+        let mut word_str = s.to_string();
+        if interpolate {
+            word_str = strip_escape(&word_str);
+        } else {
+            word_str = strip_basic_escape(&word_str);
+        }
+        Self {
+            word: word_str,
+            interpolate,
+            quoted,
+        }
+    }
+}
+
 enum WordOrRedirect {
     Word(Word),
     Redirect(Redirect),
@@ -118,47 +127,27 @@ impl WordOrRedirect {
         assert!(matches!(pair.as_rule(), Rule::word));
         let mut inner = pair.into_inner();
         let mut word = inner.next().unwrap();
+        let mut prefix = None;
         if matches!(word.as_rule(), Rule::redir_prefix) {
-            let mut word_str = word.as_str().trim().to_string();
+            prefix = Some(word.as_str().trim().to_string());
             word = inner.next().unwrap();
-            assert!(matches!(
+        }
+        assert!(matches!(
+            word.as_rule(),
+            Rule::bareword | Rule::single_string | Rule::double_string
+        ));
+        let word = Word::parse(
+            word.as_str(),
+            matches!(word.as_rule(), Rule::bareword | Rule::double_string),
+            matches!(
                 word.as_rule(),
-                Rule::bareword | Rule::single_string | Rule::double_string
-            ));
-            let interpolate = matches!(
-                word.as_rule(),
-                Rule::bareword | Rule::double_string
-            );
-            word_str.push_str(word.as_str());
-            if interpolate {
-                word_str = strip_escape(&word_str);
-            } else {
-                word_str = strip_basic_escape(&word_str);
-            }
-            Self::Redirect(Redirect::parse(&strip_escape(&word_str)))
+                Rule::single_string | Rule::double_string
+            ),
+        );
+        if let Some(prefix) = prefix {
+            Self::Redirect(Redirect::parse(&prefix, &word.word))
         } else {
-            assert!(matches!(
-                word.as_rule(),
-                Rule::bareword | Rule::single_string | Rule::double_string
-            ));
-            let interpolate = matches!(
-                word.as_rule(),
-                Rule::bareword | Rule::double_string
-            );
-            let mut word_str = word.as_str().to_string();
-            if interpolate {
-                word_str = strip_escape(&word_str);
-            } else {
-                word_str = strip_basic_escape(&word_str);
-            }
-            Self::Word(Word {
-                word: word_str,
-                interpolate,
-                quoted: matches!(
-                    word.as_rule(),
-                    Rule::single_string | Rule::double_string
-                ),
-            })
+            Self::Word(word)
         }
     }
 }
