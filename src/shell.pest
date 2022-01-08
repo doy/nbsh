@@ -28,7 +28,15 @@ word     = ${
 
 exe      = ${ word ~ (w ~ word)* }
 pipeline = ${ exe ~ (w? ~ "|" ~ w? ~ exe)* }
-commands = ${ pipeline ~ (w? ~ ";" ~ w? ~ pipeline)* }
+
+control_if    = ${ "if" ~ w ~ pipeline }
+control_while = ${ "while" ~ w ~ pipeline }
+control_for   = ${ "for" ~ w ~ bareword ~ w ~ "in" ~ w ~ pipeline }
+control_end   = ${ "end" }
+control       = ${ control_if | control_while | control_for | control_end }
+
+command  = ${ pipeline | control }
+commands = ${ command ~ (w? ~ ";" ~ w? ~ command)* }
 
 line = ${ SOI ~ w? ~ commands ~ w? ~ EOI }
 

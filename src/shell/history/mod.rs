@@ -299,7 +299,15 @@ fn run_commands(
             }
         };
 
-        for pipeline in ast.pipelines() {
+        for command in ast.commands() {
+            let pipeline =
+                if let crate::parse::ast::Command::Pipeline(pipeline) =
+                    command
+                {
+                    pipeline
+                } else {
+                    todo!()
+                };
             match run_pipeline(
                 pipeline.input_string(),
                 &pty,

@@ -8,7 +8,7 @@ struct Shell;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Commands {
-    pipelines: Vec<Pipeline>,
+    commands: Vec<Command>,
     input_string: String,
 }
 
@@ -25,8 +25,8 @@ impl Commands {
         ))
     }
 
-    pub fn pipelines(&self) -> &[Pipeline] {
-        &self.pipelines
+    pub fn commands(&self) -> &[Command] {
+        &self.commands
     }
 
     pub fn input_string(&self) -> &str {
@@ -37,11 +37,52 @@ impl Commands {
         assert!(matches!(commands.as_rule(), Rule::commands));
         let input_string = commands.as_str().to_string();
         Self {
-            pipelines: commands
-                .into_inner()
-                .map(Pipeline::build_ast)
-                .collect(),
+            commands: commands.into_inner().map(Command::build_ast).collect(),
             input_string,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Command {
+    Pipeline(Pipeline),
+    If(Pipeline),
+    While(Pipeline),
+    For(String, Pipeline),
+    End,
+}
+
+impl Command {
+    fn build_ast(command: pest::iterators::Pair<Rule>) -> Self {
+        assert!(matches!(command.as_rule(), Rule::command));
+        let next = command.into_inner().next().unwrap();
+        match next.as_rule() {
+            Rule::pipeline => Self::Pipeline(Pipeline::build_ast(next)),
+            Rule::command => {
+                let control = next.into_inner().next().unwrap();
+                assert!(matches!(control.as_rule(), Rule::control));
+                let ty = control.into_inner().next().unwrap();
+                match ty.as_rule() {
+                    Rule::control_if => Self::If(Pipeline::build_ast(
+                        ty.into_inner().next().unwrap(),
+                    )),
+                    Rule::control_while => Self::While(Pipeline::build_ast(
+                        ty.into_inner().next().unwrap(),
+                    )),
+                    Rule::control_for => {
+                        let mut inner = ty.into_inner();
+                        let var = inner.next().unwrap();
+                        assert!(matches!(var.as_rule(), Rule::bareword));
+                        Self::For(
+                            var.as_str().to_string(),
+                            Pipeline::build_ast(inner.next().unwrap()),
+                        )
+                    }
+                    Rule::control_end => Self::End,
+                    _ => unreachable!(),
+                }
+            }
+            _ => unreachable!(),
         }
     }
 }
