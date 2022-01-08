@@ -96,6 +96,17 @@ impl Env {
         }
     }
 
+    pub fn set_vars(
+        &mut self,
+        it: impl Iterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
+    ) {
+        match self {
+            Self::V0(env) => {
+                env.vars = it.collect();
+            }
+        }
+    }
+
     pub fn apply(&self, cmd: &mut pty_process::Command) {
         match self {
             Self::V0(env) => {
@@ -108,6 +119,7 @@ impl Env {
 
     pub fn update(&mut self) -> anyhow::Result<()> {
         self.set_current_dir(std::env::current_dir()?);
+        self.set_vars(std::env::vars_os());
         Ok(())
     }
 
