@@ -299,37 +299,54 @@ fn run_commands(
             }
         };
 
-        for command in ast.commands() {
-            let pipeline =
-                if let crate::parse::ast::Command::Pipeline(pipeline) =
-                    command
+        macro_rules! run_pipeline {
+            ($pipeline:expr) => {
+                match run_pipeline(
+                    $pipeline.input_string(),
+                    &pty,
+                    &mut env,
+                    event_w.clone(),
+                )
+                .await
                 {
-                    pipeline
-                } else {
-                    todo!()
-                };
-            match run_pipeline(
-                pipeline.input_string(),
-                &pty,
-                &mut env,
-                event_w.clone(),
-            )
-            .await
-            {
-                Ok((pipeline_status, done)) => {
-                    env.set_status(pipeline_status);
-                    if done {
-                        break;
+                    Ok((pipeline_status, done)) => {
+                        env.set_status(pipeline_status);
+                        if done {
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        entry
+                            .lock_arc()
+                            .await
+                            .process(format!("nbsh: {}\r\n", e).as_bytes());
+                        env.set_status(
+                            async_std::process::ExitStatus::from_raw(1 << 8),
+                        );
                     }
                 }
-                Err(e) => {
-                    entry
-                        .lock_arc()
-                        .await
-                        .process(format!("nbsh: {}\r\n", e).as_bytes());
-                    env.set_status(async_std::process::ExitStatus::from_raw(
-                        1 << 8,
-                    ));
+            };
+        }
+
+        let commands = ast.commands();
+        let mut pc = 0;
+        while pc < commands.len() {
+            match &commands[pc] {
+                crate::parse::ast::Command::Pipeline(pipeline) => {
+                    run_pipeline!(pipeline);
+                    pc += 1;
+                }
+                crate::parse::ast::Command::If(_pipeline) => {
+                    todo!();
+                }
+                crate::parse::ast::Command::While(_pipeline) => {
+                    todo!();
+                }
+                crate::parse::ast::Command::For(_var, _pipeline) => {
+                    todo!();
+                }
+                crate::parse::ast::Command::End => {
+                    todo!();
                 }
             }
         }
