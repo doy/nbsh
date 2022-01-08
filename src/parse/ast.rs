@@ -25,14 +25,8 @@ impl Commands {
         ))
     }
 
-    pub fn eval(self, env: &Env) -> super::Commands {
-        super::Commands {
-            pipelines: self
-                .pipelines
-                .into_iter()
-                .map(|pipeline| pipeline.eval(env))
-                .collect(),
-        }
+    pub fn pipelines(&self) -> &[Pipeline] {
+        &self.pipelines
     }
 
     pub fn input_string(&self) -> &str {
@@ -71,8 +65,11 @@ impl Pipeline {
     pub fn eval(self, env: &Env) -> super::Pipeline {
         super::Pipeline {
             exes: self.exes.into_iter().map(|exe| exe.eval(env)).collect(),
-            input_string: self.input_string,
         }
+    }
+
+    pub fn input_string(&self) -> &str {
+        &self.input_string
     }
 
     fn build_ast(pipeline: pest::iterators::Pair<Rule>) -> Self {

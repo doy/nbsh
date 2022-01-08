@@ -1,29 +1,13 @@
 pub mod ast;
 
 #[derive(Debug)]
-pub struct Commands {
-    pipelines: Vec<Pipeline>,
-}
-
-impl Commands {
-    pub fn pipelines(&self) -> &[Pipeline] {
-        &self.pipelines
-    }
-}
-
-#[derive(Debug)]
 pub struct Pipeline {
     exes: Vec<Exe>,
-    input_string: String,
 }
 
 impl Pipeline {
     pub fn into_exes(self) -> impl Iterator<Item = Exe> {
         self.exes.into_iter()
-    }
-
-    pub fn input_string(&self) -> &str {
-        &self.input_string
     }
 }
 

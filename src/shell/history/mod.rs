@@ -299,8 +299,7 @@ fn run_commands(
             }
         };
 
-        let commands = ast.eval(&env);
-        for pipeline in commands.pipelines() {
+        for pipeline in ast.pipelines() {
             env.set_pipeline(pipeline.input_string().to_string());
             match run_pipeline(&pty, &mut env, event_w.clone()).await {
                 Ok((pipeline_status, done)) => {
