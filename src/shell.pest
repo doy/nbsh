@@ -3,10 +3,16 @@ escape_char       = @{ "\\" ~ ANY }
 
 bareword_char = @{
     escape_char |
-    !("|" | ";" | "\"" | "'" | WHITESPACE | COMMENT) ~ ANY
+    !("|" | ";" | "\"" | "'" | "$" | WHITESPACE | COMMENT) ~ ANY
 }
 single_string_char = @{ basic_escape_char | (!"'" ~ ANY) }
 double_string_char = @{ escape_char | (!"\"" ~ ANY) }
+
+var = @{
+    ("$" ~ XID_START ~ XID_CONTINUE*) |
+    ("$" ~ ("?" | "$" | "*" | ASCII_DIGIT)) |
+    ("${" ~ (!"}" ~ ANY)+ ~ "}")
+}
 
 redir_prefix  = @{ ASCII_DIGIT* ~ (">>" | ">" | "<") ~ WHITESPACE* }
 bareword      = @{ bareword_char+ }
@@ -15,17 +21,17 @@ double_string = @{ double_string_char+ }
 
 word     = ${
     redir_prefix? ~
-    (bareword |
+    (var | bareword |
     "'" ~ single_string ~ "'" |
     "\"" ~ double_string ~ "\"")
 }
 
 exe      = ${ word ~ (w ~ word)* }
-pipeline = ${ exe ~ (w ~ "|" ~ w ~ exe)* }
-commands = ${ pipeline ~ (w ~ ";" ~ w ~ pipeline)* }
+pipeline = ${ exe ~ (w? ~ "|" ~ w? ~ exe)* }
+commands = ${ pipeline ~ (w? ~ ";" ~ w? ~ pipeline)* }
 
-line = ${ SOI ~ w ~ commands ~ w ~ EOI }
+line = ${ SOI ~ w? ~ commands ~ w? ~ EOI }
 
-w          = _{ (WHITESPACE | COMMENT)* }
+w          = _{ (WHITESPACE | COMMENT)+ }
 WHITESPACE = _{ (" " | "\t" | "\n") }
 COMMENT    = _{ "#" ~ ANY* }

@@ -142,6 +142,7 @@ struct Word {
     word: String,
     interpolate: bool,
     quoted: bool,
+    var: bool,
 }
 
 impl Word {
@@ -150,22 +151,33 @@ impl Word {
             matches!(rule, Rule::bareword | Rule::double_string);
         let quoted =
             matches!(rule, Rule::single_string | Rule::double_string);
-        let mut word_str = s.to_string();
-        if interpolate {
-            word_str = strip_escape(&word_str);
+        let var = matches!(rule, Rule::var);
+        let word_str = if var {
+            let inner = s.strip_prefix('$').unwrap();
+            inner
+                .strip_prefix('{')
+                .map_or(inner, |inner| inner.strip_suffix('}').unwrap())
+                .to_string()
+        } else if interpolate {
+            strip_escape(s)
         } else {
-            word_str = strip_basic_escape(&word_str);
-        }
+            strip_basic_escape(s)
+        };
         Self {
             word: word_str,
             interpolate,
             quoted,
+            var,
         }
     }
 
     fn eval(self, _env: &Env) -> String {
-        // TODO
-        self.word
+        if self.var {
+            // TODO
+            format!("'value-of-${{{}}}'", self.word)
+        } else {
+            self.word
+        }
     }
 }
 
@@ -247,7 +259,10 @@ impl WordOrRedirect {
         }
         assert!(matches!(
             word.as_rule(),
-            Rule::bareword | Rule::single_string | Rule::double_string
+            Rule::var
+                | Rule::bareword
+                | Rule::single_string
+                | Rule::double_string
         ));
         let word = Word::parse(word.as_str(), word.as_rule());
         if let Some(prefix) = prefix {
@@ -381,6 +396,7 @@ macro_rules! w {
             word: $word.to_string(),
             interpolate: true,
             quoted: false,
+            var: false,
         }
     };
     ($word:expr, $interpolate:expr) => {
@@ -388,6 +404,7 @@ macro_rules! w {
             word: $word.to_string(),
             interpolate: $interpolate,
             quoted: false,
+            var: false,
         }
     };
     ($word:expr, $interpolate:expr, $quoted:expr) => {
@@ -395,6 +412,7 @@ macro_rules! w {
             word: $word.to_string(),
             interpolate: $interpolate,
             quoted: $quoted,
+            var: false,
         }
     };
 }
