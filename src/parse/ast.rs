@@ -622,4 +622,51 @@ fn test_parts() {
             )
         )
     );
+    parse_eq!(
+        "echo $HOME/bin",
+        c!(
+            "echo $HOME/bin",
+            p!(
+                "echo $HOME/bin",
+                e!(w!("echo"), w!(wpv!("HOME"), wpb!("/bin")))
+            )
+        )
+    );
+    parse_eq!(
+        "echo '$HOME/bin'",
+        c!(
+            "echo '$HOME/bin'",
+            p!("echo '$HOME/bin'", e!(w!("echo"), w!(wps!("$HOME/bin"))))
+        )
+    );
+    parse_eq!(
+        "echo \"foo\"\"bar\"",
+        c!(
+            "echo \"foo\"\"bar\"",
+            p!(
+                "echo \"foo\"\"bar\"",
+                e!(w!("echo"), w!(wpd!("foo"), wpd!("bar")))
+            )
+        )
+    );
+    parse_eq!(
+        "echo $foo$bar$baz",
+        c!(
+            "echo $foo$bar$baz",
+            p!(
+                "echo $foo$bar$baz",
+                e!(w!("echo"), w!(wpv!("foo"), wpv!("bar"), wpv!("baz")))
+            )
+        )
+    );
+    parse_eq!(
+        "perl -E'say \"foo\"'",
+        c!(
+            "perl -E'say \"foo\"'",
+            p!(
+                "perl -E'say \"foo\"'",
+                e!(w!("perl"), w!(wpb!("-E"), wps!("say \"foo\"")))
+            )
+        )
+    );
 }
