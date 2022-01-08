@@ -3,7 +3,7 @@ use crate::pipeline::prelude::*;
 pub struct Command {
     exe: crate::parse::Exe,
     f: super::Builtin,
-    io: Io,
+    cfg: Cfg,
 }
 
 impl Command {
@@ -13,7 +13,7 @@ impl Command {
                 Ok(Self {
                     exe,
                     f,
-                    io: Io::new(),
+                    cfg: Cfg::new(),
                 })
             } else {
                 Err(exe)
@@ -24,15 +24,15 @@ impl Command {
     }
 
     pub fn stdin(&mut self, fh: std::fs::File) {
-        self.io.set_stdin(fh);
+        self.cfg.io.set_stdin(fh);
     }
 
     pub fn stdout(&mut self, fh: std::fs::File) {
-        self.io.set_stdout(fh);
+        self.cfg.io.set_stdout(fh);
     }
 
     pub fn stderr(&mut self, fh: std::fs::File) {
-        self.io.set_stderr(fh);
+        self.cfg.io.set_stderr(fh);
     }
 
     // Safety: see pre_exec in async_std::os::unix::process::CommandExt (this
@@ -41,16 +41,55 @@ impl Command {
     where
         F: 'static + FnMut() -> std::io::Result<()> + Send + Sync,
     {
-        self.io.pre_exec(f);
+        self.cfg.pre_exec(f);
     }
 
     pub fn apply_redirects(&mut self, redirects: &[crate::parse::Redirect]) {
-        self.io.apply_redirects(redirects);
+        self.cfg.io.apply_redirects(redirects);
     }
 
     pub fn spawn(self, env: &Env) -> anyhow::Result<Child> {
-        let Self { f, exe, io } = self;
-        (f)(exe, env, io)
+        let Self { f, exe, cfg } = self;
+        (f)(exe, env, cfg)
+    }
+}
+
+pub struct Cfg {
+    io: Io,
+    pre_exec: Option<
+        Box<dyn 'static + FnMut() -> std::io::Result<()> + Send + Sync>,
+    >,
+}
+
+impl Cfg {
+    fn new() -> Self {
+        Self {
+            io: Io::new(),
+            pre_exec: None,
+        }
+    }
+
+    pub fn io(&self) -> &Io {
+        &self.io
+    }
+
+    // Safety: see pre_exec in async_std::os::unix::process::CommandExt (this
+    // is just a wrapper)
+    pub unsafe fn pre_exec<F>(&mut self, f: F)
+    where
+        F: 'static + FnMut() -> std::io::Result<()> + Send + Sync,
+    {
+        self.pre_exec = Some(Box::new(f));
+    }
+
+    pub fn setup_command(mut self, cmd: &mut crate::pipeline::Command) {
+        self.io.setup_command(cmd);
+        if let Some(pre_exec) = self.pre_exec.take() {
+            // Safety: pre_exec can only have been set by calling the pre_exec
+            // method, which is itself unsafe, so the safety comments at the
+            // point where that is called are the relevant ones
+            unsafe { cmd.pre_exec(pre_exec) };
+        }
     }
 }
 
@@ -58,9 +97,6 @@ pub struct Io {
     fds: std::collections::HashMap<
         std::os::unix::io::RawFd,
         crate::mutex::Mutex<File>,
-    >,
-    pre_exec: Option<
-        Box<dyn 'static + FnMut() -> std::io::Result<()> + Send + Sync>,
     >,
 }
 
@@ -70,10 +106,7 @@ impl Io {
         fds.insert(0, crate::mutex::new(unsafe { File::input(0) }));
         fds.insert(1, crate::mutex::new(unsafe { File::output(1) }));
         fds.insert(2, crate::mutex::new(unsafe { File::output(2) }));
-        Self {
-            fds,
-            pre_exec: None,
-        }
+        Self { fds }
     }
 
     fn stdin(&self) -> Option<crate::mutex::Mutex<File>> {
@@ -125,15 +158,6 @@ impl Io {
             2,
             crate::mutex::new(unsafe { File::output(stderr.into_raw_fd()) }),
         );
-    }
-
-    // Safety: see pre_exec in async_std::os::unix::process::CommandExt (this
-    // is just a wrapper)
-    pub unsafe fn pre_exec<F>(&mut self, f: F)
-    where
-        F: 'static + FnMut() -> std::io::Result<()> + Send + Sync,
-    {
-        self.pre_exec = Some(Box::new(f));
     }
 
     pub fn apply_redirects(&mut self, redirects: &[crate::parse::Redirect]) {
@@ -219,12 +243,6 @@ impl Io {
                 cmd.stderr(unsafe { std::fs::File::from_raw_fd(stderr) });
                 self.fds.remove(&2);
             }
-        }
-        if let Some(pre_exec) = self.pre_exec.take() {
-            // Safety: pre_exec can only have been set by calling the pre_exec
-            // method, which is itself unsafe, so the safety comments at the
-            // point where that is called are the relevant ones
-            unsafe { cmd.pre_exec(pre_exec) };
         }
     }
 }
