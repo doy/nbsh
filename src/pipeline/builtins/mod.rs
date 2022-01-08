@@ -20,6 +20,7 @@ static BUILTINS: once_cell::sync::Lazy<
     builtins.insert("setenv", &setenv);
     builtins.insert("unsetenv", &unsetenv);
     builtins.insert("echo", &echo);
+    builtins.insert("read", &read);
     builtins.insert("and", &and);
     builtins.insert("or", &or);
     builtins.insert("command", &command);
@@ -214,6 +215,39 @@ fn echo(
 
     Ok(command::Child::new_fut(async move {
         async_echo(exe, env, cfg).await
+    }))
+}
+
+#[allow(clippy::unnecessary_wraps)]
+fn read(
+    exe: crate::parse::Exe,
+    env: &Env,
+    cfg: command::Cfg,
+) -> anyhow::Result<command::Child> {
+    async fn async_read(
+        exe: crate::parse::Exe,
+        _env: &Env,
+        cfg: command::Cfg,
+    ) -> std::process::ExitStatus {
+        let var = if let Some(var) = exe.args().get(0).map(String::as_str) {
+            var
+        } else {
+            bail!(cfg, exe, "usage: read var");
+        };
+
+        let val = match cfg.io().read_line_stdin().await {
+            Ok(line) => line,
+            Err(e) => {
+                bail!(cfg, exe, e);
+            }
+        };
+
+        std::env::set_var(var, val);
+        async_std::process::ExitStatus::from_raw(0)
+    }
+
+    Ok(command::Child::new_fut(async move {
+        async_read(exe, env, cfg).await
     }))
 }
 
