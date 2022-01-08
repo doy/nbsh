@@ -320,7 +320,8 @@ impl Shell {
                     self.readline.clear_input();
                     let entry = self.history.entry(idx).await;
                     let input = entry.cmd();
-                    let idx = match self.parse(input) {
+                    let idx = match crate::parse::ast::Commands::parse(input)
+                    {
                         Ok(ast) => {
                             let idx = self
                                 .history
@@ -438,7 +439,8 @@ impl Shell {
             textmode::Key::Ctrl(b'm') => {
                 let input = self.readline.input();
                 if !input.is_empty() {
-                    let idx = match self.parse(input) {
+                    let idx = match crate::parse::ast::Commands::parse(input)
+                    {
                         Ok(ast) => {
                             let idx = self
                                 .history
@@ -577,14 +579,5 @@ impl Shell {
             }
         }
         self.focus_idx().map_or(Focus::Readline, Focus::History)
-    }
-
-    fn parse(
-        &self,
-        cmd: &str,
-    ) -> Result<crate::parse::ast::Commands, crate::parse::Error> {
-        let ast = crate::parse::ast::Commands::parse(cmd)?;
-        // todo: interpolate
-        Ok(ast)
     }
 }
