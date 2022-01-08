@@ -171,10 +171,9 @@ impl Word {
         }
     }
 
-    fn eval(self, _env: &Env) -> String {
+    fn eval(self, env: &Env) -> String {
         if self.var {
-            // TODO
-            format!("'value-of-${{{}}}'", self.word)
+            env.var(&self.word)
         } else {
             self.word
         }

@@ -17,6 +17,7 @@ pub struct V0 {
     )]
     latest_status: async_std::process::ExitStatus,
     pwd: std::path::PathBuf,
+    vars: std::collections::HashMap<std::ffi::OsString, std::ffi::OsString>,
 }
 
 impl Env {
@@ -26,6 +27,7 @@ impl Env {
             idx: 0,
             latest_status: std::process::ExitStatus::from_raw(0),
             pwd: std::env::current_dir().unwrap(),
+            vars: std::env::vars_os().collect(),
         })
     }
 
@@ -83,10 +85,23 @@ impl Env {
         }
     }
 
+    pub fn var(&self, k: &str) -> String {
+        match self {
+            Self::V0(env) => {
+                env.vars.get(std::ffi::OsStr::new(k)).map_or_else(
+                    || "".to_string(),
+                    |v| v.to_str().unwrap().to_string(),
+                )
+            }
+        }
+    }
+
     pub fn apply(&self, cmd: &mut pty_process::Command) {
         match self {
             Self::V0(env) => {
                 cmd.current_dir(&env.pwd);
+                cmd.env_clear();
+                cmd.envs(env.vars.iter());
             }
         }
     }
