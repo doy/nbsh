@@ -1,7 +1,7 @@
 use crate::pipeline::prelude::*;
 
 pub mod command;
-pub use command::{Child, Command};
+pub use command::{Child, Command, File, Io};
 
 type Builtin = &'static (dyn for<'a> Fn(
     crate::parse::Exe,

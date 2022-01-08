@@ -23,6 +23,24 @@ impl Command {
         }
     }
 
+    pub fn new_with_io(
+        exe: crate::parse::Exe,
+        io: super::builtins::Io,
+    ) -> Self {
+        let exe_path = exe.exe().to_path_buf();
+        let redirects = exe.redirects().to_vec();
+        Self {
+            inner: super::builtins::Command::new_with_io(exe, io)
+                .map_or_else(
+                    |exe| Self::new_binary(exe).inner,
+                    Inner::Builtin,
+                ),
+            exe: exe_path,
+            redirects,
+            pre_exec: None,
+        }
+    }
+
     #[allow(clippy::needless_pass_by_value)]
     pub fn new_binary(exe: crate::parse::Exe) -> Self {
         let exe_path = exe.exe().to_path_buf();

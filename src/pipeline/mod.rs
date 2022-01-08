@@ -14,14 +14,22 @@ pub use command::{Child, Command};
 mod prelude;
 
 pub async fn run() -> anyhow::Result<i32> {
-    cloexec(3)?;
-    cloexec(4)?;
+    let stdin = unsafe { async_std::fs::File::from_raw_fd(0) };
+    let stdout = unsafe { async_std::fs::File::from_raw_fd(1) };
+    let stderr = unsafe { async_std::fs::File::from_raw_fd(2) };
     // Safety: we don't create File instances for fd 3 or 4 anywhere else
     let shell_read = unsafe { async_std::fs::File::from_raw_fd(3) };
     let shell_write = unsafe { async_std::fs::File::from_raw_fd(4) };
+    cloexec(3)?;
+    cloexec(4)?;
+
+    let mut io = builtins::Io::new();
+    io.set_stdin(stdin);
+    io.set_stdout(stdout);
+    io.set_stderr(stderr);
 
     let mut env = read_data(shell_read).await?;
-    run_with_env(&mut env, &shell_write).await?;
+    run_with_env(&mut env, &io, &shell_write).await?;
     let status = *env.latest_status();
 
     env.update()?;
@@ -35,11 +43,12 @@ pub async fn run() -> anyhow::Result<i32> {
 
 async fn run_with_env(
     env: &mut Env,
+    io: &builtins::Io,
     shell_write: &async_std::fs::File,
 ) -> anyhow::Result<()> {
     let pipeline =
         crate::parse::ast::Pipeline::parse(env.pipeline().unwrap())?;
-    let (children, pg) = spawn_children(pipeline, env)?;
+    let (children, pg) = spawn_children(pipeline, env, io)?;
     let status = wait_children(children, pg, env, shell_write).await;
     env.set_status(status);
     Ok(())
@@ -61,12 +70,16 @@ async fn write_event(
     Ok(())
 }
 
-fn spawn_children(
+fn spawn_children<'a>(
     pipeline: crate::parse::ast::Pipeline,
-    env: &Env,
-) -> anyhow::Result<(Vec<Child>, Option<nix::unistd::Pid>)> {
+    env: &'a Env,
+    io: &builtins::Io,
+) -> anyhow::Result<(Vec<Child<'a>>, Option<nix::unistd::Pid>)> {
     let pipeline = pipeline.eval(env);
-    let mut cmds: Vec<_> = pipeline.into_exes().map(Command::new).collect();
+    let mut cmds: Vec<_> = pipeline
+        .into_exes()
+        .map(|exe| Command::new_with_io(exe, io.clone()))
+        .collect();
     for i in 0..(cmds.len() - 1) {
         let (r, w) = pipe()?;
         cmds[i].stdout(w);

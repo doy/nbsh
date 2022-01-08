@@ -23,6 +23,25 @@ impl Command {
         }
     }
 
+    pub fn new_with_io(
+        exe: crate::parse::Exe,
+        io: Io,
+    ) -> Result<Self, crate::parse::Exe> {
+        if let Some(s) = exe.exe().to_str() {
+            if let Some(f) = super::BUILTINS.get(s) {
+                Ok(Self {
+                    exe,
+                    f,
+                    cfg: Cfg::new_with_io(io),
+                })
+            } else {
+                Err(exe)
+            }
+        } else {
+            Err(exe)
+        }
+    }
+
     pub fn stdin(&mut self, fh: std::fs::File) {
         self.cfg.io.set_stdin(fh);
     }
@@ -69,6 +88,10 @@ impl Cfg {
         }
     }
 
+    fn new_with_io(io: Io) -> Self {
+        Self { io, pre_exec: None }
+    }
+
     pub fn io(&self) -> &Io {
         &self.io
     }
@@ -93,6 +116,7 @@ impl Cfg {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Io {
     fds: std::collections::HashMap<
         std::os::unix::io::RawFd,
@@ -101,24 +125,19 @@ pub struct Io {
 }
 
 impl Io {
-    fn new() -> Self {
-        let mut fds = std::collections::HashMap::new();
-        fds.insert(0, crate::mutex::new(unsafe { File::input(0) }));
-        fds.insert(1, crate::mutex::new(unsafe { File::output(1) }));
-        fds.insert(2, crate::mutex::new(unsafe { File::output(2) }));
-        Self { fds }
+    pub fn new() -> Self {
+        Self {
+            fds: std::collections::HashMap::new(),
+        }
     }
 
     fn stdin(&self) -> Option<crate::mutex::Mutex<File>> {
         self.fds.get(&0).map(async_std::sync::Arc::clone)
     }
 
-    fn set_stdin<T: std::os::unix::io::IntoRawFd>(&mut self, stdin: T) {
+    pub fn set_stdin<T: std::os::unix::io::IntoRawFd>(&mut self, stdin: T) {
         if let Some(file) = self.fds.remove(&0) {
-            let file = crate::mutex::unwrap(file);
-            if file.as_raw_fd() <= 2 {
-                let _ = file.into_raw_fd();
-            }
+            File::maybe_drop(file);
         }
         self.fds.insert(
             0,
@@ -130,12 +149,9 @@ impl Io {
         self.fds.get(&1).map(async_std::sync::Arc::clone)
     }
 
-    fn set_stdout<T: std::os::unix::io::IntoRawFd>(&mut self, stdout: T) {
+    pub fn set_stdout<T: std::os::unix::io::IntoRawFd>(&mut self, stdout: T) {
         if let Some(file) = self.fds.remove(&1) {
-            let file = crate::mutex::unwrap(file);
-            if file.as_raw_fd() <= 2 {
-                let _ = file.into_raw_fd();
-            }
+            File::maybe_drop(file);
         }
         self.fds.insert(
             1,
@@ -147,12 +163,9 @@ impl Io {
         self.fds.get(&2).map(async_std::sync::Arc::clone)
     }
 
-    fn set_stderr<T: std::os::unix::io::IntoRawFd>(&mut self, stderr: T) {
+    pub fn set_stderr<T: std::os::unix::io::IntoRawFd>(&mut self, stderr: T) {
         if let Some(file) = self.fds.remove(&2) {
-            let file = crate::mutex::unwrap(file);
-            if file.as_raw_fd() <= 2 {
-                let _ = file.into_raw_fd();
-            }
+            File::maybe_drop(file);
         }
         self.fds.insert(
             2,
@@ -221,27 +234,33 @@ impl Io {
 
     pub fn setup_command(mut self, cmd: &mut crate::pipeline::Command) {
         if let Some(stdin) = self.fds.remove(&0) {
-            let stdin = crate::mutex::unwrap(stdin).into_raw_fd();
-            if stdin != 0 {
-                // Safety: TODO this is likely unsafe
-                cmd.stdin(unsafe { std::fs::File::from_raw_fd(stdin) });
-                self.fds.remove(&0);
+            if let Some(stdin) = crate::mutex::unwrap(stdin) {
+                let stdin = stdin.into_raw_fd();
+                if stdin != 0 {
+                    // Safety: TODO this is likely unsafe
+                    cmd.stdin(unsafe { std::fs::File::from_raw_fd(stdin) });
+                    self.fds.remove(&0);
+                }
             }
         }
         if let Some(stdout) = self.fds.remove(&1) {
-            let stdout = crate::mutex::unwrap(stdout).into_raw_fd();
-            if stdout != 1 {
-                // Safety: TODO this is likely unsafe
-                cmd.stdout(unsafe { std::fs::File::from_raw_fd(stdout) });
-                self.fds.remove(&1);
+            if let Some(stdout) = crate::mutex::unwrap(stdout) {
+                let stdout = stdout.into_raw_fd();
+                if stdout != 1 {
+                    // Safety: TODO this is likely unsafe
+                    cmd.stdout(unsafe { std::fs::File::from_raw_fd(stdout) });
+                    self.fds.remove(&1);
+                }
             }
         }
         if let Some(stderr) = self.fds.remove(&2) {
-            let stderr = crate::mutex::unwrap(stderr).into_raw_fd();
-            if stderr != 2 {
-                // Safety: TODO this is likely unsafe
-                cmd.stderr(unsafe { std::fs::File::from_raw_fd(stderr) });
-                self.fds.remove(&2);
+            if let Some(stderr) = crate::mutex::unwrap(stderr) {
+                let stderr = stderr.into_raw_fd();
+                if stderr != 2 {
+                    // Safety: TODO this is likely unsafe
+                    cmd.stderr(unsafe { std::fs::File::from_raw_fd(stderr) });
+                    self.fds.remove(&2);
+                }
             }
         }
     }
@@ -250,10 +269,7 @@ impl Io {
 impl Drop for Io {
     fn drop(&mut self) {
         for (_, file) in self.fds.drain() {
-            let file = crate::mutex::unwrap(file);
-            if file.as_raw_fd() <= 2 {
-                let _ = file.into_raw_fd();
-            }
+            File::maybe_drop(file);
         }
     }
 }
@@ -265,14 +281,22 @@ pub enum File {
 }
 
 impl File {
-    unsafe fn input(fd: std::os::unix::io::RawFd) -> Self {
+    pub unsafe fn input(fd: std::os::unix::io::RawFd) -> Self {
         Self::In(async_std::io::BufReader::new(
             async_std::fs::File::from_raw_fd(fd),
         ))
     }
 
-    unsafe fn output(fd: std::os::unix::io::RawFd) -> Self {
+    pub unsafe fn output(fd: std::os::unix::io::RawFd) -> Self {
         Self::Out(async_std::fs::File::from_raw_fd(fd))
+    }
+
+    fn maybe_drop(file: crate::mutex::Mutex<Self>) {
+        if let Some(file) = crate::mutex::unwrap(file) {
+            if file.as_raw_fd() <= 2 {
+                let _ = file.into_raw_fd();
+            }
+        }
     }
 }
 
