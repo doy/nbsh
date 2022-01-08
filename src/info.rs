@@ -29,6 +29,10 @@ pub fn time(offset: time::UtcOffset) -> anyhow::Result<String> {
     ))
 }
 
+pub fn pid() -> String {
+    nix::unistd::getpid().to_string()
+}
+
 // the time crate is currently unable to get the local offset on unix due to
 // soundness concerns, so we have to do it manually/:
 //

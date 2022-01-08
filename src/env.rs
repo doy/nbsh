@@ -87,12 +87,12 @@ impl Env {
 
     pub fn var(&self, k: &str) -> String {
         match self {
-            Self::V0(env) => {
+            Self::V0(env) => self.special_var(k).unwrap_or_else(|| {
                 env.vars.get(std::ffi::OsStr::new(k)).map_or_else(
                     || "".to_string(),
                     |v| v.to_str().unwrap().to_string(),
                 )
-            }
+            }),
         }
     }
 
@@ -117,6 +117,25 @@ impl Env {
 
     pub fn from_bytes(bytes: &[u8]) -> Self {
         bincode::deserialize(bytes).unwrap()
+    }
+
+    fn special_var(&self, k: &str) -> Option<String> {
+        match self {
+            Self::V0(env) => Some(match k {
+                "$" => crate::info::pid(),
+                "?" => {
+                    let status = env.latest_status;
+                    status
+                        .signal()
+                        .map_or_else(
+                            || status.code().unwrap(),
+                            |signal| signal + 128,
+                        )
+                        .to_string()
+                }
+                _ => return None,
+            }),
+        }
     }
 }
 
