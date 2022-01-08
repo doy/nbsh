@@ -23,7 +23,7 @@ word     = ${
     redir_prefix? ~
     (var | bareword |
     "'" ~ single_string ~ "'" |
-    "\"" ~ double_string ~ "\"")
+    "\"" ~ (var | double_string)+ ~ "\"")+
 }
 
 exe      = ${ word ~ (w ~ word)* }

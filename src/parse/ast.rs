@@ -139,43 +139,60 @@ impl Exe {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Word {
-    word: String,
-    interpolate: bool,
-    quoted: bool,
-    var: bool,
+    parts: Vec<WordPart>,
 }
 
 impl Word {
-    fn parse(s: &str, rule: Rule) -> Self {
-        let interpolate =
-            matches!(rule, Rule::bareword | Rule::double_string);
-        let quoted =
-            matches!(rule, Rule::single_string | Rule::double_string);
-        let var = matches!(rule, Rule::var);
-        let word_str = if var {
-            let inner = s.strip_prefix('$').unwrap();
-            inner
-                .strip_prefix('{')
-                .map_or(inner, |inner| inner.strip_suffix('}').unwrap())
-                .to_string()
-        } else if interpolate {
-            strip_escape(s)
-        } else {
-            strip_basic_escape(s)
-        };
-        Self {
-            word: word_str,
-            interpolate,
-            quoted,
-            var,
+    fn eval(self, env: &Env) -> String {
+        self.parts
+            .into_iter()
+            .map(|part| part.eval(env))
+            .collect::<Vec<_>>()
+            .join("")
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum WordPart {
+    Var(String),
+    Bareword(String),
+    DoubleQuoted(String),
+    SingleQuoted(String),
+}
+
+impl WordPart {
+    #[allow(clippy::needless_pass_by_value)]
+    fn build_ast(pair: pest::iterators::Pair<Rule>) -> Self {
+        match pair.as_rule() {
+            Rule::var => {
+                let s = pair.as_str();
+                let inner = s.strip_prefix('$').unwrap();
+                Self::Var(
+                    inner
+                        .strip_prefix('{')
+                        .map_or(inner, |inner| {
+                            inner.strip_suffix('}').unwrap()
+                        })
+                        .to_string(),
+                )
+            }
+            Rule::bareword => Self::Bareword(strip_escape(pair.as_str())),
+            Rule::double_string => {
+                Self::DoubleQuoted(strip_escape(pair.as_str()))
+            }
+            Rule::single_string => {
+                Self::SingleQuoted(strip_basic_escape(pair.as_str()))
+            }
+            _ => unreachable!(),
         }
     }
 
     fn eval(self, env: &Env) -> String {
-        if self.var {
-            env.var(&self.word)
-        } else {
-            self.word
+        match self {
+            Self::Var(name) => env.var(&name),
+            Self::Bareword(s)
+            | Self::DoubleQuoted(s)
+            | Self::SingleQuoted(s) => s,
         }
     }
 }
@@ -183,7 +200,7 @@ impl Word {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Redirect {
     from: std::os::unix::io::RawFd,
-    to: RedirectTarget,
+    to: Word,
     dir: super::Direction,
 }
 
@@ -206,37 +223,33 @@ impl Redirect {
         } else {
             from.parse().unwrap()
         };
-        #[allow(clippy::option_if_let_else)]
-        let to = if let Some(fd) = to.word.strip_prefix('&') {
-            RedirectTarget::Fd(fd.parse().unwrap())
-        } else {
-            RedirectTarget::File(to)
-        };
         Self { from, to, dir }
     }
 
     fn eval(self, env: &Env) -> super::Redirect {
+        let to = if self.to.parts.len() == 1 {
+            if let WordPart::Bareword(s) = &self.to.parts[0] {
+                if let Some(fd) = s.strip_prefix('&') {
+                    super::RedirectTarget::Fd(fd.parse().unwrap())
+                } else {
+                    super::RedirectTarget::File(std::path::PathBuf::from(
+                        self.to.eval(env),
+                    ))
+                }
+            } else {
+                super::RedirectTarget::File(std::path::PathBuf::from(
+                    self.to.eval(env),
+                ))
+            }
+        } else {
+            super::RedirectTarget::File(std::path::PathBuf::from(
+                self.to.eval(env),
+            ))
+        };
         super::Redirect {
             from: self.from,
-            to: self.to.eval(env),
+            to,
             dir: self.dir,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum RedirectTarget {
-    Fd(std::os::unix::io::RawFd),
-    File(Word),
-}
-
-impl RedirectTarget {
-    fn eval(self, env: &Env) -> super::RedirectTarget {
-        match self {
-            Self::Fd(fd) => super::RedirectTarget::Fd(fd),
-            Self::File(path) => super::RedirectTarget::File(
-                std::path::PathBuf::from(path.eval(env)),
-            ),
         }
     }
 }
@@ -249,21 +262,18 @@ enum WordOrRedirect {
 impl WordOrRedirect {
     fn build_ast(pair: pest::iterators::Pair<Rule>) -> Self {
         assert!(matches!(pair.as_rule(), Rule::word));
-        let mut inner = pair.into_inner();
-        let mut word = inner.next().unwrap();
-        let mut prefix = None;
-        if matches!(word.as_rule(), Rule::redir_prefix) {
-            prefix = Some(word.as_str().trim().to_string());
-            word = inner.next().unwrap();
-        }
-        assert!(matches!(
-            word.as_rule(),
-            Rule::var
-                | Rule::bareword
-                | Rule::single_string
-                | Rule::double_string
-        ));
-        let word = Word::parse(word.as_str(), word.as_rule());
+        let mut inner = pair.into_inner().peekable();
+        let prefix = if matches!(
+            inner.peek().map(pest::iterators::Pair::as_rule),
+            Some(Rule::redir_prefix)
+        ) {
+            Some(inner.next().unwrap().as_str().trim().to_string())
+        } else {
+            None
+        };
+        let word = Word {
+            parts: inner.map(WordPart::build_ast).collect(),
+        };
         if let Some(prefix) = prefix {
             Self::Redirect(Redirect::parse(&prefix, word))
         } else {
@@ -308,21 +318,6 @@ fn strip_basic_escape(s: &str) -> String {
         }
     }
     new
-}
-
-#[cfg(test)]
-impl From<std::os::unix::io::RawFd> for RedirectTarget {
-    fn from(fd: std::os::unix::io::RawFd) -> Self {
-        Self::Fd(fd)
-    }
-}
-
-#[allow(clippy::fallible_impl_from)]
-#[cfg(test)]
-impl From<Word> for RedirectTarget {
-    fn from(word: Word) -> Self {
-        Self::File(word)
-    }
 }
 
 #[cfg(test)]
@@ -382,7 +377,7 @@ macro_rules! r {
     ($from:literal, $to:expr, $dir:ident) => {
         Redirect {
             from: $from,
-            to: $to.into(),
+            to: $to,
             dir: super::Direction::$dir,
         }
     };
@@ -390,29 +385,43 @@ macro_rules! r {
 
 #[cfg(test)]
 macro_rules! w {
-    ($word:expr) => {
+    ($word:literal) => {
         Word {
-            word: $word.to_string(),
-            interpolate: true,
-            quoted: false,
-            var: false,
+            parts: vec![WordPart::Bareword($word.to_string())],
         }
     };
-    ($word:expr, $interpolate:expr) => {
+    ($($word:expr),*) => {
         Word {
-            word: $word.to_string(),
-            interpolate: $interpolate,
-            quoted: false,
-            var: false,
+            parts: vec![$($word),*],
         }
+    }
+}
+
+#[cfg(test)]
+macro_rules! wpv {
+    ($var:literal) => {
+        WordPart::Var($var.to_string())
     };
-    ($word:expr, $interpolate:expr, $quoted:expr) => {
-        Word {
-            word: $word.to_string(),
-            interpolate: $interpolate,
-            quoted: $quoted,
-            var: false,
-        }
+}
+
+#[cfg(test)]
+macro_rules! wpb {
+    ($bareword:literal) => {
+        WordPart::Bareword($bareword.to_string())
+    };
+}
+
+#[cfg(test)]
+macro_rules! wpd {
+    ($doublequoted:literal) => {
+        WordPart::DoubleQuoted($doublequoted.to_string())
+    };
+}
+
+#[cfg(test)]
+macro_rules! wps {
+    ($singlequoted:literal) => {
+        WordPart::SingleQuoted($singlequoted.to_string())
     };
 }
 
@@ -448,7 +457,7 @@ fn test_basic() {
             p!("command ls", e!(w!("command"), w!("ls"))),
             p!(
                 "perl -E 'say foo' | tr a-z A-Z",
-                e!(w!("perl"), w!("-E"), w!("say foo", false, true)),
+                e!(w!("perl"), w!("-E"), w!(wps!("say foo"))),
                 e!(w!("tr"), w!("a-z"), w!("A-Z"))
             ),
             p!("builtin echo bar", e!(w!("builtin"), w!("echo"), w!("bar")))
@@ -501,8 +510,8 @@ fn test_whitespace() {
                 "foo 'bar # baz' \"quux # not a comment\"",
                 e!(
                     w!("foo"),
-                    w!("bar # baz", false, true),
-                    w!("quux # not a comment", true, true)
+                    w!(wps!("bar # baz")),
+                    w!(wpd!("quux # not a comment"))
                 )
             )
         )
@@ -531,7 +540,10 @@ fn test_redirect() {
             "foo > /dev/null 2>&1",
             p!(
                 "foo > /dev/null 2>&1",
-                e!(w!("foo") ; r!(1, w!("/dev/null"), Out), r!(2, 1, Out))
+                e!(
+                    w!("foo") ;
+                    r!(1, w!("/dev/null"), Out), r!(2, w!("&1"), Out)
+                )
             )
         )
     );
@@ -555,7 +567,7 @@ fn test_redirect() {
             "foo > 'bar baz'",
             p!(
                 "foo > 'bar baz'",
-                e!(w!("foo") ; r!(1, w!("bar baz", false, true), Out))
+                e!(w!("foo") ; r!(1, w!(wps!("bar baz")), Out))
             )
         )
     );
@@ -569,30 +581,27 @@ fn test_escape() {
     );
     parse_eq!(
         "'foo\\ bar'",
-        c!(
-            "'foo\\ bar'",
-            p!("'foo\\ bar'", e!(w!("foo\\ bar", false, true)))
-        )
+        c!("'foo\\ bar'", p!("'foo\\ bar'", e!(w!(wps!("foo\\ bar")))))
     );
     parse_eq!(
         "\"foo\\ bar\"",
         c!(
             "\"foo\\ bar\"",
-            p!("\"foo\\ bar\"", e!(w!("foo bar", true, true)))
+            p!("\"foo\\ bar\"", e!(w!(wpd!("foo bar"))))
         )
     );
     parse_eq!(
         "\"foo\\\"bar\"",
         c!(
             "\"foo\\\"bar\"",
-            p!("\"foo\\\"bar\"", e!(w!("foo\"bar", true, true)))
+            p!("\"foo\\\"bar\"", e!(w!(wpd!("foo\"bar"))))
         )
     );
     parse_eq!(
         "'foo\\'bar\\\\'",
         c!(
             "'foo\\'bar\\\\'",
-            p!("'foo\\'bar\\\\'", e!(w!("foo'bar\\", false, true)))
+            p!("'foo\\'bar\\\\'", e!(w!(wps!("foo'bar\\"))))
         )
     );
     parse_eq!(
@@ -600,6 +609,20 @@ fn test_escape() {
         c!(
             "foo > bar\\ baz",
             p!("foo > bar\\ baz", e!(w!("foo") ; r!(1, w!("bar baz"), Out)))
+        )
+    );
+}
+
+#[test]
+fn test_parts() {
+    parse_eq!(
+        "echo \"$HOME/bin\"",
+        c!(
+            "echo \"$HOME/bin\"",
+            p!(
+                "echo \"$HOME/bin\"",
+                e!(w!("echo"), w!(wpv!("HOME"), wpd!("/bin")))
+            )
         )
     );
 }
