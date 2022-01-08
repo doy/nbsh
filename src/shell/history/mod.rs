@@ -287,7 +287,7 @@ impl Stack {
 
     fn should_execute(&self) -> bool {
         for frame in &self.frames {
-            if let Frame::If(false) = frame {
+            if matches!(frame, Frame::If(false) | Frame::While(_, false)) {
                 return false;
             }
         }
@@ -297,7 +297,7 @@ impl Stack {
 
 enum Frame {
     If(bool),
-    While,
+    While(usize, bool),
     For,
 }
 
@@ -379,8 +379,15 @@ fn run_commands(
                     stack.push(Frame::If(env.latest_status().success()));
                     pc += 1;
                 }
-                crate::parse::ast::Command::While(_pipeline) => {
-                    todo!();
+                crate::parse::ast::Command::While(pipeline) => {
+                    if stack.should_execute() {
+                        run_pipeline!(pipeline);
+                    }
+                    stack.push(Frame::While(
+                        pc,
+                        env.latest_status().success(),
+                    ));
+                    pc += 1;
                 }
                 crate::parse::ast::Command::For(_var, _pipeline) => {
                     todo!();
@@ -389,8 +396,12 @@ fn run_commands(
                     Frame::If(_) => {
                         pc += 1;
                     }
-                    Frame::While => {
-                        todo!()
+                    Frame::While(start, should) => {
+                        if should {
+                            pc = start;
+                        } else {
+                            pc += 1;
+                        }
                     }
                     Frame::For => {
                         todo!()
