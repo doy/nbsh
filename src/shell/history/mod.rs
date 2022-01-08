@@ -300,8 +300,14 @@ fn run_commands(
         };
 
         for pipeline in ast.pipelines() {
-            env.set_pipeline(pipeline.input_string().to_string());
-            match run_pipeline(&pty, &mut env, event_w.clone()).await {
+            match run_pipeline(
+                pipeline.input_string(),
+                &pty,
+                &mut env,
+                event_w.clone(),
+            )
+            .await
+            {
                 Ok((pipeline_status, done)) => {
                     env.set_status(pipeline_status);
                     if done {
@@ -326,6 +332,7 @@ fn run_commands(
 }
 
 async fn run_pipeline(
+    pipeline: &str,
     pty: &pty::Pty,
     env: &mut Env,
     event_w: async_std::channel::Sender<Event>,
@@ -352,6 +359,9 @@ async fn run_pipeline(
     // Safety: to_w was just opened above, was not used until now, and can't
     // be used after this because we rebound the variable
     let mut to_w = unsafe { async_std::fs::File::from_raw_fd(to_w) };
+    to_w.write_all(&bincode::serialize(pipeline).unwrap())
+        .await
+        .unwrap();
     to_w.write_all(&env.as_bytes()).await.unwrap();
     drop(to_w);
 

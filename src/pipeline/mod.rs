@@ -29,8 +29,8 @@ pub async fn run() -> anyhow::Result<i32> {
     io.set_stdout(stdout);
     io.set_stderr(stderr);
 
-    let mut env = read_data(shell_read).await?;
-    run_with_env(&mut env, &io, &shell_write).await?;
+    let (pipeline, mut env) = read_data(shell_read).await?;
+    run_with_env(&pipeline, &mut env, &io, &shell_write).await?;
     let status = *env.latest_status();
 
     env.update()?;
@@ -43,23 +43,30 @@ pub async fn run() -> anyhow::Result<i32> {
 }
 
 async fn run_with_env(
+    pipeline: &str,
     env: &mut Env,
     io: &builtins::Io,
     shell_write: &async_std::fs::File,
 ) -> anyhow::Result<()> {
-    let pipeline =
-        crate::parse::ast::Pipeline::parse(env.pipeline().unwrap())?;
+    let pipeline = crate::parse::ast::Pipeline::parse(pipeline)?;
     let (children, pg) = spawn_children(pipeline, env, io)?;
     let status = wait_children(children, pg, env, io, shell_write).await;
     env.set_status(status);
     Ok(())
 }
 
-async fn read_data(mut fh: async_std::fs::File) -> anyhow::Result<Env> {
+async fn read_data(
+    mut fh: async_std::fs::File,
+) -> anyhow::Result<(String, Env)> {
     let mut data = vec![];
     fh.read_to_end(&mut data).await?;
-    let env = Env::from_bytes(&data);
-    Ok(env)
+    let pipeline = bincode::deserialize(&data).unwrap();
+    let len: usize = bincode::serialized_size(&pipeline)
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let env = Env::from_bytes(&data[len..]);
+    Ok((pipeline, env))
 }
 
 async fn write_event(
