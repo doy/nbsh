@@ -37,7 +37,8 @@ async fn run_with_env(
     env: &mut Env,
     shell_write: &async_std::fs::File,
 ) -> anyhow::Result<()> {
-    let pipeline = crate::parse::Pipeline::parse(env.pipeline().unwrap())?;
+    let pipeline =
+        crate::parse::ast::Pipeline::parse(env.pipeline().unwrap())?;
     let (children, pg) = spawn_children(pipeline, env)?;
     let status = wait_children(children, pg, env, shell_write).await;
     env.set_status(status);
@@ -61,9 +62,10 @@ async fn write_event(
 }
 
 fn spawn_children(
-    pipeline: crate::parse::Pipeline,
+    pipeline: crate::parse::ast::Pipeline,
     env: &Env,
 ) -> anyhow::Result<(Vec<Child>, Option<nix::unistd::Pid>)> {
+    let pipeline = pipeline.eval(env);
     let mut cmds: Vec<_> = pipeline.into_exes().map(Command::new).collect();
     for i in 0..(cmds.len() - 1) {
         let (r, w) = pipe()?;

@@ -8,12 +8,16 @@ pub struct Command {
 
 impl Command {
     pub fn new(exe: crate::parse::Exe) -> Result<Self, crate::parse::Exe> {
-        if let Some(f) = super::BUILTINS.get(exe.exe()) {
-            Ok(Self {
-                exe,
-                f,
-                io: Io::new(),
-            })
+        if let Some(s) = exe.exe().to_str() {
+            if let Some(f) = super::BUILTINS.get(s) {
+                Ok(Self {
+                    exe,
+                    f,
+                    io: Io::new(),
+                })
+            } else {
+                Err(exe)
+            }
         } else {
             Err(exe)
         }

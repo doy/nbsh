@@ -88,7 +88,7 @@ impl History {
 
     pub async fn run(
         &mut self,
-        ast: crate::parse::Commands,
+        ast: crate::parse::ast::Commands,
         env: &Env,
         event_w: async_std::channel::Sender<Event>,
     ) -> anyhow::Result<usize> {
@@ -269,7 +269,7 @@ impl std::iter::DoubleEndedIterator for VisibleEntries {
 }
 
 fn run_commands(
-    ast: crate::parse::Commands,
+    ast: crate::parse::ast::Commands,
     entry: async_std::sync::Arc<async_std::sync::Mutex<Entry>>,
     mut env: Env,
     input_r: async_std::channel::Receiver<Vec<u8>>,
@@ -299,7 +299,8 @@ fn run_commands(
             }
         };
 
-        for pipeline in ast.pipelines() {
+        let commands = ast.eval(&env);
+        for pipeline in commands.pipelines() {
             env.set_pipeline(pipeline.input_string().to_string());
             match run_pipeline(&pty, &mut env, event_w.clone()).await {
                 Ok((pipeline_status, done)) => {

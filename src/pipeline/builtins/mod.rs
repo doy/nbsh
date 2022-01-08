@@ -62,7 +62,7 @@ fn cd(
 
         let dir = exe
             .args()
-            .into_iter()
+            .iter()
             .map(std::convert::AsRef::as_ref)
             .next()
             .unwrap_or("");
@@ -137,8 +137,8 @@ fn echo(
                 }
             };
         }
-        let count = exe.args().count();
-        for (i, arg) in exe.args().enumerate() {
+        let count = exe.args().len();
+        for (i, arg) in exe.args().iter().enumerate() {
             write_stdout!(arg.as_bytes());
             if i == count - 1 {
                 write_stdout!(b"\n");

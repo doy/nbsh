@@ -2,27 +2,22 @@ use crate::pipeline::prelude::*;
 
 pub struct Command {
     inner: Inner,
-    exe: String,
+    exe: std::path::PathBuf,
     redirects: Vec<crate::parse::Redirect>,
     pre_exec: Option<
         Box<dyn FnMut() -> std::io::Result<()> + Send + Sync + 'static>,
     >,
 }
-pub enum Inner {
-    Binary(async_std::process::Command),
-    Builtin(super::builtins::Command),
-}
-
 impl Command {
     pub fn new(exe: crate::parse::Exe) -> Self {
-        let exe_str = exe.exe().to_string();
+        let exe_path = exe.exe().to_path_buf();
         let redirects = exe.redirects().to_vec();
         Self {
             inner: super::builtins::Command::new(exe).map_or_else(
                 |exe| Self::new_binary(exe).inner,
                 Inner::Builtin,
             ),
-            exe: exe_str,
+            exe: exe_path,
             redirects,
             pre_exec: None,
         }
@@ -30,25 +25,25 @@ impl Command {
 
     #[allow(clippy::needless_pass_by_value)]
     pub fn new_binary(exe: crate::parse::Exe) -> Self {
-        let exe_str = exe.exe().to_string();
+        let exe_path = exe.exe().to_path_buf();
         let redirects = exe.redirects().to_vec();
         let mut cmd = async_std::process::Command::new(exe.exe());
         cmd.args(exe.args());
         Self {
             inner: Inner::Binary(cmd),
-            exe: exe_str,
+            exe: exe_path,
             redirects,
             pre_exec: None,
         }
     }
 
     pub fn new_builtin(exe: crate::parse::Exe) -> Self {
-        let exe_str = exe.exe().to_string();
+        let exe_path = exe.exe().to_path_buf();
         let redirects = exe.redirects().to_vec();
         Self {
             inner: super::builtins::Command::new(exe)
                 .map_or_else(|_| todo!(), Inner::Builtin),
-            exe: exe_str,
+            exe: exe_path,
             redirects,
             pre_exec: None,
         }
@@ -132,7 +127,7 @@ impl Command {
                     anyhow::anyhow!(
                         "{}: {}",
                         crate::format::io_error(&e),
-                        exe
+                        exe.display()
                     )
                 })?))
             }
@@ -145,6 +140,11 @@ impl Command {
             }
         }
     }
+}
+
+pub enum Inner {
+    Binary(async_std::process::Command),
+    Builtin(super::builtins::Command),
 }
 
 pub enum Child<'a> {

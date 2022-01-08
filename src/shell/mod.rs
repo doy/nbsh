@@ -582,8 +582,8 @@ impl Shell {
     fn parse(
         &self,
         cmd: &str,
-    ) -> Result<crate::parse::Commands, crate::parse::Error> {
-        let ast = crate::parse::Commands::parse(cmd)?;
+    ) -> Result<crate::parse::ast::Commands, crate::parse::Error> {
+        let ast = crate::parse::ast::Commands::parse(cmd)?;
         // todo: interpolate
         Ok(ast)
     }
