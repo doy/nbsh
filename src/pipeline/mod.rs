@@ -14,10 +14,11 @@ pub use command::{Child, Command};
 mod prelude;
 
 pub async fn run() -> anyhow::Result<i32> {
+    // Safety: we don't create File instances for or read/write data on fds
+    // 0-4 anywhere else
     let stdin = unsafe { async_std::fs::File::from_raw_fd(0) };
     let stdout = unsafe { async_std::fs::File::from_raw_fd(1) };
     let stderr = unsafe { async_std::fs::File::from_raw_fd(2) };
-    // Safety: we don't create File instances for fd 3 or 4 anywhere else
     let shell_read = unsafe { async_std::fs::File::from_raw_fd(3) };
     let shell_write = unsafe { async_std::fs::File::from_raw_fd(4) };
     cloexec(3)?;
@@ -49,7 +50,7 @@ async fn run_with_env(
     let pipeline =
         crate::parse::ast::Pipeline::parse(env.pipeline().unwrap())?;
     let (children, pg) = spawn_children(pipeline, env, io)?;
-    let status = wait_children(children, pg, env, shell_write).await;
+    let status = wait_children(children, pg, env, io, shell_write).await;
     env.set_status(status);
     Ok(())
 }
@@ -114,6 +115,7 @@ async fn wait_children(
     children: Vec<Child<'_>>,
     pg: Option<nix::unistd::Pid>,
     env: &Env,
+    io: &builtins::Io,
     shell_write: &async_std::fs::File,
 ) -> std::process::ExitStatus {
     enum Res {
@@ -123,7 +125,11 @@ async fn wait_children(
 
     macro_rules! bail {
         ($e:expr) => {
-            eprintln!("nbsh: {}", $e);
+            // if writing to stderr is not possible, we still want to exit
+            // normally with a failure exit code
+            #[allow(clippy::let_underscore_drop)]
+            let _ =
+                io.write_stderr(format!("nbsh: {}\n", $e).as_bytes()).await;
             return std::process::ExitStatus::from_raw(1 << 8);
         };
     }

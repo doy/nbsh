@@ -143,6 +143,8 @@ impl Io {
         }
         self.fds.insert(
             0,
+            // Safety: we just acquired stdin via into_raw_fd, which acquires
+            // ownership of the fd, so we are now the sole owner
             crate::mutex::new(unsafe { File::input(stdin.into_raw_fd()) }),
         );
     }
@@ -157,6 +159,8 @@ impl Io {
         }
         self.fds.insert(
             1,
+            // Safety: we just acquired stdout via into_raw_fd, which acquires
+            // ownership of the fd, so we are now the sole owner
             crate::mutex::new(unsafe { File::output(stdout.into_raw_fd()) }),
         );
     }
@@ -171,6 +175,8 @@ impl Io {
         }
         self.fds.insert(
             2,
+            // Safety: we just acquired stderr via into_raw_fd, which acquires
+            // ownership of the fd, so we are now the sole owner
             crate::mutex::new(unsafe { File::output(stderr.into_raw_fd()) }),
         );
     }
@@ -185,10 +191,14 @@ impl Io {
                     let fd = redirect.dir.open(path).unwrap();
                     match redirect.dir {
                         crate::parse::Direction::In => {
+                            // Safety: we just opened fd, and nothing else has
+                            // or can use it
                             crate::mutex::new(unsafe { File::input(fd) })
                         }
                         crate::parse::Direction::Out
                         | crate::parse::Direction::Append => {
+                            // Safety: we just opened fd, and nothing else has
+                            // or can use it
                             crate::mutex::new(unsafe { File::output(fd) })
                         }
                     }
@@ -240,7 +250,9 @@ impl Io {
             if let Some(stdin) = crate::mutex::unwrap(stdin) {
                 let stdin = stdin.into_raw_fd();
                 if stdin != 0 {
-                    // Safety: TODO this is likely unsafe
+                    // Safety: we just acquired stdin via into_raw_fd, which
+                    // acquires ownership of the fd, so we are now the sole
+                    // owner
                     cmd.stdin(unsafe { std::fs::File::from_raw_fd(stdin) });
                     self.fds.remove(&0);
                 }
@@ -250,7 +262,9 @@ impl Io {
             if let Some(stdout) = crate::mutex::unwrap(stdout) {
                 let stdout = stdout.into_raw_fd();
                 if stdout != 1 {
-                    // Safety: TODO this is likely unsafe
+                    // Safety: we just acquired stdout via into_raw_fd, which
+                    // acquires ownership of the fd, so we are now the sole
+                    // owner
                     cmd.stdout(unsafe { std::fs::File::from_raw_fd(stdout) });
                     self.fds.remove(&1);
                 }
@@ -260,7 +274,9 @@ impl Io {
             if let Some(stderr) = crate::mutex::unwrap(stderr) {
                 let stderr = stderr.into_raw_fd();
                 if stderr != 2 {
-                    // Safety: TODO this is likely unsafe
+                    // Safety: we just acquired stderr via into_raw_fd, which
+                    // acquires ownership of the fd, so we are now the sole
+                    // owner
                     cmd.stderr(unsafe { std::fs::File::from_raw_fd(stderr) });
                     self.fds.remove(&2);
                 }
@@ -284,12 +300,14 @@ pub enum File {
 }
 
 impl File {
+    // Safety: fd must not be owned by any other File object
     pub unsafe fn input(fd: std::os::unix::io::RawFd) -> Self {
         Self::In(async_std::io::BufReader::new(
             async_std::fs::File::from_raw_fd(fd),
         ))
     }
 
+    // Safety: fd must not be owned by any other File object
     pub unsafe fn output(fd: std::os::unix::io::RawFd) -> Self {
         Self::Out(async_std::fs::File::from_raw_fd(fd))
     }
