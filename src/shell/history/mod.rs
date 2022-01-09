@@ -544,6 +544,8 @@ async fn run_pipeline(
                     }
                     crate::pipeline::Event::Exit(new_env) => {
                         *env = new_env;
+                        read_done = true;
+                        continue;
                     }
                 }
                 new_read();
