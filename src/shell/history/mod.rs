@@ -535,29 +535,34 @@ async fn run_pipeline(
 
         let read_r = read_r.clone();
         let read = async move { Res::Read(read_r.recv().await.unwrap()) };
-        let exit = async { Res::Exit(child.status_no_drop().await) };
+        let exit = async {
+            Res::Exit(if exit_done.is_none() {
+                child.status_no_drop().await
+            } else {
+                std::future::pending().await
+            })
+        };
         match read.or(exit).await {
-            Res::Read(Ok(event)) => {
-                match event {
-                    crate::pipeline::Event::Suspend(idx) => {
-                        event_w.send(Event::ChildSuspend(idx)).await.unwrap();
-                    }
-                    crate::pipeline::Event::Exit(new_env) => {
-                        *env = new_env;
-                        read_done = true;
-                        continue;
-                    }
+            Res::Read(Ok(event)) => match event {
+                crate::pipeline::Event::Suspend(idx) => {
+                    event_w.send(Event::ChildSuspend(idx)).await.unwrap();
+                    new_read();
                 }
-                new_read();
-            }
+                crate::pipeline::Event::Exit(new_env) => {
+                    *env = new_env;
+                    read_done = true;
+                }
+            },
             Res::Read(Err(e)) => {
-                if let bincode::ErrorKind::Io(e) = &*e {
-                    if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                if let bincode::ErrorKind::Io(io_e) = &*e {
+                    if io_e.kind() == std::io::ErrorKind::UnexpectedEof {
                         read_done = true;
-                        continue;
+                    } else {
+                        anyhow::bail!(e);
                     }
+                } else {
+                    anyhow::bail!(e);
                 }
-                anyhow::bail!(e);
             }
             Res::Exit(Ok(status)) => {
                 exit_done = Some(status);
