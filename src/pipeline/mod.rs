@@ -1,5 +1,10 @@
 use crate::pipeline::prelude::*;
 
+mod builtins;
+mod command;
+pub use command::{Child, Command};
+mod prelude;
+
 const PID0: nix::unistd::Pid = nix::unistd::Pid::from_raw(0);
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -8,10 +13,60 @@ pub enum Event {
     Exit(Env),
 }
 
-mod builtins;
-mod command;
-pub use command::{Child, Command};
-mod prelude;
+struct Stack {
+    frames: Vec<Frame>,
+}
+
+impl Stack {
+    fn new() -> Self {
+        Self { frames: vec![] }
+    }
+
+    fn push(&mut self, frame: Frame) {
+        self.frames.push(frame);
+    }
+
+    fn pop(&mut self) -> Frame {
+        self.frames.pop().unwrap()
+    }
+
+    fn top(&self) -> Option<&Frame> {
+        self.frames.last()
+    }
+
+    fn top_mut(&mut self) -> Option<&mut Frame> {
+        self.frames.last_mut()
+    }
+
+    fn current_pc(&self, pc: usize) -> bool {
+        match self.top() {
+            Some(Frame::If(_)) | None => false,
+            Some(Frame::While(_, start) | Frame::For(_, start, _)) => {
+                *start == pc
+            }
+        }
+    }
+
+    fn should_execute(&self) -> bool {
+        for frame in &self.frames {
+            if matches!(
+                frame,
+                Frame::If(false)
+                    | Frame::While(false, ..)
+                    | Frame::For(false, ..)
+            ) {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+enum Frame {
+    If(bool),
+    While(bool, usize),
+    For(bool, usize, Vec<String>),
+}
 
 pub async fn run() -> anyhow::Result<i32> {
     // Safety: we don't create File instances for or read/write data on fds
@@ -29,8 +84,8 @@ pub async fn run() -> anyhow::Result<i32> {
     io.set_stdout(stdout);
     io.set_stderr(stderr);
 
-    let (pipeline, mut env) = read_data(shell_read).await?;
-    run_with_env(&pipeline, &mut env, &io, &shell_write).await?;
+    let (commands, mut env) = read_data(shell_read).await?;
+    run_commands(&commands, &mut env, &io, &shell_write).await?;
     let status = *env.latest_status();
 
     env.update()?;
@@ -42,13 +97,116 @@ pub async fn run() -> anyhow::Result<i32> {
     Ok(status.code().unwrap())
 }
 
-async fn run_with_env(
-    pipeline: &str,
+async fn run_commands(
+    commands: &str,
     env: &mut Env,
     io: &builtins::Io,
     shell_write: &async_std::fs::File,
 ) -> anyhow::Result<()> {
-    let pipeline = crate::parse::ast::Pipeline::parse(pipeline)?;
+    let commands = crate::parse::ast::Commands::parse(commands)?;
+    let commands = commands.commands();
+    let mut pc = 0;
+    let mut stack = Stack::new();
+    while pc < commands.len() {
+        match &commands[pc] {
+            crate::parse::ast::Command::Pipeline(pipeline) => {
+                if stack.should_execute() {
+                    run_pipeline(pipeline.clone(), env, io, shell_write)
+                        .await?;
+                }
+                pc += 1;
+            }
+            crate::parse::ast::Command::If(pipeline) => {
+                let should = stack.should_execute();
+                if !stack.current_pc(pc) {
+                    stack.push(Frame::If(false));
+                }
+                if should {
+                    run_pipeline(pipeline.clone(), env, io, shell_write)
+                        .await?;
+                    if let Some(Frame::If(should)) = stack.top_mut() {
+                        *should = env.latest_status().success();
+                    } else {
+                        unreachable!();
+                    }
+                }
+                pc += 1;
+            }
+            crate::parse::ast::Command::While(pipeline) => {
+                let should = stack.should_execute();
+                if !stack.current_pc(pc) {
+                    stack.push(Frame::While(false, pc));
+                }
+                if should {
+                    run_pipeline(pipeline.clone(), env, io, shell_write)
+                        .await?;
+                    if let Some(Frame::While(should, _)) = stack.top_mut() {
+                        *should = env.latest_status().success();
+                    } else {
+                        unreachable!();
+                    }
+                }
+                pc += 1;
+            }
+            crate::parse::ast::Command::For(var, list) => {
+                let should = stack.should_execute();
+                if !stack.current_pc(pc) {
+                    stack.push(Frame::For(
+                        false,
+                        pc,
+                        if stack.should_execute() {
+                            list.clone()
+                                .into_iter()
+                                .map(|w| w.eval(env))
+                                .collect()
+                        } else {
+                            vec![]
+                        },
+                    ));
+                }
+                if should {
+                    if let Some(Frame::For(should, _, list)) = stack.top_mut()
+                    {
+                        *should = !list.is_empty();
+                        if *should {
+                            let val = list.remove(0);
+                            env.set_var(var, &val);
+                        }
+                    } else {
+                        unreachable!();
+                    }
+                }
+                pc += 1;
+            }
+            crate::parse::ast::Command::End => match stack.top() {
+                Some(Frame::If(_)) => {
+                    stack.pop();
+                    pc += 1;
+                }
+                Some(
+                    Frame::While(should, start)
+                    | Frame::For(should, start, _),
+                ) => {
+                    if *should {
+                        pc = *start;
+                    } else {
+                        stack.pop();
+                        pc += 1;
+                    }
+                }
+                None => todo!(),
+            },
+        }
+    }
+    Ok(())
+}
+
+async fn run_pipeline(
+    pipeline: crate::parse::ast::Pipeline,
+    env: &mut Env,
+    io: &builtins::Io,
+    shell_write: &async_std::fs::File,
+) -> anyhow::Result<()> {
     let (children, pg) = spawn_children(pipeline, env, io)?;
     let status = wait_children(children, pg, env, io, shell_write).await;
     env.set_status(status);
@@ -60,13 +218,13 @@ async fn read_data(
 ) -> anyhow::Result<(String, Env)> {
     let mut data = vec![];
     fh.read_to_end(&mut data).await?;
-    let pipeline = bincode::deserialize(&data).unwrap();
-    let len: usize = bincode::serialized_size(&pipeline)
+    let commands = bincode::deserialize(&data).unwrap();
+    let len: usize = bincode::serialized_size(&commands)
         .unwrap()
         .try_into()
         .unwrap();
     let env = Env::from_bytes(&data[len..]);
-    Ok((pipeline, env))
+    Ok((commands, env))
 }
 
 async fn write_event(

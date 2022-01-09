@@ -86,22 +86,13 @@ impl Command {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pipeline {
     exes: Vec<Exe>,
     input_string: String,
 }
 
 impl Pipeline {
-    pub fn parse(pipeline: &str) -> Result<Self, super::Error> {
-        Ok(Self::build_ast(
-            Shell::parse(Rule::pipeline, pipeline)
-                .map_err(|e| super::Error::new(pipeline, anyhow::anyhow!(e)))?
-                .next()
-                .unwrap(),
-        ))
-    }
-
     pub fn eval(self, env: &Env) -> super::Pipeline {
         super::Pipeline {
             exes: self.exes.into_iter().map(|exe| exe.eval(env)).collect(),
@@ -122,7 +113,7 @@ impl Pipeline {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Exe {
     exe: Word,
     args: Vec<Word>,
