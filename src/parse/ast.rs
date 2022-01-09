@@ -48,7 +48,7 @@ pub enum Command {
     Pipeline(Pipeline),
     If(Pipeline),
     While(Pipeline),
-    For(String, Pipeline),
+    For(String, Vec<Word>),
     End,
 }
 
@@ -71,10 +71,11 @@ impl Command {
                         let mut inner = ty.into_inner();
                         let var = inner.next().unwrap();
                         assert!(matches!(var.as_rule(), Rule::bareword));
-                        Self::For(
-                            var.as_str().to_string(),
-                            Pipeline::build_ast(inner.next().unwrap()),
-                        )
+                        let list = inner.next().unwrap();
+                        assert!(matches!(list.as_rule(), Rule::list));
+                        let vals =
+                            list.into_inner().map(Word::build_ast).collect();
+                        Self::For(var.as_str().to_string(), vals)
                     }
                     Rule::control_end => Self::End,
                     _ => unreachable!(),
@@ -174,12 +175,19 @@ impl Exe {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Word {
+pub struct Word {
     parts: Vec<WordPart>,
 }
 
 impl Word {
-    fn eval(self, env: &Env) -> String {
+    fn build_ast(pair: pest::iterators::Pair<Rule>) -> Self {
+        assert!(matches!(pair.as_rule(), Rule::word));
+        Self {
+            parts: pair.into_inner().map(WordPart::build_ast).collect(),
+        }
+    }
+
+    pub fn eval(self, env: &Env) -> String {
         self.parts
             .into_iter()
             .map(|part| part.eval(env))

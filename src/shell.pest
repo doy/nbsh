@@ -27,11 +27,12 @@ word     = ${
 }
 
 exe      = ${ word ~ (w ~ word)* }
+list     = ${ word ~ (w ~ word)* }
 pipeline = ${ exe ~ (w? ~ "|" ~ w? ~ exe)* }
 
 control_if    = ${ "if" ~ w ~ pipeline }
 control_while = ${ "while" ~ w ~ pipeline }
-control_for   = ${ "for" ~ w ~ bareword ~ w ~ "in" ~ w ~ pipeline }
+control_for   = ${ "for" ~ w ~ bareword ~ w ~ "in" ~ w ~ list }
 control_end   = ${ "end" }
 control       = ${ control_if | control_while | control_for | control_end }
 
