@@ -581,6 +581,7 @@ async fn run_pipeline(
             }
         }
         if let (true, Some(status)) = (read_done, exit_done) {
+            nix::unistd::close(from_r).unwrap();
             // nix::sys::signal::Signal is repr(i32)
             #[allow(clippy::as_conversions)]
             return Ok((
