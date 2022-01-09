@@ -492,11 +492,13 @@ async fn run_pipeline(
     nix::unistd::close(from_w)?;
 
     // Safety: to_w was just opened above, was not used until now, and can't
-    // be used after this because we rebound the variable
-    let mut to_w = unsafe { async_std::fs::File::from_raw_fd(to_w) };
-    to_w.write_all(&bincode::serialize(pipeline)?).await?;
-    to_w.write_all(&env.as_bytes()).await?;
-    drop(to_w);
+    // be used after this because from_raw_fd takes it by move
+    write_env(
+        unsafe { async_std::fs::File::from_raw_fd(to_w) },
+        pipeline,
+        env,
+    )
+    .await?;
 
     let (read_w, read_r) = async_std::channel::unbounded();
     let new_read = move || {
@@ -578,4 +580,14 @@ async fn run_pipeline(
             ));
         }
     }
+}
+
+async fn write_env(
+    mut to_w: async_std::fs::File,
+    pipeline: &str,
+    env: &Env,
+) -> anyhow::Result<()> {
+    to_w.write_all(&bincode::serialize(pipeline)?).await?;
+    to_w.write_all(&env.as_bytes()).await?;
+    Ok(())
 }
