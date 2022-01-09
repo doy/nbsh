@@ -8,7 +8,7 @@ pub struct Pty {
 impl Pty {
     pub fn new(
         size: (u16, u16),
-        entry: &async_std::sync::Arc<async_std::sync::Mutex<super::Entry>>,
+        entry: &crate::mutex::Mutex<super::Entry>,
         input_r: async_std::channel::Receiver<Vec<u8>>,
         resize_r: async_std::channel::Receiver<(u16, u16)>,
         event_w: async_std::channel::Sender<Event>,
@@ -21,7 +21,7 @@ impl Pty {
 
         async_std::task::spawn(pty_task(
             async_std::sync::Arc::clone(&pty),
-            async_std::sync::Arc::clone(entry),
+            crate::mutex::clone(entry),
             input_r,
             resize_r,
             close_r,
@@ -45,7 +45,7 @@ impl Pty {
 
 async fn pty_task(
     pty: async_std::sync::Arc<pty_process::Pty>,
-    entry: async_std::sync::Arc<async_std::sync::Mutex<super::Entry>>,
+    entry: crate::mutex::Mutex<super::Entry>,
     input_r: async_std::channel::Receiver<Vec<u8>>,
     resize_r: async_std::channel::Receiver<(u16, u16)>,
     close_r: async_std::channel::Receiver<()>,

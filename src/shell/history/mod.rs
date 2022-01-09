@@ -6,7 +6,7 @@ mod pty;
 
 pub struct History {
     size: (u16, u16),
-    entries: Vec<async_std::sync::Arc<async_std::sync::Mutex<Entry>>>,
+    entries: Vec<crate::mutex::Mutex<Entry>>,
     scroll_pos: usize,
 }
 
@@ -95,18 +95,16 @@ impl History {
         let (input_w, input_r) = async_std::channel::unbounded();
         let (resize_w, resize_r) = async_std::channel::unbounded();
 
-        let entry = async_std::sync::Arc::new(async_std::sync::Mutex::new(
-            Entry::new(
-                ast.input_string().to_string(),
-                env.clone(),
-                self.size,
-                input_w,
-                resize_w,
-            ),
+        let entry = crate::mutex::new(Entry::new(
+            ast.input_string().to_string(),
+            env.clone(),
+            self.size,
+            input_w,
+            resize_w,
         ));
         run_commands(
             ast,
-            async_std::sync::Arc::clone(&entry),
+            crate::mutex::clone(&entry),
             env.clone(),
             input_r,
             resize_r,
@@ -132,16 +130,14 @@ impl History {
         resize_r.close();
 
         let err_str = format!("{}", e);
-        let entry = async_std::sync::Arc::new(async_std::sync::Mutex::new(
-            Entry::new(
-                e.into_input(),
-                env.clone(),
-                self.size,
-                input_w,
-                resize_w,
-            ),
+        let entry = crate::mutex::new(Entry::new(
+            e.into_input(),
+            env.clone(),
+            self.size,
+            input_w,
+            resize_w,
         ));
-        self.entries.push(async_std::sync::Arc::clone(&entry));
+        self.entries.push(crate::mutex::clone(&entry));
 
         let mut entry = entry.lock_arc().await;
         entry.process(err_str.replace('\n', "\r\n").as_bytes());
@@ -152,10 +148,7 @@ impl History {
         Ok(self.entries.len() - 1)
     }
 
-    pub async fn entry(
-        &self,
-        idx: usize,
-    ) -> async_std::sync::MutexGuardArc<Entry> {
+    pub async fn entry(&self, idx: usize) -> crate::mutex::Guard<Entry> {
         self.entries[idx].lock_arc().await
     }
 
@@ -231,10 +224,7 @@ impl History {
 }
 
 struct VisibleEntries {
-    entries: std::collections::VecDeque<(
-        usize,
-        async_std::sync::MutexGuardArc<Entry>,
-    )>,
+    entries: std::collections::VecDeque<(usize, crate::mutex::Guard<Entry>)>,
 }
 
 impl VisibleEntries {
@@ -244,18 +234,14 @@ impl VisibleEntries {
         }
     }
 
-    fn add(
-        &mut self,
-        idx: usize,
-        entry: async_std::sync::MutexGuardArc<Entry>,
-    ) {
+    fn add(&mut self, idx: usize, entry: crate::mutex::Guard<Entry>) {
         // push_front because we are adding them in reverse order
         self.entries.push_front((idx, entry));
     }
 }
 
 impl std::iter::Iterator for VisibleEntries {
-    type Item = (usize, async_std::sync::MutexGuardArc<Entry>);
+    type Item = (usize, crate::mutex::Guard<Entry>);
 
     fn next(&mut self) -> Option<Self::Item> {
         self.entries.pop_front()
@@ -325,7 +311,7 @@ enum Frame {
 
 fn run_commands(
     ast: crate::parse::ast::Commands,
-    entry: async_std::sync::Arc<async_std::sync::Mutex<Entry>>,
+    entry: crate::mutex::Mutex<Entry>,
     mut env: Env,
     input_r: async_std::channel::Receiver<Vec<u8>>,
     resize_r: async_std::channel::Receiver<(u16, u16)>,

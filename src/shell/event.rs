@@ -17,12 +17,12 @@ impl Reader {
     pub fn new(
         input: async_std::channel::Receiver<Event>,
     ) -> async_std::sync::Arc<Self> {
-        let this = std::sync::Arc::new(Self {
+        let this = async_std::sync::Arc::new(Self {
             pending: async_std::sync::Mutex::new(Pending::new()),
             cvar: async_std::sync::Condvar::new(),
         });
         {
-            let this = std::sync::Arc::clone(&this);
+            let this = async_std::sync::Arc::clone(&this);
             async_std::task::spawn(async move {
                 while let Ok(event) = input.recv().await {
                     this.new_event(Some(event)).await;

@@ -134,7 +134,7 @@ impl Io {
     }
 
     fn stdin(&self) -> Option<crate::mutex::Mutex<File>> {
-        self.fds.get(&0).map(async_std::sync::Arc::clone)
+        self.fds.get(&0).map(crate::mutex::clone)
     }
 
     pub fn set_stdin<T: std::os::unix::io::IntoRawFd>(&mut self, stdin: T) {
@@ -150,7 +150,7 @@ impl Io {
     }
 
     fn stdout(&self) -> Option<crate::mutex::Mutex<File>> {
-        self.fds.get(&1).map(async_std::sync::Arc::clone)
+        self.fds.get(&1).map(crate::mutex::clone)
     }
 
     pub fn set_stdout<T: std::os::unix::io::IntoRawFd>(&mut self, stdout: T) {
@@ -166,7 +166,7 @@ impl Io {
     }
 
     fn stderr(&self) -> Option<crate::mutex::Mutex<File>> {
-        self.fds.get(&2).map(async_std::sync::Arc::clone)
+        self.fds.get(&2).map(crate::mutex::clone)
     }
 
     pub fn set_stderr<T: std::os::unix::io::IntoRawFd>(&mut self, stderr: T) {
@@ -185,7 +185,7 @@ impl Io {
         for redirect in redirects {
             let to = match &redirect.to {
                 crate::parse::RedirectTarget::Fd(fd) => {
-                    async_std::sync::Arc::clone(&self.fds[fd])
+                    crate::mutex::clone(&self.fds[fd])
                 }
                 crate::parse::RedirectTarget::File(path) => {
                     let fd = redirect.dir.open(path).unwrap();

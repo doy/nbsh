@@ -487,7 +487,7 @@ impl Shell {
     async fn default_scene(
         &self,
         focus: Focus,
-        entry: Option<async_std::sync::MutexGuardArc<history::Entry>>,
+        entry: Option<crate::mutex::Guard<history::Entry>>,
     ) -> Scene {
         match focus {
             Focus::Readline | Focus::Scrolling(_) => Scene::Readline,
@@ -509,7 +509,7 @@ impl Shell {
     async fn set_focus(
         &mut self,
         new_focus: Focus,
-        entry: Option<async_std::sync::MutexGuardArc<history::Entry>>,
+        entry: Option<crate::mutex::Guard<history::Entry>>,
     ) {
         self.focus = new_focus;
         self.hide_readline = false;
