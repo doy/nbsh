@@ -285,9 +285,31 @@ impl Stack {
         self.frames.pop().unwrap()
     }
 
+    fn top(&self) -> Option<&Frame> {
+        self.frames.last()
+    }
+
+    fn top_mut(&mut self) -> Option<&mut Frame> {
+        self.frames.last_mut()
+    }
+
+    fn current_pc(&self, pc: usize) -> bool {
+        match self.top() {
+            Some(Frame::If(_)) | None => false,
+            Some(Frame::While(_, start) | Frame::For(_, start, _)) => {
+                *start == pc
+            }
+        }
+    }
+
     fn should_execute(&self) -> bool {
         for frame in &self.frames {
-            if matches!(frame, Frame::If(false) | Frame::While(_, false)) {
+            if matches!(
+                frame,
+                Frame::If(false)
+                    | Frame::While(false, ..)
+                    | Frame::For(false, ..)
+            ) {
                 return false;
             }
         }
@@ -297,8 +319,8 @@ impl Stack {
 
 enum Frame {
     If(bool),
-    While(usize, bool),
-    For,
+    While(bool, usize),
+    For(bool, usize, Vec<String>),
 }
 
 fn run_commands(
@@ -373,39 +395,84 @@ fn run_commands(
                     pc += 1;
                 }
                 crate::parse::ast::Command::If(pipeline) => {
-                    if stack.should_execute() {
-                        run_pipeline!(pipeline);
+                    let should = stack.should_execute();
+                    if !stack.current_pc(pc) {
+                        stack.push(Frame::If(false));
                     }
-                    stack.push(Frame::If(env.latest_status().success()));
+                    if should {
+                        run_pipeline!(pipeline);
+                        if let Some(Frame::If(should)) = stack.top_mut() {
+                            *should = env.latest_status().success();
+                        } else {
+                            unreachable!();
+                        }
+                    }
                     pc += 1;
                 }
                 crate::parse::ast::Command::While(pipeline) => {
-                    if stack.should_execute() {
-                        run_pipeline!(pipeline);
+                    let should = stack.should_execute();
+                    if !stack.current_pc(pc) {
+                        stack.push(Frame::While(false, pc));
                     }
-                    stack.push(Frame::While(
-                        pc,
-                        env.latest_status().success(),
-                    ));
+                    if should {
+                        run_pipeline!(pipeline);
+                        if let Some(Frame::While(should, _)) = stack.top_mut()
+                        {
+                            *should = env.latest_status().success();
+                        } else {
+                            unreachable!();
+                        }
+                    }
                     pc += 1;
                 }
-                crate::parse::ast::Command::For(_var, _pipeline) => {
-                    todo!();
+                crate::parse::ast::Command::For(var, list) => {
+                    let should = stack.should_execute();
+                    if !stack.current_pc(pc) {
+                        stack.push(Frame::For(
+                            false,
+                            pc,
+                            if stack.should_execute() {
+                                list.clone()
+                                    .into_iter()
+                                    .map(|w| w.eval(&env))
+                                    .collect()
+                            } else {
+                                vec![]
+                            },
+                        ));
+                    }
+                    if should {
+                        if let Some(Frame::For(should, _, list)) =
+                            stack.top_mut()
+                        {
+                            *should = !list.is_empty();
+                            if *should {
+                                let val = list.remove(0);
+                                env.set_var(var, &val);
+                            }
+                        } else {
+                            unreachable!();
+                        }
+                    }
+                    pc += 1;
                 }
-                crate::parse::ast::Command::End => match stack.pop() {
-                    Frame::If(_) => {
+                crate::parse::ast::Command::End => match stack.top() {
+                    Some(Frame::If(_)) => {
+                        stack.pop();
                         pc += 1;
                     }
-                    Frame::While(start, should) => {
-                        if should {
-                            pc = start;
+                    Some(
+                        Frame::While(should, start)
+                        | Frame::For(should, start, _),
+                    ) => {
+                        if *should {
+                            pc = *start;
                         } else {
+                            stack.pop();
                             pc += 1;
                         }
                     }
-                    Frame::For => {
-                        todo!()
-                    }
+                    None => todo!(),
                 },
             }
         }

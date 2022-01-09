@@ -80,6 +80,14 @@ impl Env {
         }
     }
 
+    pub fn set_var<T: Into<std::ffi::OsString>>(&mut self, k: T, v: T) {
+        match self {
+            Self::V0(env) => {
+                env.vars.insert(k.into(), v.into());
+            }
+        }
+    }
+
     pub fn set_vars(
         &mut self,
         it: impl Iterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
