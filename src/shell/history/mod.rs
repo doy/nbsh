@@ -488,13 +488,11 @@ async fn run_pipeline(
     env: &mut Env,
     event_w: async_std::channel::Sender<Event>,
 ) -> anyhow::Result<(async_std::process::ExitStatus, bool)> {
-    let mut cmd = pty_process::Command::new(std::env::current_exe().unwrap());
+    let mut cmd = pty_process::Command::new(std::env::current_exe()?);
     cmd.arg("--internal-cmd-runner");
     env.apply(&mut cmd);
-    let (to_r, to_w) =
-        nix::unistd::pipe2(nix::fcntl::OFlag::O_CLOEXEC).unwrap();
-    let (from_r, from_w) =
-        nix::unistd::pipe2(nix::fcntl::OFlag::O_CLOEXEC).unwrap();
+    let (to_r, to_w) = nix::unistd::pipe2(nix::fcntl::OFlag::O_CLOEXEC)?;
+    let (from_r, from_w) = nix::unistd::pipe2(nix::fcntl::OFlag::O_CLOEXEC)?;
     // Safety: dup2 is an async-signal-safe function
     unsafe {
         cmd.pre_exec(move || {
@@ -503,17 +501,15 @@ async fn run_pipeline(
             Ok(())
         });
     }
-    let child = pty.spawn(cmd).unwrap();
-    nix::unistd::close(to_r).unwrap();
-    nix::unistd::close(from_w).unwrap();
+    let child = pty.spawn(cmd)?;
+    nix::unistd::close(to_r)?;
+    nix::unistd::close(from_w)?;
 
     // Safety: to_w was just opened above, was not used until now, and can't
     // be used after this because we rebound the variable
     let mut to_w = unsafe { async_std::fs::File::from_raw_fd(to_w) };
-    to_w.write_all(&bincode::serialize(pipeline).unwrap())
-        .await
-        .unwrap();
-    to_w.write_all(&env.as_bytes()).await.unwrap();
+    to_w.write_all(&bincode::serialize(pipeline)?).await?;
+    to_w.write_all(&env.as_bytes()).await?;
     drop(to_w);
 
     let (read_w, read_r) = async_std::channel::unbounded();
@@ -581,7 +577,7 @@ async fn run_pipeline(
             }
         }
         if let (true, Some(status)) = (read_done, exit_done) {
-            nix::unistd::close(from_r).unwrap();
+            nix::unistd::close(from_r)?;
             // nix::sys::signal::Signal is repr(i32)
             #[allow(clippy::as_conversions)]
             return Ok((
