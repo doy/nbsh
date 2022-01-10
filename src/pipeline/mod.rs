@@ -70,22 +70,14 @@ enum Frame {
 
 pub async fn run() -> anyhow::Result<i32> {
     // Safety: we don't create File instances for or read/write data on fds
-    // 0-4 anywhere else
-    let stdin = unsafe { async_std::fs::File::from_raw_fd(0) };
-    let stdout = unsafe { async_std::fs::File::from_raw_fd(1) };
-    let stderr = unsafe { async_std::fs::File::from_raw_fd(2) };
+    // 3 or 4 anywhere else
     let shell_read = unsafe { async_std::fs::File::from_raw_fd(3) };
     let shell_write = unsafe { async_std::fs::File::from_raw_fd(4) };
     cloexec(3)?;
     cloexec(4)?;
 
-    let mut io = builtins::Io::new();
-    io.set_stdin(stdin);
-    io.set_stdout(stdout);
-    io.set_stderr(stderr);
-
     let (commands, mut env) = read_data(shell_read).await?;
-    run_commands(&commands, &mut env, &io, &shell_write).await?;
+    run_commands(&commands, &mut env, &shell_write).await?;
     let status = *env.latest_status();
 
     env.update()?;
@@ -100,7 +92,6 @@ pub async fn run() -> anyhow::Result<i32> {
 async fn run_commands(
     commands: &str,
     env: &mut Env,
-    io: &builtins::Io,
     shell_write: &async_std::fs::File,
 ) -> anyhow::Result<()> {
     let commands = crate::parse::ast::Commands::parse(commands)?;
@@ -111,8 +102,7 @@ async fn run_commands(
         match &commands[pc] {
             crate::parse::ast::Command::Pipeline(pipeline) => {
                 if stack.should_execute() {
-                    run_pipeline(pipeline.clone(), env, io, shell_write)
-                        .await?;
+                    run_pipeline(pipeline.clone(), env, shell_write).await?;
                 }
                 pc += 1;
             }
@@ -122,8 +112,7 @@ async fn run_commands(
                     stack.push(Frame::If(false));
                 }
                 if should {
-                    run_pipeline(pipeline.clone(), env, io, shell_write)
-                        .await?;
+                    run_pipeline(pipeline.clone(), env, shell_write).await?;
                     if let Some(Frame::If(should)) = stack.top_mut() {
                         *should = env.latest_status().success();
                     } else {
@@ -138,8 +127,7 @@ async fn run_commands(
                     stack.push(Frame::While(false, pc));
                 }
                 if should {
-                    run_pipeline(pipeline.clone(), env, io, shell_write)
-                        .await?;
+                    run_pipeline(pipeline.clone(), env, shell_write).await?;
                     if let Some(Frame::While(should, _)) = stack.top_mut() {
                         *should = env.latest_status().success();
                     } else {
@@ -204,11 +192,23 @@ async fn run_commands(
 async fn run_pipeline(
     pipeline: crate::parse::ast::Pipeline,
     env: &mut Env,
-    io: &builtins::Io,
     shell_write: &async_std::fs::File,
 ) -> anyhow::Result<()> {
-    let (children, pg) = spawn_children(pipeline, env, io)?;
-    let status = wait_children(children, pg, env, io, shell_write).await;
+    // Safety: pipelines are run serially, so only one copy of these will ever
+    // exist at once. note that reusing a single copy of these at the top
+    // level would not be safe, because in the case of a command line like
+    // "echo foo; ls", we would pass the stdout fd to the ls process while it
+    // is still open here, and may still have data buffered.
+    let stdin = unsafe { async_std::fs::File::from_raw_fd(0) };
+    let stdout = unsafe { async_std::fs::File::from_raw_fd(1) };
+    let stderr = unsafe { async_std::fs::File::from_raw_fd(2) };
+    let mut io = builtins::Io::new();
+    io.set_stdin(stdin);
+    io.set_stdout(stdout);
+    io.set_stderr(stderr);
+
+    let (children, pg) = spawn_children(pipeline, env, &io)?;
+    let status = wait_children(children, pg, env, &io, shell_write).await;
     env.set_status(status);
     Ok(())
 }
