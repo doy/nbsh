@@ -209,6 +209,7 @@ async fn run_pipeline(
 
     let (children, pg) = spawn_children(pipeline, env, &io)?;
     let status = wait_children(children, pg, env, &io, shell_write).await;
+    set_foreground_pg(nix::unistd::getpid())?;
     env.set_status(status);
     Ok(())
 }
