@@ -449,8 +449,33 @@ fn set_foreground_pg(pg: nix::unistd::Pid) -> anyhow::Result<()> {
         nix::fcntl::OFlag::empty(),
         nix::sys::stat::Mode::empty(),
     )?;
-    nix::unistd::tcsetpgrp(pty, pg)?;
+
+    // if a background process calls tcsetpgrp, the kernel will send it
+    // SIGTTOU which suspends it. if that background process is the session
+    // leader and doesn't have SIGTTOU blocked, the kernel will instead just
+    // return ENOTTY from the tcsetpgrp call rather than sending a signal to
+    // avoid deadlocking the process. therefore, we need to ensure that
+    // SIGTTOU is blocked here.
+
+    // Safety: setting a signal handler to SigIgn is always safe
+    unsafe {
+        nix::sys::signal::signal(
+            nix::sys::signal::Signal::SIGTTOU,
+            nix::sys::signal::SigHandler::SigIgn,
+        )?;
+    }
+    let res = nix::unistd::tcsetpgrp(pty, pg);
+    // Safety: setting a signal handler to SigDfl is always safe
+    unsafe {
+        nix::sys::signal::signal(
+            nix::sys::signal::Signal::SIGTTOU,
+            nix::sys::signal::SigHandler::SigDfl,
+        )?;
+    }
+    res?;
+
     nix::unistd::close(pty)?;
+
     nix::sys::signal::kill(neg_pid(pg), nix::sys::signal::Signal::SIGCONT)
         .or_else(|e| {
             // the process group has already exited
@@ -460,6 +485,7 @@ fn set_foreground_pg(pg: nix::unistd::Pid) -> anyhow::Result<()> {
                 Err(e)
             }
         })?;
+
     Ok(())
 }
 
