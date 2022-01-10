@@ -263,7 +263,7 @@ fn and(
 ) -> anyhow::Result<command::Child> {
     exe.shift();
     if env.latest_status().success() {
-        let mut cmd = crate::runner::Command::new(exe);
+        let mut cmd = crate::runner::Command::new(exe, cfg.io().clone());
         cfg.setup_command(&mut cmd);
         Ok(command::Child::new_wrapped(cmd.spawn(env)?))
     } else {
@@ -282,7 +282,7 @@ fn or(
         let status = *env.latest_status();
         Ok(command::Child::new_fut(async move { status }))
     } else {
-        let mut cmd = crate::runner::Command::new(exe);
+        let mut cmd = crate::runner::Command::new(exe, cfg.io().clone());
         cfg.setup_command(&mut cmd);
         Ok(command::Child::new_wrapped(cmd.spawn(env)?))
     }
@@ -305,7 +305,7 @@ fn builtin(
     cfg: command::Cfg,
 ) -> anyhow::Result<command::Child> {
     exe.shift();
-    let mut cmd = crate::runner::Command::new_builtin(exe);
+    let mut cmd = crate::runner::Command::new_builtin(exe, cfg.io().clone());
     cfg.setup_command(&mut cmd);
     Ok(command::Child::new_wrapped(cmd.spawn(env)?))
 }

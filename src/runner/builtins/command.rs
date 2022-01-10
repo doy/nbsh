@@ -9,23 +9,7 @@ pub struct Command {
 }
 
 impl Command {
-    pub fn new(exe: crate::parse::Exe) -> Result<Self, crate::parse::Exe> {
-        if let Some(s) = exe.exe().to_str() {
-            if let Some(f) = super::BUILTINS.get(s) {
-                Ok(Self {
-                    exe,
-                    f,
-                    cfg: Cfg::new(),
-                })
-            } else {
-                Err(exe)
-            }
-        } else {
-            Err(exe)
-        }
-    }
-
-    pub fn new_with_io(
+    pub fn new(
         exe: crate::parse::Exe,
         io: Io,
     ) -> Result<Self, crate::parse::Exe> {
@@ -34,7 +18,7 @@ impl Command {
                 Ok(Self {
                     exe,
                     f,
-                    cfg: Cfg::new_with_io(io),
+                    cfg: Cfg::new(io),
                 })
             } else {
                 Err(exe)
@@ -83,14 +67,7 @@ pub struct Cfg {
 }
 
 impl Cfg {
-    fn new() -> Self {
-        Self {
-            io: Io::new(),
-            pre_exec: None,
-        }
-    }
-
-    fn new_with_io(io: Io) -> Self {
+    fn new(io: Io) -> Self {
         Self { io, pre_exec: None }
     }
 

@@ -9,32 +9,14 @@ pub struct Command {
     >,
 }
 impl Command {
-    pub fn new(exe: crate::parse::Exe) -> Self {
+    pub fn new(exe: crate::parse::Exe, io: super::builtins::Io) -> Self {
         let exe_path = exe.exe().to_path_buf();
         let redirects = exe.redirects().to_vec();
         Self {
-            inner: super::builtins::Command::new(exe).map_or_else(
+            inner: super::builtins::Command::new(exe, io).map_or_else(
                 |exe| Self::new_binary(exe).inner,
                 Inner::Builtin,
             ),
-            exe: exe_path,
-            redirects,
-            pre_exec: None,
-        }
-    }
-
-    pub fn new_with_io(
-        exe: crate::parse::Exe,
-        io: super::builtins::Io,
-    ) -> Self {
-        let exe_path = exe.exe().to_path_buf();
-        let redirects = exe.redirects().to_vec();
-        Self {
-            inner: super::builtins::Command::new_with_io(exe, io)
-                .map_or_else(
-                    |exe| Self::new_binary(exe).inner,
-                    Inner::Builtin,
-                ),
             exe: exe_path,
             redirects,
             pre_exec: None,
@@ -55,11 +37,14 @@ impl Command {
         }
     }
 
-    pub fn new_builtin(exe: crate::parse::Exe) -> Self {
+    pub fn new_builtin(
+        exe: crate::parse::Exe,
+        io: super::builtins::Io,
+    ) -> Self {
         let exe_path = exe.exe().to_path_buf();
         let redirects = exe.redirects().to_vec();
         Self {
-            inner: super::builtins::Command::new(exe)
+            inner: super::builtins::Command::new(exe, io)
                 .map_or_else(|_| todo!(), Inner::Builtin),
             exe: exe_path,
             redirects,

@@ -243,7 +243,7 @@ fn spawn_children<'a>(
     let pipeline = pipeline.eval(env);
     let mut cmds: Vec<_> = pipeline
         .into_exes()
-        .map(|exe| Command::new_with_io(exe, io.clone()))
+        .map(|exe| Command::new(exe, io.clone()))
         .collect();
     for i in 0..(cmds.len() - 1) {
         let (r, w) = pipe()?;
