@@ -254,61 +254,6 @@ impl std::iter::DoubleEndedIterator for VisibleEntries {
     }
 }
 
-struct Stack {
-    frames: Vec<Frame>,
-}
-
-impl Stack {
-    fn new() -> Self {
-        Self { frames: vec![] }
-    }
-
-    fn push(&mut self, frame: Frame) {
-        self.frames.push(frame);
-    }
-
-    fn pop(&mut self) -> Frame {
-        self.frames.pop().unwrap()
-    }
-
-    fn top(&self) -> Option<&Frame> {
-        self.frames.last()
-    }
-
-    fn top_mut(&mut self) -> Option<&mut Frame> {
-        self.frames.last_mut()
-    }
-
-    fn current_pc(&self, pc: usize) -> bool {
-        match self.top() {
-            Some(Frame::If(_)) | None => false,
-            Some(Frame::While(_, start) | Frame::For(_, start, _)) => {
-                *start == pc
-            }
-        }
-    }
-
-    fn should_execute(&self) -> bool {
-        for frame in &self.frames {
-            if matches!(
-                frame,
-                Frame::If(false)
-                    | Frame::While(false, ..)
-                    | Frame::For(false, ..)
-            ) {
-                return false;
-            }
-        }
-        true
-    }
-}
-
-enum Frame {
-    If(bool),
-    While(bool, usize),
-    For(bool, usize, Vec<String>),
-}
-
 fn run_commands(
     ast: crate::parse::ast::Commands,
     entry: crate::mutex::Mutex<Entry>,
@@ -340,140 +285,40 @@ fn run_commands(
             }
         };
 
-        macro_rules! run_pipeline {
-            ($pipeline:expr) => {
-                match run_pipeline(
-                    $pipeline.input_string(),
-                    &pty,
-                    &mut env,
-                    event_w.clone(),
-                )
-                .await
-                {
-                    Ok((pipeline_status, done)) => {
-                        env.set_status(pipeline_status);
-                        if done {
-                            break;
-                        }
-                    }
-                    Err(e) => {
-                        entry
-                            .lock_arc()
-                            .await
-                            .process(format!("nbsh: {}\r\n", e).as_bytes());
-                        env.set_status(
-                            async_std::process::ExitStatus::from_raw(1 << 8),
-                        );
-                    }
+        let status =
+            match spawn_commands(&ast, &pty, &mut env, event_w.clone()).await
+            {
+                Ok(status) => status,
+                Err(e) => {
+                    let mut entry = entry.lock_arc().await;
+                    entry.process(
+                        format!(
+                            "nbsh: failed to spawn {}: {}\r\n",
+                            ast.input_string(),
+                            e
+                        )
+                        .as_bytes(),
+                    );
+                    env.set_status(async_std::process::ExitStatus::from_raw(
+                        1 << 8,
+                    ));
+                    entry.finish(env, event_w).await;
+                    return;
                 }
             };
-        }
+        env.set_status(status);
 
-        let commands = ast.commands();
-        let mut pc = 0;
-        let mut stack = Stack::new();
-        while pc < commands.len() {
-            match &commands[pc] {
-                crate::parse::ast::Command::Pipeline(pipeline) => {
-                    if stack.should_execute() {
-                        run_pipeline!(pipeline);
-                    }
-                    pc += 1;
-                }
-                crate::parse::ast::Command::If(pipeline) => {
-                    let should = stack.should_execute();
-                    if !stack.current_pc(pc) {
-                        stack.push(Frame::If(false));
-                    }
-                    if should {
-                        run_pipeline!(pipeline);
-                        if let Some(Frame::If(should)) = stack.top_mut() {
-                            *should = env.latest_status().success();
-                        } else {
-                            unreachable!();
-                        }
-                    }
-                    pc += 1;
-                }
-                crate::parse::ast::Command::While(pipeline) => {
-                    let should = stack.should_execute();
-                    if !stack.current_pc(pc) {
-                        stack.push(Frame::While(false, pc));
-                    }
-                    if should {
-                        run_pipeline!(pipeline);
-                        if let Some(Frame::While(should, _)) = stack.top_mut()
-                        {
-                            *should = env.latest_status().success();
-                        } else {
-                            unreachable!();
-                        }
-                    }
-                    pc += 1;
-                }
-                crate::parse::ast::Command::For(var, list) => {
-                    let should = stack.should_execute();
-                    if !stack.current_pc(pc) {
-                        stack.push(Frame::For(
-                            false,
-                            pc,
-                            if stack.should_execute() {
-                                list.clone()
-                                    .into_iter()
-                                    .map(|w| w.eval(&env))
-                                    .collect()
-                            } else {
-                                vec![]
-                            },
-                        ));
-                    }
-                    if should {
-                        if let Some(Frame::For(should, _, list)) =
-                            stack.top_mut()
-                        {
-                            *should = !list.is_empty();
-                            if *should {
-                                let val = list.remove(0);
-                                env.set_var(var, &val);
-                            }
-                        } else {
-                            unreachable!();
-                        }
-                    }
-                    pc += 1;
-                }
-                crate::parse::ast::Command::End => match stack.top() {
-                    Some(Frame::If(_)) => {
-                        stack.pop();
-                        pc += 1;
-                    }
-                    Some(
-                        Frame::While(should, start)
-                        | Frame::For(should, start, _),
-                    ) => {
-                        if *should {
-                            pc = *start;
-                        } else {
-                            stack.pop();
-                            pc += 1;
-                        }
-                    }
-                    None => todo!(),
-                },
-            }
-        }
         entry.lock_arc().await.finish(env, event_w).await;
-
         pty.close().await;
     });
 }
 
-async fn run_pipeline(
-    pipeline: &str,
+async fn spawn_commands(
+    commands: &crate::parse::ast::Commands,
     pty: &pty::Pty,
     env: &mut Env,
     event_w: async_std::channel::Sender<Event>,
-) -> anyhow::Result<(async_std::process::ExitStatus, bool)> {
+) -> anyhow::Result<async_std::process::ExitStatus> {
     let mut cmd = pty_process::Command::new(std::env::current_exe()?);
     cmd.arg("--internal-cmd-runner");
     env.apply(&mut cmd);
@@ -495,7 +340,7 @@ async fn run_pipeline(
     // be used after this because from_raw_fd takes it by move
     write_env(
         unsafe { async_std::fs::File::from_raw_fd(to_w) },
-        pipeline,
+        commands.input_string(),
         env,
     )
     .await?;
@@ -575,16 +420,7 @@ async fn run_pipeline(
             nix::unistd::close(from_r)?;
             // nix::sys::signal::Signal is repr(i32)
             #[allow(clippy::as_conversions)]
-            return Ok((
-                status,
-                // i'm not sure what exactly the expected behavior
-                // here is - in zsh, SIGINT kills the whole command
-                // line while SIGTERM doesn't, but i don't know what
-                // the precise logic is or how other signals are
-                // handled
-                status.signal()
-                    == Some(nix::sys::signal::Signal::SIGINT as i32),
-            ));
+            return Ok(status);
         }
     }
 }
