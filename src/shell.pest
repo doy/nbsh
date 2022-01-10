@@ -8,27 +8,30 @@ bareword_char = @{
 single_string_char = @{ basic_escape_char | (!"'" ~ ANY) }
 double_string_char = @{ escape_char | (!"\"" ~ ANY) }
 
+redir_prefix = @{
+    ("in" | "out" | "err" | ASCII_DIGIT*) ~ (">>" | ">" | "<") ~ WHITESPACE*
+}
+
 var = @{
     ("$" ~ XID_START ~ XID_CONTINUE*) |
     ("$" ~ ("?" | "$" | "*" | ASCII_DIGIT)) |
     ("${" ~ (!"}" ~ ANY)+ ~ "}")
 }
-
-redir_prefix = @{
-    ("in" | "out" | "err" | ASCII_DIGIT*) ~ (">>" | ">" | "<") ~ WHITESPACE*
-}
 bareword      = @{ bareword_char+ }
 single_string = @{ single_string_char+ }
 double_string = @{ double_string_char+ }
 
-word     = ${
-    redir_prefix? ~
-    (var | bareword |
+word_part = ${
+    var |
+    bareword |
     "'" ~ single_string ~ "'" |
-    "\"" ~ (var | double_string)+ ~ "\"")+
+    "\"" ~ (var | double_string)+ ~ "\""
 }
+word = ${ word_part+ }
 
-exe      = ${ word ~ (w ~ word)* }
+word_or_redirect = ${ redir_prefix? ~ word }
+
+exe      = ${ word_or_redirect ~ (w ~ word_or_redirect)* }
 list     = ${ word ~ (w ~ word)* }
 pipeline = ${ exe ~ (w? ~ "|" ~ w? ~ exe)* }
 

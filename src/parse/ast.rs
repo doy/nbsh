@@ -160,7 +160,7 @@ impl Word {
     fn build_ast(pair: pest::iterators::Pair<Rule>) -> Self {
         assert!(matches!(pair.as_rule(), Rule::word));
         Self {
-            parts: pair.into_inner().map(WordPart::build_ast).collect(),
+            parts: pair.into_inner().flat_map(WordPart::build_ast).collect(),
         }
     }
 
@@ -183,8 +183,11 @@ enum WordPart {
 
 impl WordPart {
     #[allow(clippy::needless_pass_by_value)]
-    fn build_ast(pair: pest::iterators::Pair<Rule>) -> Self {
-        match pair.as_rule() {
+    fn build_ast(
+        pair: pest::iterators::Pair<Rule>,
+    ) -> impl Iterator<Item = Self> + '_ {
+        assert!(matches!(pair.as_rule(), Rule::word_part));
+        pair.into_inner().map(|pair| match pair.as_rule() {
             Rule::var => {
                 let s = pair.as_str();
                 let inner = s.strip_prefix('$').unwrap();
@@ -205,7 +208,7 @@ impl WordPart {
                 Self::SingleQuoted(strip_basic_escape(pair.as_str()))
             }
             _ => unreachable!(),
-        }
+        })
     }
 
     fn eval(self, env: &Env) -> String {
@@ -282,7 +285,7 @@ enum WordOrRedirect {
 
 impl WordOrRedirect {
     fn build_ast(pair: pest::iterators::Pair<Rule>) -> Self {
-        assert!(matches!(pair.as_rule(), Rule::word));
+        assert!(matches!(pair.as_rule(), Rule::word_or_redirect));
         let mut inner = pair.into_inner().peekable();
         let prefix = if matches!(
             inner.peek().map(pest::iterators::Pair::as_rule),
@@ -292,9 +295,7 @@ impl WordOrRedirect {
         } else {
             None
         };
-        let word = Word {
-            parts: inner.map(WordPart::build_ast).collect(),
-        };
+        let word = Word::build_ast(inner.next().unwrap());
         if let Some(prefix) = prefix {
             Self::Redirect(Redirect::parse(&prefix, word))
         } else {
