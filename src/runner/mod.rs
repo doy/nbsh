@@ -143,7 +143,7 @@ async fn run_commands(
                         if stack.should_execute() {
                             list.clone()
                                 .into_iter()
-                                .map(|w| w.eval(env))
+                                .flat_map(|w| w.eval(env))
                                 .collect()
                         } else {
                             vec![]

@@ -108,9 +108,16 @@ struct Exe {
 
 impl Exe {
     fn eval(self, env: &Env) -> super::Exe {
+        let exe = self.exe.eval(env);
+        assert_eq!(exe.len(), 1); // TODO
+        let exe = &exe[0];
         super::Exe {
-            exe: std::path::PathBuf::from(self.exe.eval(env)),
-            args: self.args.into_iter().map(|arg| arg.eval(env)).collect(),
+            exe: std::path::PathBuf::from(exe),
+            args: self
+                .args
+                .into_iter()
+                .flat_map(|arg| arg.eval(env))
+                .collect(),
             redirects: self
                 .redirects
                 .into_iter()
@@ -167,12 +174,37 @@ impl Word {
         }
     }
 
-    pub fn eval(self, env: &Env) -> String {
-        self.parts
-            .into_iter()
-            .map(|part| part.eval(env))
-            .collect::<Vec<_>>()
-            .join("")
+    pub fn eval(self, env: &Env) -> Vec<String> {
+        let mut alternations = vec![];
+        let mut cur = String::new();
+        for part in self.parts {
+            if let WordPart::Alternation(words) = part {
+                if !cur.is_empty() {
+                    alternations.push(vec![cur.clone()]);
+                    cur.clear();
+                }
+                alternations.push(
+                    words.into_iter().flat_map(|w| w.eval(env)).collect(),
+                );
+            } else {
+                cur.push_str(&part.eval(env));
+            }
+        }
+        if !cur.is_empty() {
+            alternations.push(vec![cur]);
+        }
+        let mut words: Vec<_> = std::iter::repeat(String::new())
+            .take(alternations.iter().map(Vec::len).product())
+            .collect();
+        for i in 0..words.len() {
+            let mut len = words.len();
+            for alternation in &alternations {
+                let idx = (i * alternation.len() / len) % alternation.len();
+                words[i].push_str(&alternation[idx]);
+                len /= alternation.len();
+            }
+        }
+        words
     }
 }
 
@@ -225,7 +257,7 @@ impl WordPart {
 
     fn eval(self, env: &Env) -> String {
         match self {
-            Self::Alternation(_) => todo!(),
+            Self::Alternation(_) => unreachable!(),
             Self::Var(name) => env.var(&name),
             Self::Bareword(s)
             | Self::DoubleQuoted(s)
@@ -269,19 +301,22 @@ impl Redirect {
                 if let Some(fd) = s.strip_prefix('&') {
                     super::RedirectTarget::Fd(parse_fd(fd))
                 } else {
-                    super::RedirectTarget::File(std::path::PathBuf::from(
-                        self.to.eval(env),
-                    ))
+                    let to = self.to.eval(env);
+                    assert_eq!(to.len(), 1); // TODO
+                    let to = &to[0];
+                    super::RedirectTarget::File(std::path::PathBuf::from(to))
                 }
             } else {
-                super::RedirectTarget::File(std::path::PathBuf::from(
-                    self.to.eval(env),
-                ))
+                let to = self.to.eval(env);
+                assert_eq!(to.len(), 1); // TODO
+                let to = &to[0];
+                super::RedirectTarget::File(std::path::PathBuf::from(to))
             }
         } else {
-            super::RedirectTarget::File(std::path::PathBuf::from(
-                self.to.eval(env),
-            ))
+            let to = self.to.eval(env);
+            assert_eq!(to.len(), 1); // TODO
+            let to = &to[0];
+            super::RedirectTarget::File(std::path::PathBuf::from(to))
         };
         super::Redirect {
             from: self.from,
