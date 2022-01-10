@@ -17,8 +17,8 @@ static BUILTINS: once_cell::sync::Lazy<
 > = once_cell::sync::Lazy::new(|| {
     let mut builtins = std::collections::HashMap::new();
     builtins.insert("cd", &cd as Builtin);
-    builtins.insert("setenv", &setenv);
-    builtins.insert("unsetenv", &unsetenv);
+    builtins.insert("set", &set);
+    builtins.insert("unset", &unset);
     builtins.insert("echo", &echo);
     builtins.insert("read", &read);
     builtins.insert("and", &and);
@@ -119,12 +119,12 @@ fn cd(
 }
 
 #[allow(clippy::unnecessary_wraps)]
-fn setenv(
+fn set(
     exe: crate::parse::Exe,
     env: &Env,
     cfg: command::Cfg,
 ) -> anyhow::Result<command::Child> {
-    async fn async_setenv(
+    async fn async_set(
         exe: crate::parse::Exe,
         _env: &Env,
         cfg: command::Cfg,
@@ -132,12 +132,12 @@ fn setenv(
         let k = if let Some(k) = exe.args().get(0).map(String::as_str) {
             k
         } else {
-            bail!(cfg, exe, "usage: setenv key value");
+            bail!(cfg, exe, "usage: set key value");
         };
         let v = if let Some(v) = exe.args().get(1).map(String::as_str) {
             v
         } else {
-            bail!(cfg, exe, "usage: setenv key value");
+            bail!(cfg, exe, "usage: set key value");
         };
 
         std::env::set_var(k, v);
@@ -145,17 +145,17 @@ fn setenv(
     }
 
     Ok(command::Child::new_fut(async move {
-        async_setenv(exe, env, cfg).await
+        async_set(exe, env, cfg).await
     }))
 }
 
 #[allow(clippy::unnecessary_wraps)]
-fn unsetenv(
+fn unset(
     exe: crate::parse::Exe,
     env: &Env,
     cfg: command::Cfg,
 ) -> anyhow::Result<command::Child> {
-    async fn async_unsetenv(
+    async fn async_unset(
         exe: crate::parse::Exe,
         _env: &Env,
         cfg: command::Cfg,
@@ -163,7 +163,7 @@ fn unsetenv(
         let k = if let Some(k) = exe.args().get(0).map(String::as_str) {
             k
         } else {
-            bail!(cfg, exe, "usage: unsetenv key");
+            bail!(cfg, exe, "usage: unset key");
         };
 
         std::env::remove_var(k);
@@ -171,7 +171,7 @@ fn unsetenv(
     }
 
     Ok(command::Child::new_fut(async move {
-        async_unsetenv(exe, env, cfg).await
+        async_unset(exe, env, cfg).await
     }))
 }
 
