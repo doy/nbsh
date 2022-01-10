@@ -9,7 +9,6 @@ struct Shell;
 #[derive(Debug, PartialEq, Eq)]
 pub struct Commands {
     commands: Vec<Command>,
-    input_string: String,
 }
 
 impl Commands {
@@ -29,16 +28,10 @@ impl Commands {
         &self.commands
     }
 
-    pub fn input_string(&self) -> &str {
-        &self.input_string
-    }
-
     fn build_ast(commands: pest::iterators::Pair<Rule>) -> Self {
         assert!(matches!(commands.as_rule(), Rule::commands));
-        let input_string = commands.as_str().to_string();
         Self {
             commands: commands.into_inner().map(Command::build_ast).collect(),
-            input_string,
         }
     }
 }

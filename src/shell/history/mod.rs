@@ -88,7 +88,7 @@ impl History {
 
     pub async fn run(
         &mut self,
-        ast: crate::parse::ast::Commands,
+        cmdline: &str,
         env: &Env,
         event_w: async_std::channel::Sender<Event>,
     ) -> anyhow::Result<usize> {
@@ -96,14 +96,14 @@ impl History {
         let (resize_w, resize_r) = async_std::channel::unbounded();
 
         let entry = crate::mutex::new(Entry::new(
-            ast.input_string().to_string(),
+            cmdline.to_string(),
             env.clone(),
             self.size,
             input_w,
             resize_w,
         ));
         run_commands(
-            ast,
+            cmdline.to_string(),
             crate::mutex::clone(&entry),
             env.clone(),
             input_r,
@@ -112,39 +112,6 @@ impl History {
         );
 
         self.entries.push(entry);
-        Ok(self.entries.len() - 1)
-    }
-
-    pub async fn parse_error(
-        &mut self,
-        e: crate::parse::Error,
-        env: &Env,
-        event_w: async_std::channel::Sender<Event>,
-    ) -> anyhow::Result<usize> {
-        // XXX would be great to not have to do this
-        let (input_w, input_r) = async_std::channel::unbounded();
-        let (resize_w, resize_r) = async_std::channel::unbounded();
-        input_w.close();
-        input_r.close();
-        resize_w.close();
-        resize_r.close();
-
-        let err_str = format!("{}", e);
-        let entry = crate::mutex::new(Entry::new(
-            e.into_input(),
-            env.clone(),
-            self.size,
-            input_w,
-            resize_w,
-        ));
-        self.entries.push(crate::mutex::clone(&entry));
-
-        let mut entry = entry.lock_arc().await;
-        entry.process(err_str.replace('\n', "\r\n").as_bytes());
-        let mut env = env.clone();
-        env.set_status(async_std::process::ExitStatus::from_raw(1 << 8));
-        entry.finish(env, event_w).await;
-
         Ok(self.entries.len() - 1)
     }
 
@@ -255,7 +222,7 @@ impl std::iter::DoubleEndedIterator for VisibleEntries {
 }
 
 fn run_commands(
-    ast: crate::parse::ast::Commands,
+    cmdline: String,
     entry: crate::mutex::Mutex<Entry>,
     mut env: Env,
     input_r: async_std::channel::Receiver<Vec<u8>>,
@@ -286,7 +253,8 @@ fn run_commands(
         };
 
         let status =
-            match spawn_commands(&ast, &pty, &mut env, event_w.clone()).await
+            match spawn_commands(&cmdline, &pty, &mut env, event_w.clone())
+                .await
             {
                 Ok(status) => status,
                 Err(e) => {
@@ -294,8 +262,7 @@ fn run_commands(
                     entry.process(
                         format!(
                             "nbsh: failed to spawn {}: {}\r\n",
-                            ast.input_string(),
-                            e
+                            cmdline, e
                         )
                         .as_bytes(),
                     );
@@ -314,7 +281,7 @@ fn run_commands(
 }
 
 async fn spawn_commands(
-    commands: &crate::parse::ast::Commands,
+    cmdline: &str,
     pty: &pty::Pty,
     env: &mut Env,
     event_w: async_std::channel::Sender<Event>,
@@ -340,7 +307,7 @@ async fn spawn_commands(
     // be used after this because from_raw_fd takes it by move
     write_env(
         unsafe { async_std::fs::File::from_raw_fd(to_w) },
-        commands.input_string(),
+        cmdline,
         env,
     )
     .await?;

@@ -112,10 +112,6 @@ impl Error {
             e,
         }
     }
-
-    pub fn into_input(self) -> String {
-        self.input
-    }
 }
 
 impl std::fmt::Display for Error {

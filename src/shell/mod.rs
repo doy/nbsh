@@ -320,25 +320,13 @@ impl Shell {
                     self.readline.clear_input();
                     let entry = self.history.entry(idx).await;
                     let input = entry.cmd();
-                    let idx = match crate::parse::ast::Commands::parse(input)
-                    {
-                        Ok(ast) => {
-                            let idx = self
-                                .history
-                                .run(ast, &self.env, event_w.clone())
-                                .await
-                                .unwrap();
-                            self.set_focus(Focus::History(idx), Some(entry))
-                                .await;
-                            self.hide_readline = true;
-                            idx
-                        }
-                        Err(e) => self
-                            .history
-                            .parse_error(e, &self.env, event_w.clone())
-                            .await
-                            .unwrap(),
-                    };
+                    let idx = self
+                        .history
+                        .run(input, &self.env, event_w.clone())
+                        .await
+                        .unwrap();
+                    self.set_focus(Focus::History(idx), Some(entry)).await;
+                    self.hide_readline = true;
                     self.env.set_idx(idx + 1);
                 } else {
                     self.set_focus(Focus::Readline, None).await;
@@ -439,24 +427,13 @@ impl Shell {
             textmode::Key::Ctrl(b'm') => {
                 let input = self.readline.input();
                 if !input.is_empty() {
-                    let idx = match crate::parse::ast::Commands::parse(input)
-                    {
-                        Ok(ast) => {
-                            let idx = self
-                                .history
-                                .run(ast, &self.env, event_w.clone())
-                                .await
-                                .unwrap();
-                            self.set_focus(Focus::History(idx), None).await;
-                            self.hide_readline = true;
-                            idx
-                        }
-                        Err(e) => self
-                            .history
-                            .parse_error(e, &self.env, event_w.clone())
-                            .await
-                            .unwrap(),
-                    };
+                    let idx = self
+                        .history
+                        .run(input, &self.env, event_w.clone())
+                        .await
+                        .unwrap();
+                    self.set_focus(Focus::History(idx), None).await;
+                    self.hide_readline = true;
                     self.env.set_idx(idx + 1);
                     self.readline.clear_input();
                 }
