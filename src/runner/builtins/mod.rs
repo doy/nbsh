@@ -236,7 +236,12 @@ fn read(
         };
 
         let val = match cfg.io().read_line_stdin().await {
-            Ok(line) => line,
+            Ok(line) => {
+                if line.is_empty() {
+                    return std::process::ExitStatus::from_raw(1 << 8);
+                }
+                line
+            }
             Err(e) => {
                 bail!(cfg, exe, e);
             }
