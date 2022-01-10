@@ -14,7 +14,9 @@ var = @{
     ("${" ~ (!"}" ~ ANY)+ ~ "}")
 }
 
-redir_prefix  = @{ ASCII_DIGIT* ~ (">>" | ">" | "<") ~ WHITESPACE* }
+redir_prefix = @{
+    ("in" | "out" | "err" | ASCII_DIGIT*) ~ (">>" | ">" | "<") ~ WHITESPACE*
+}
 bareword      = @{ bareword_char+ }
 single_string = @{ single_string_char+ }
 double_string = @{ double_string_char+ }

@@ -242,7 +242,12 @@ impl Redirect {
                 super::Direction::Out | super::Direction::Append => 1,
             }
         } else {
-            from.parse().unwrap()
+            match from {
+                "in" => 0,
+                "out" => 1,
+                "err" => 2,
+                _ => from.parse().unwrap(),
+            }
         };
         Self { from, to, dir }
     }
