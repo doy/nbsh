@@ -235,20 +235,19 @@ fn read(
             bail!(cfg, exe, "usage: read var");
         };
 
-        let val = match cfg.io().read_line_stdin().await {
-            Ok(line) => {
-                if line.is_empty() {
-                    return std::process::ExitStatus::from_raw(1 << 8);
-                }
-                line
-            }
+        let (done, val) = match cfg.io().read_line_stdin().await {
+            Ok(line) => (line.is_empty(), line),
             Err(e) => {
                 bail!(cfg, exe, e);
             }
         };
 
         std::env::set_var(var, val);
-        async_std::process::ExitStatus::from_raw(0)
+        async_std::process::ExitStatus::from_raw(if done {
+            1 << 8
+        } else {
+            0
+        })
     }
 
     Ok(command::Child::new_fut(async move {
