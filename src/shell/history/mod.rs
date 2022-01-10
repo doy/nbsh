@@ -374,7 +374,7 @@ async fn spawn_commands(
     let mut exit_done = None;
     loop {
         enum Res {
-            Read(bincode::Result<crate::pipeline::Event>),
+            Read(bincode::Result<crate::runner::Event>),
             Exit(std::io::Result<std::process::ExitStatus>),
         }
 
@@ -389,11 +389,11 @@ async fn spawn_commands(
         };
         match read.or(exit).await {
             Res::Read(Ok(event)) => match event {
-                crate::pipeline::Event::Suspend(idx) => {
+                crate::runner::Event::Suspend(idx) => {
                     event_w.send(Event::ChildSuspend(idx)).await.unwrap();
                     new_read();
                 }
-                crate::pipeline::Event::Exit(new_env) => {
+                crate::runner::Event::Exit(new_env) => {
                     *env = new_env;
                     read_done = true;
                 }

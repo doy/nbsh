@@ -17,13 +17,13 @@ mod format;
 mod info;
 mod mutex;
 mod parse;
-mod pipeline;
 mod prelude;
+mod runner;
 mod shell;
 
 async fn async_main() -> anyhow::Result<i32> {
     if std::env::args().nth(1).as_deref() == Some("--internal-cmd-runner") {
-        return pipeline::run().await;
+        return runner::run().await;
     }
 
     shell::run().await

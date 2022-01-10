@@ -1,4 +1,4 @@
-use crate::pipeline::prelude::*;
+use crate::runner::prelude::*;
 
 pub mod command;
 pub use command::{Child, Command, File, Io};
@@ -258,7 +258,7 @@ fn and(
 ) -> anyhow::Result<command::Child> {
     exe.shift();
     if env.latest_status().success() {
-        let mut cmd = crate::pipeline::Command::new(exe);
+        let mut cmd = crate::runner::Command::new(exe);
         cfg.setup_command(&mut cmd);
         Ok(command::Child::new_wrapped(cmd.spawn(env)?))
     } else {
@@ -277,7 +277,7 @@ fn or(
         let status = *env.latest_status();
         Ok(command::Child::new_fut(async move { status }))
     } else {
-        let mut cmd = crate::pipeline::Command::new(exe);
+        let mut cmd = crate::runner::Command::new(exe);
         cfg.setup_command(&mut cmd);
         Ok(command::Child::new_wrapped(cmd.spawn(env)?))
     }
@@ -289,7 +289,7 @@ fn command(
     cfg: command::Cfg,
 ) -> anyhow::Result<command::Child> {
     exe.shift();
-    let mut cmd = crate::pipeline::Command::new_binary(exe);
+    let mut cmd = crate::runner::Command::new_binary(exe);
     cfg.setup_command(&mut cmd);
     Ok(command::Child::new_wrapped(cmd.spawn(env)?))
 }
@@ -300,7 +300,7 @@ fn builtin(
     cfg: command::Cfg,
 ) -> anyhow::Result<command::Child> {
     exe.shift();
-    let mut cmd = crate::pipeline::Command::new_builtin(exe);
+    let mut cmd = crate::runner::Command::new_builtin(exe);
     cfg.setup_command(&mut cmd);
     Ok(command::Child::new_wrapped(cmd.spawn(env)?))
 }

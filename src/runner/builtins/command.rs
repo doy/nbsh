@@ -1,4 +1,4 @@
-use crate::pipeline::prelude::*;
+use crate::runner::prelude::*;
 
 use async_std::io::prelude::BufReadExt as _;
 
@@ -107,7 +107,7 @@ impl Cfg {
         self.pre_exec = Some(Box::new(f));
     }
 
-    pub fn setup_command(mut self, cmd: &mut crate::pipeline::Command) {
+    pub fn setup_command(mut self, cmd: &mut crate::runner::Command) {
         self.io.setup_command(cmd);
         if let Some(pre_exec) = self.pre_exec.take() {
             // Safety: pre_exec can only have been set by calling the pre_exec
@@ -245,7 +245,7 @@ impl Io {
         }
     }
 
-    pub fn setup_command(mut self, cmd: &mut crate::pipeline::Command) {
+    pub fn setup_command(mut self, cmd: &mut crate::runner::Command) {
         if let Some(stdin) = self.fds.remove(&0) {
             if let Some(stdin) = crate::mutex::unwrap(stdin) {
                 let stdin = stdin.into_raw_fd();
@@ -348,7 +348,7 @@ pub struct Child<'a> {
                 + 'a,
         >,
     >,
-    wrapped_child: Option<Box<crate::pipeline::Child<'a>>>,
+    wrapped_child: Option<Box<crate::runner::Child<'a>>>,
 }
 
 impl<'a> Child<'a> {
@@ -365,7 +365,7 @@ impl<'a> Child<'a> {
         }
     }
 
-    pub fn new_wrapped(child: crate::pipeline::Child<'a>) -> Self {
+    pub fn new_wrapped(child: crate::runner::Child<'a>) -> Self {
         Self {
             fut: Box::pin(async move { unreachable!() }),
             wrapped_child: Some(Box::new(child)),
