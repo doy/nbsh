@@ -371,6 +371,13 @@ async fn wait_children(
                     }
                     nix::sys::wait::WaitStatus::Signaled(pid, signal, _) => {
                         let (_, last) = children.remove(&pid).unwrap();
+                        if signal == nix::sys::signal::Signal::SIGINT {
+                            if let Err(e) = nix::sys::signal::raise(
+                                nix::sys::signal::Signal::SIGINT,
+                            ) {
+                                bail!(e);
+                            }
+                        }
                         // this conversion is safe because the Signal enum is
                         // repr(i32)
                         #[allow(clippy::as_conversions)]
