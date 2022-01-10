@@ -7,7 +7,7 @@ mod history;
 mod prelude;
 mod readline;
 
-pub async fn run() -> anyhow::Result<i32> {
+pub async fn main() -> anyhow::Result<i32> {
     let mut input = textmode::Input::new().await?;
     let mut output = textmode::Output::new().await?;
 

@@ -68,7 +68,7 @@ enum Frame {
     For(bool, usize, Vec<String>),
 }
 
-pub async fn run() -> anyhow::Result<i32> {
+pub async fn main() -> anyhow::Result<i32> {
     // Safety: we don't create File instances for or read/write data on fds
     // 3 or 4 anywhere else
     let shell_read = unsafe { async_std::fs::File::from_raw_fd(3) };

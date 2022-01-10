@@ -23,10 +23,10 @@ mod shell;
 
 async fn async_main() -> anyhow::Result<i32> {
     if std::env::args().nth(1).as_deref() == Some("--internal-cmd-runner") {
-        return runner::run().await;
+        return runner::main().await;
     }
 
-    shell::run().await
+    shell::main().await
 }
 
 fn main() {
