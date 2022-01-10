@@ -158,7 +158,10 @@ pub struct Word {
 
 impl Word {
     fn build_ast(pair: pest::iterators::Pair<Rule>) -> Self {
-        assert!(matches!(pair.as_rule(), Rule::word));
+        assert!(matches!(
+            pair.as_rule(),
+            Rule::word | Rule::alternation_word
+        ));
         Self {
             parts: pair.into_inner().flat_map(WordPart::build_ast).collect(),
         }
@@ -175,6 +178,7 @@ impl Word {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum WordPart {
+    Alternation(Vec<Word>),
     Var(String),
     Bareword(String),
     DoubleQuoted(String),
@@ -186,7 +190,10 @@ impl WordPart {
     fn build_ast(
         pair: pest::iterators::Pair<Rule>,
     ) -> impl Iterator<Item = Self> + '_ {
-        assert!(matches!(pair.as_rule(), Rule::word_part));
+        assert!(matches!(
+            pair.as_rule(),
+            Rule::word_part | Rule::alternation_word_part
+        ));
         pair.into_inner().map(|pair| match pair.as_rule() {
             Rule::var => {
                 let s = pair.as_str();
@@ -200,19 +207,25 @@ impl WordPart {
                         .to_string(),
                 )
             }
-            Rule::bareword => Self::Bareword(strip_escape(pair.as_str())),
+            Rule::bareword | Rule::alternation_bareword => {
+                Self::Bareword(strip_escape(pair.as_str()))
+            }
             Rule::double_string => {
                 Self::DoubleQuoted(strip_escape(pair.as_str()))
             }
             Rule::single_string => {
                 Self::SingleQuoted(strip_basic_escape(pair.as_str()))
             }
+            Rule::alternation => Self::Alternation(
+                pair.into_inner().map(Word::build_ast).collect(),
+            ),
             _ => unreachable!(),
         })
     }
 
     fn eval(self, env: &Env) -> String {
         match self {
+            Self::Alternation(_) => todo!(),
             Self::Var(name) => env.var(&name),
             Self::Bareword(s)
             | Self::DoubleQuoted(s)

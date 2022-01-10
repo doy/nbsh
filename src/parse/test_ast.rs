@@ -79,6 +79,12 @@ macro_rules! w {
     }
 }
 
+macro_rules! wpa {
+    ($($word:expr),*) => {
+        WordPart::Alternation(vec![$($word),*])
+    }
+}
+
 macro_rules! wpv {
     ($var:literal) => {
         WordPart::Var($var.to_string())
@@ -229,5 +235,55 @@ fn test_parts() {
     parse_eq!(
         "perl -E'say \"foo\"'",
         cs!(p!(e!(w!("perl"), w!(wpb!("-E"), wps!("say \"foo\"")))))
+    );
+}
+
+#[test]
+fn test_alternation() {
+    parse_eq!(
+        "echo {foo,bar}",
+        cs!(p!(e!(w!("echo"), w!(wpa!(w!("foo"), w!("bar"))))))
+    );
+    parse_eq!(
+        "echo {foo,bar}.rs",
+        cs!(p!(e!(
+            w!("echo"),
+            w!(wpa!(w!("foo"), w!("bar")), wpb!(".rs"))
+        )))
+    );
+    parse_eq!(
+        "echo {foo,bar,baz}.rs",
+        cs!(p!(e!(
+            w!("echo"),
+            w!(wpa!(w!("foo"), w!("bar"), w!("baz")), wpb!(".rs"))
+        )))
+    );
+    parse_eq!(
+        "echo {foo,}.rs",
+        cs!(p!(e!(w!("echo"), w!(wpa!(w!("foo"), w!()), wpb!(".rs")))))
+    );
+    parse_eq!("echo {foo}", cs!(p!(e!(w!("echo"), w!(wpa!(w!("foo")))))));
+    parse_eq!("echo {}", cs!(p!(e!(w!("echo"), w!(wpa!(w!()))))));
+    parse_eq!(
+        "echo {foo,bar}.{rs,c}",
+        cs!(p!(e!(
+            w!("echo"),
+            w!(
+                wpa!(w!("foo"), w!("bar")),
+                wpb!("."),
+                wpa!(w!("rs"), w!("c"))
+            )
+        )))
+    );
+    parse_eq!(
+        "echo {$foo,\"${HOME}/bin\"}.{'r'\"s\",c}",
+        cs!(p!(e!(
+            w!("echo"),
+            w!(
+                wpa!(w!(wpv!("foo")), w!(wpv!("HOME"), wpd!("/bin"))),
+                wpb!("."),
+                wpa!(w!(wps!("r"), wpd!("s")), w!("c"))
+            )
+        )))
     );
 }
