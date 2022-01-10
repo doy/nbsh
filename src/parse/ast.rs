@@ -242,12 +242,7 @@ impl Redirect {
                 super::Direction::Out | super::Direction::Append => 1,
             }
         } else {
-            match from {
-                "in" => 0,
-                "out" => 1,
-                "err" => 2,
-                _ => from.parse().unwrap(),
-            }
+            parse_fd(from)
         };
         Self { from, to, dir }
     }
@@ -256,7 +251,7 @@ impl Redirect {
         let to = if self.to.parts.len() == 1 {
             if let WordPart::Bareword(s) = &self.to.parts[0] {
                 if let Some(fd) = s.strip_prefix('&') {
-                    super::RedirectTarget::Fd(fd.parse().unwrap())
+                    super::RedirectTarget::Fd(parse_fd(fd))
                 } else {
                     super::RedirectTarget::File(std::path::PathBuf::from(
                         self.to.eval(env),
@@ -344,6 +339,15 @@ fn strip_basic_escape(s: &str) -> String {
         }
     }
     new
+}
+
+fn parse_fd(s: &str) -> std::os::unix::io::RawFd {
+    match s {
+        "in" => 0,
+        "out" => 1,
+        "err" => 2,
+        _ => s.parse().unwrap(),
+    }
 }
 
 #[cfg(test)]
