@@ -15,7 +15,7 @@ impl Commands {
     pub fn parse(full_cmd: &str) -> Result<Self, super::Error> {
         Ok(Self::build_ast(
             Shell::parse(Rule::line, full_cmd)
-                .map_err(|e| super::Error::new(full_cmd, anyhow::anyhow!(e)))?
+                .map_err(|e| super::Error::new(full_cmd, e))?
                 .next()
                 .unwrap()
                 .into_inner()

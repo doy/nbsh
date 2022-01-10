@@ -102,11 +102,11 @@ impl Direction {
 #[derive(Debug)]
 pub struct Error {
     input: String,
-    e: anyhow::Error,
+    e: pest::error::Error<ast::Rule>,
 }
 
 impl Error {
-    fn new(input: &str, e: anyhow::Error) -> Self {
+    fn new(input: &str, e: pest::error::Error<ast::Rule>) -> Self {
         Self {
             input: input.to_string(),
             e,
@@ -116,12 +116,47 @@ impl Error {
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "failed to parse {}: {}", self.input, self.e)
+        match &self.e.variant {
+            pest::error::ErrorVariant::ParsingError {
+                positives,
+                negatives,
+            } => {
+                if !positives.is_empty() {
+                    write!(f, "expected {:?}", positives[0])?;
+                    for rule in &positives[1..] {
+                        write!(f, ", {:?}", rule)?;
+                    }
+                    if !negatives.is_empty() {
+                        write!(f, "; ")?;
+                    }
+                }
+                if !negatives.is_empty() {
+                    write!(f, "unexpected {:?}", negatives[0])?;
+                    for rule in &negatives[1..] {
+                        write!(f, ", {:?}", rule)?;
+                    }
+                }
+                writeln!(f)?;
+                writeln!(f, "{}", self.input)?;
+                match &self.e.location {
+                    pest::error::InputLocation::Pos(i) => {
+                        write!(f, "{}^", " ".repeat(*i))?;
+                    }
+                    pest::error::InputLocation::Span((i, j)) => {
+                        write!(f, "{}{}", " ".repeat(*i), "^".repeat(j - i))?;
+                    }
+                }
+            }
+            pest::error::ErrorVariant::CustomError { message } => {
+                write!(f, "{}", message)?;
+            }
+        }
+        Ok(())
     }
 }
 
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(&*self.e)
+        Some(&self.e)
     }
 }
