@@ -109,7 +109,11 @@ impl Env {
         }
     }
 
-    pub fn update(&mut self) -> anyhow::Result<()> {
+    pub fn update(
+        &mut self,
+        status: std::process::ExitStatus,
+    ) -> anyhow::Result<()> {
+        self.set_status(status);
         self.set_current_dir(std::env::current_dir()?);
         self.set_vars(std::env::vars_os());
         Ok(())

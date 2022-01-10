@@ -79,8 +79,6 @@ pub async fn run() -> anyhow::Result<i32> {
     let (commands, mut env) = read_data(shell_read).await?;
     run_commands(&commands, &mut env, &shell_write).await?;
     let status = *env.latest_status();
-
-    env.update()?;
     write_event(&shell_write, Event::Exit(env)).await?;
 
     if let Some(signal) = status.signal() {
@@ -210,7 +208,7 @@ async fn run_pipeline(
     let (children, pg) = spawn_children(pipeline, env, &io)?;
     let status = wait_children(children, pg, env, &io, shell_write).await;
     set_foreground_pg(nix::unistd::getpid())?;
-    env.set_status(status);
+    env.update(status)?;
     Ok(())
 }
 
