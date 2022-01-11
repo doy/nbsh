@@ -313,7 +313,9 @@ impl Entry {
     }
 
     pub fn set_span(&mut self, span: (usize, usize)) {
-        self.state = State::Running(span);
+        if matches!(self.state, State::Running(_)) {
+            self.state = State::Running(span);
+        }
     }
 
     pub async fn finish(
