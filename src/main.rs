@@ -11,6 +11,9 @@
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::too_many_lines)]
 #![allow(clippy::type_complexity)]
+// this isn't super relevant in a binary - if it's actually a problem, we'll
+// just get a compilation failure
+#![allow(clippy::future_not_send)]
 
 mod env;
 mod format;

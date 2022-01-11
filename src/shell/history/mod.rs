@@ -19,8 +19,6 @@ impl History {
         }
     }
 
-    // render always happens on the main task
-    #[allow(clippy::future_not_send)]
     pub async fn render(
         &self,
         out: &mut impl textmode::Textmode,
@@ -64,8 +62,6 @@ impl History {
         Ok(())
     }
 
-    // render always happens on the main task
-    #[allow(clippy::future_not_send)]
     pub async fn render_fullscreen(
         &self,
         out: &mut impl textmode::Textmode,

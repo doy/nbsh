@@ -149,8 +149,6 @@ impl Shell {
         }
     }
 
-    // render always happens on the main task
-    #[allow(clippy::future_not_send)]
     pub async fn render(
         &self,
         out: &mut impl textmode::Textmode,
