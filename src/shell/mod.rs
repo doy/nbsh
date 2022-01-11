@@ -128,6 +128,7 @@ pub struct Shell {
     readline: readline::Readline,
     history: history::History,
     env: Env,
+    git: Option<git2::Repository>,
     focus: Focus,
     scene: Scene,
     escape: bool,
@@ -137,16 +138,20 @@ pub struct Shell {
 
 impl Shell {
     pub fn new(offset: time::UtcOffset) -> Self {
-        Self {
+        let env = Env::new();
+        let mut self_ = Self {
             readline: readline::Readline::new(),
             history: history::History::new(),
-            env: Env::new(),
+            env,
+            git: None,
             focus: Focus::Readline,
             scene: Scene::Readline,
             escape: false,
             hide_readline: false,
             offset,
-        }
+        };
+        self_.update_git();
+        self_
     }
 
     pub async fn render(
@@ -168,7 +173,13 @@ impl Shell {
                         )
                         .await?;
                     self.readline
-                        .render(out, &self.env, true, self.offset)
+                        .render(
+                            out,
+                            &self.env,
+                            self.git.as_ref(),
+                            true,
+                            self.offset,
+                        )
                         .await?;
                 }
                 Focus::History(idx) => {
@@ -188,7 +199,13 @@ impl Shell {
                             .await?;
                         let pos = out.screen().cursor_position();
                         self.readline
-                            .render(out, &self.env, false, self.offset)
+                            .render(
+                                out,
+                                &self.env,
+                                self.git.as_ref(),
+                                false,
+                                self.offset,
+                            )
                             .await?;
                         out.move_to(pos.0, pos.1);
                     }
@@ -204,7 +221,13 @@ impl Shell {
                         )
                         .await?;
                     self.readline
-                        .render(out, &self.env, idx.is_none(), self.offset)
+                        .render(
+                            out,
+                            &self.env,
+                            self.git.as_ref(),
+                            idx.is_none(),
+                            self.offset,
+                        )
                         .await?;
                     out.hide_cursor(true);
                 }
@@ -274,6 +297,7 @@ impl Shell {
                             let idx = self.env.idx();
                             self.env = entry.env().clone();
                             self.env.set_idx(idx);
+                            self.update_git();
                         }
                         self.set_focus(
                             if self.hide_readline {
@@ -557,5 +581,9 @@ impl Shell {
             }
         }
         self.focus_idx().map_or(Focus::Readline, Focus::History)
+    }
+
+    fn update_git(&mut self) {
+        self.git = git2::Repository::discover(self.env.current_dir()).ok();
     }
 }
