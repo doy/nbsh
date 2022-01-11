@@ -9,6 +9,7 @@ const PID0: nix::unistd::Pid = nix::unistd::Pid::from_raw(0);
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum Event {
+    RunPipeline(usize, (usize, usize)),
     Suspend(usize),
     Exit(Env),
 }
@@ -195,6 +196,8 @@ async fn run_pipeline(
     env: &mut Env,
     shell_write: &async_std::fs::File,
 ) -> anyhow::Result<()> {
+    write_event(&shell_write, Event::RunPipeline(env.idx(), pipeline.span()))
+        .await?;
     // Safety: pipelines are run serially, so only one copy of these will ever
     // exist at once. note that reusing a single copy of these at the top
     // level would not be safe, because in the case of a command line like

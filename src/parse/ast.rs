@@ -82,6 +82,7 @@ impl Command {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pipeline {
     exes: Vec<Exe>,
+    span: (usize, usize),
 }
 
 impl Pipeline {
@@ -95,10 +96,16 @@ impl Pipeline {
         })
     }
 
+    pub fn span(&self) -> (usize, usize) {
+        self.span
+    }
+
     fn build_ast(pipeline: pest::iterators::Pair<Rule>) -> Self {
         assert!(matches!(pipeline.as_rule(), Rule::pipeline));
+        let span = (pipeline.as_span().start(), pipeline.as_span().end());
         Self {
             exes: pipeline.into_inner().map(Exe::build_ast).collect(),
+            span,
         }
     }
 }

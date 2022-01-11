@@ -356,6 +356,13 @@ async fn spawn_commands(
         };
         match read.or(exit).await {
             Res::Read(Ok(event)) => match event {
+                crate::runner::Event::RunPipeline(idx, span) => {
+                    event_w
+                        .send(Event::ChildRunPipeline(idx, span))
+                        .await
+                        .unwrap();
+                    new_read();
+                }
                 crate::runner::Event::Suspend(idx) => {
                     event_w.send(Event::ChildSuspend(idx)).await.unwrap();
                     new_read();

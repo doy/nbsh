@@ -4,6 +4,7 @@ pub enum Event {
     Resize((u16, u16)),
     PtyOutput,
     PtyClose,
+    ChildRunPipeline(usize, (usize, usize)),
     ChildSuspend(usize),
     ClockTimer,
 }
@@ -56,6 +57,7 @@ struct Pending {
     size: Option<(u16, u16)>,
     pty_output: bool,
     pty_close: bool,
+    child_run_pipeline: std::collections::VecDeque<(usize, (usize, usize))>,
     child_suspend: std::collections::VecDeque<usize>,
     clock_timer: bool,
     done: bool,
@@ -72,6 +74,7 @@ impl Pending {
             || self.size.is_some()
             || self.pty_output
             || self.pty_close
+            || !self.child_run_pipeline.is_empty()
             || !self.child_suspend.is_empty()
             || self.clock_timer
     }
@@ -89,6 +92,9 @@ impl Pending {
         if self.pty_close {
             self.pty_close = false;
             return Some(Event::PtyClose);
+        }
+        if let Some((idx, span)) = self.child_run_pipeline.pop_front() {
+            return Some(Event::ChildRunPipeline(idx, span));
         }
         if let Some(idx) = self.child_suspend.pop_front() {
             return Some(Event::ChildSuspend(idx));
@@ -113,6 +119,9 @@ impl Pending {
             Some(Event::Resize(size)) => self.size = Some(size),
             Some(Event::PtyOutput) => self.pty_output = true,
             Some(Event::PtyClose) => self.pty_close = true,
+            Some(Event::ChildRunPipeline(idx, span)) => {
+                self.child_run_pipeline.push_back((idx, span));
+            }
             Some(Event::ChildSuspend(idx)) => {
                 self.child_suspend.push_back(idx);
             }

@@ -1,8 +1,14 @@
 use crate::shell::prelude::*;
 
+enum State {
+    Running((usize, usize)),
+    Exited(ExitInfo),
+}
+
 pub struct Entry {
     cmdline: String,
     env: Env,
+    state: State,
     vt: vt100::Parser,
     audible_bell_state: usize,
     visual_bell_state: usize,
@@ -11,7 +17,6 @@ pub struct Entry {
     resize: async_std::channel::Sender<(u16, u16)>,
     start_time: time::OffsetDateTime,
     start_instant: std::time::Instant,
-    exit_info: Option<ExitInfo>,
 }
 
 impl Entry {
@@ -22,9 +27,11 @@ impl Entry {
         input: async_std::channel::Sender<Vec<u8>>,
         resize: async_std::channel::Sender<(u16, u16)>,
     ) -> Self {
+        let span = (0, cmdline.len());
         Self {
             cmdline,
             env,
+            state: State::Running(span),
             vt: vt100::Parser::new(size.0, size.1, 0),
             audible_bell_state: 0,
             visual_bell_state: 0,
@@ -33,7 +40,6 @@ impl Entry {
             fullscreen: None,
             start_time: time::OffsetDateTime::now_utc(),
             start_instant: std::time::Instant::now(),
-            exit_info: None,
         }
     }
 
@@ -47,7 +53,7 @@ impl Entry {
         scrolling: bool,
         offset: time::UtcOffset,
     ) {
-        let time = self.exit_info.as_ref().map_or_else(
+        let time = self.exit_info().map_or_else(
             || {
                 format!(
                     "[{}]",
@@ -75,7 +81,7 @@ impl Entry {
         out.reset_attributes();
 
         set_bgcolor(out, idx, focused);
-        if let Some(info) = &self.exit_info {
+        if let Some(info) = self.exit_info() {
             if info.status.signal().is_some() {
                 out.set_fgcolor(textmode::color::MAGENTA);
             } else if info.status.success() {
@@ -91,19 +97,44 @@ impl Entry {
 
         set_bgcolor(out, idx, focused);
         out.write_str("$ ");
-        if self.running() {
-            out.set_bgcolor(textmode::Color::Rgb(16, 64, 16));
-        }
-        let cmd = self.cmd();
         let start = usize::from(out.screen().cursor_position().1);
         let end = usize::from(size.1) - time.len() - 2;
         let max_len = end - start;
-        if cmd.len() > max_len {
-            out.write_str(&cmd[..(max_len - 4)]);
-            out.set_fgcolor(textmode::color::BLUE);
-            out.write_str(" ...");
+        let cmd = if self.cmd().len() > max_len {
+            &self.cmd()[..(max_len - 4)]
+        } else {
+            self.cmd()
+        };
+        if let State::Running(span) = self.state {
+            let span = (span.0.min(cmd.len()), span.1.min(cmd.len()));
+            if !cmd[..span.0].is_empty() {
+                out.write_str(&cmd[..span.0]);
+            }
+            if !cmd[span.0..span.1].is_empty() {
+                out.set_bgcolor(textmode::Color::Rgb(16, 64, 16));
+                out.write_str(&cmd[span.0..span.1]);
+                set_bgcolor(out, idx, focused);
+            }
+            if !cmd[span.1..].is_empty() {
+                out.write_str(&cmd[span.1..]);
+            }
         } else {
             out.write_str(cmd);
+        }
+        if self.cmd().len() > max_len {
+            if let State::Running(span) = self.state {
+                if span.0 < cmd.len() && span.1 > cmd.len() {
+                    out.set_bgcolor(textmode::Color::Rgb(16, 64, 16));
+                }
+            }
+            out.write_str(" ");
+            if let State::Running(span) = self.state {
+                if span.1 > cmd.len() {
+                    out.set_bgcolor(textmode::Color::Rgb(16, 64, 16));
+                }
+            }
+            out.set_fgcolor(textmode::color::BLUE);
+            out.write_str("...");
         }
         out.reset_attributes();
 
@@ -233,7 +264,7 @@ impl Entry {
     }
 
     pub fn running(&self) -> bool {
-        self.exit_info.is_none()
+        matches!(self.state, State::Running(_))
     }
 
     pub fn binary(&self) -> bool {
@@ -281,14 +312,25 @@ impl Entry {
             .unwrap_or_else(|| self.vt.screen().alternate_screen())
     }
 
+    pub fn set_span(&mut self, span: (usize, usize)) {
+        self.state = State::Running(span);
+    }
+
     pub async fn finish(
         &mut self,
         env: Env,
         event_w: async_std::channel::Sender<Event>,
     ) {
-        self.exit_info = Some(ExitInfo::new(*env.latest_status()));
+        self.state = State::Exited(ExitInfo::new(*env.latest_status()));
         self.env = env;
         event_w.send(Event::PtyClose).await.unwrap();
+    }
+
+    fn exit_info(&self) -> Option<&ExitInfo> {
+        match &self.state {
+            State::Running(..) => None,
+            State::Exited(exit_info) => Some(exit_info),
+        }
     }
 }
 

@@ -289,6 +289,9 @@ impl Shell {
                     }
                 }
             }
+            Event::ChildRunPipeline(idx, span) => {
+                self.history.entry(idx).await.set_span(span);
+            }
             Event::ChildSuspend(idx) => {
                 if self.focus_idx() == Some(idx) {
                     self.set_focus(Focus::Readline, None).await;
