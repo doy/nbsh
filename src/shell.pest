@@ -6,7 +6,7 @@ bareword_char = @{
     !("|" | ";" | "\"" | "'" | "$" | "{" | WHITESPACE | COMMENT) ~ ANY
 }
 single_string_char = @{ basic_escape_char | (!"'" ~ ANY) }
-double_string_char = @{ escape_char | (!"\"" ~ ANY) }
+double_string_char = @{ escape_char | (!("\"" | "$") ~ ANY) }
 
 redir_prefix = @{
     ("in" | "out" | "err" | ASCII_DIGIT*) ~ (">>" | ">" | "<") ~ WHITESPACE*

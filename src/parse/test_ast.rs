@@ -305,6 +305,13 @@ fn test_parts() {
         cs!(p!((0, 16), e!(w!("echo"), w!(wpv!("HOME"), wpd!("/bin")))))
     );
     parse_eq!(
+        "echo \"dir: $HOME/bin\"",
+        cs!(p!(
+            (0, 21),
+            e!(w!("echo"), w!(wpd!("dir: "), wpv!("HOME"), wpd!("/bin")))
+        ))
+    );
+    parse_eq!(
         "echo $HOME/bin",
         cs!(p!((0, 14), e!(w!("echo"), w!(wpv!("HOME"), wpb!("/bin")))))
     );
