@@ -85,10 +85,14 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-    pub fn eval(self, env: &Env) -> super::Pipeline {
-        super::Pipeline {
-            exes: self.exes.into_iter().map(|exe| exe.eval(env)).collect(),
-        }
+    pub fn eval(self, env: &Env) -> anyhow::Result<super::Pipeline> {
+        Ok(super::Pipeline {
+            exes: self
+                .exes
+                .into_iter()
+                .map(|exe| exe.eval(env))
+                .collect::<Result<_, _>>()?,
+        })
     }
 
     fn build_ast(pipeline: pest::iterators::Pair<Rule>) -> Self {
@@ -107,23 +111,26 @@ struct Exe {
 }
 
 impl Exe {
-    fn eval(self, env: &Env) -> super::Exe {
-        let exe = self.exe.eval(env);
+    fn eval(self, env: &Env) -> anyhow::Result<super::Exe> {
+        let exe = self.exe.eval(env)?;
         assert_eq!(exe.len(), 1); // TODO
         let exe = &exe[0];
-        super::Exe {
+        Ok(super::Exe {
             exe: std::path::PathBuf::from(exe),
             args: self
                 .args
                 .into_iter()
-                .flat_map(|arg| arg.eval(env))
+                .map(|arg| arg.eval(env).map(IntoIterator::into_iter))
+                .collect::<Result<Vec<std::vec::IntoIter<_>>, _>>()?
+                .into_iter()
+                .flatten()
                 .collect(),
             redirects: self
                 .redirects
                 .into_iter()
-                .map(|redirect| redirect.eval(env))
-                .collect(),
-        }
+                .map(|arg| arg.eval(env))
+                .collect::<Result<_, _>>()?,
+        })
     }
 
     fn build_ast(pair: pest::iterators::Pair<Rule>) -> Self {
@@ -174,37 +181,88 @@ impl Word {
         }
     }
 
-    pub fn eval(self, env: &Env) -> Vec<String> {
-        let mut alternations = vec![];
-        let mut cur = String::new();
+    pub fn eval(self, env: &Env) -> anyhow::Result<Vec<String>> {
+        let mut opts = glob::MatchOptions::new();
+        opts.require_literal_separator = true;
+        opts.require_literal_leading_dot = true;
+
+        let mut alternations: Vec<Vec<Vec<WordPart>>> = vec![];
+        let mut cur: Vec<WordPart> = vec![];
         for part in self.parts {
             if let WordPart::Alternation(words) = part {
                 if !cur.is_empty() {
                     alternations.push(vec![cur.clone()]);
                     cur.clear();
                 }
-                alternations.push(
-                    words.into_iter().flat_map(|w| w.eval(env)).collect(),
-                );
+                alternations
+                    .push(words.into_iter().map(|word| word.parts).collect());
             } else {
-                cur.push_str(&part.eval(env));
+                cur.push(part.clone());
             }
         }
         if !cur.is_empty() {
             alternations.push(vec![cur]);
         }
-        let mut words: Vec<_> = std::iter::repeat(String::new())
+        let mut words: Vec<Vec<WordPart>> = std::iter::repeat(vec![])
             .take(alternations.iter().map(Vec::len).product())
             .collect();
         for i in 0..words.len() {
             let mut len = words.len();
             for alternation in &alternations {
                 let idx = (i * alternation.len() / len) % alternation.len();
-                words[i].push_str(&alternation[idx]);
+                words[i].extend(alternation[idx].clone().into_iter());
                 len /= alternation.len();
             }
         }
-        words
+
+        let mut expanded_words = vec![];
+        for word in words {
+            let mut s = String::new();
+            let mut pat = String::new();
+            let mut is_glob = false;
+            for part in word {
+                match part {
+                    WordPart::Alternation(_) => unreachable!(),
+                    WordPart::Bareword(_) => {
+                        let part = part.eval(env);
+                        s.push_str(&part);
+                        pat.push_str(&part);
+                        if part.contains(&['*', '?', '['][..]) {
+                            is_glob = true;
+                        }
+                    }
+                    WordPart::Var(_)
+                    | WordPart::DoubleQuoted(_)
+                    | WordPart::SingleQuoted(_) => {
+                        let part = part.eval(env);
+                        s.push_str(&part);
+                        pat.push_str(&glob::Pattern::escape(&part));
+                    }
+                }
+            }
+            if is_glob {
+                let mut found = false;
+                for file in glob::glob_with(&pat, opts)? {
+                    let file = file?;
+                    let s = file.to_str().unwrap();
+                    if s == "."
+                        || s == ".."
+                        || s.ends_with("/.")
+                        || s.ends_with("/..")
+                    {
+                        continue;
+                    }
+                    found = true;
+                    expanded_words.push(s.to_string());
+                }
+                if !found {
+                    anyhow::bail!("no matches for {}", s);
+                }
+            } else {
+                expanded_words.push(s);
+            }
+        }
+        Ok(expanded_words)
     }
 }
 
@@ -295,34 +353,34 @@ impl Redirect {
         Self { from, to, dir }
     }
 
-    fn eval(self, env: &Env) -> super::Redirect {
+    fn eval(self, env: &Env) -> anyhow::Result<super::Redirect> {
         let to = if self.to.parts.len() == 1 {
             if let WordPart::Bareword(s) = &self.to.parts[0] {
                 if let Some(fd) = s.strip_prefix('&') {
                     super::RedirectTarget::Fd(parse_fd(fd))
                 } else {
-                    let to = self.to.eval(env);
+                    let to = self.to.eval(env)?;
                     assert_eq!(to.len(), 1); // TODO
                     let to = &to[0];
                     super::RedirectTarget::File(std::path::PathBuf::from(to))
                 }
             } else {
-                let to = self.to.eval(env);
+                let to = self.to.eval(env)?;
                 assert_eq!(to.len(), 1); // TODO
                 let to = &to[0];
                 super::RedirectTarget::File(std::path::PathBuf::from(to))
             }
         } else {
-            let to = self.to.eval(env);
+            let to = self.to.eval(env)?;
             assert_eq!(to.len(), 1); // TODO
             let to = &to[0];
             super::RedirectTarget::File(std::path::PathBuf::from(to))
         };
-        super::Redirect {
+        Ok(super::Redirect {
             from: self.from,
             to,
             dir: self.dir,
-        }
+        })
     }
 }
 

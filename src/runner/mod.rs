@@ -143,7 +143,10 @@ async fn run_commands(
                         if stack.should_execute() {
                             list.clone()
                                 .into_iter()
-                                .flat_map(|w| w.eval(env))
+                                .map(|w| w.eval(env).map(IntoIterator::into_iter))
+                                .collect::<Result<Vec<std::vec::IntoIter<_>>, _>>()?
+                                .into_iter()
+                                .flatten()
                                 .collect()
                         } else {
                             vec![]
@@ -240,7 +243,7 @@ fn spawn_children<'a>(
     env: &'a Env,
     io: &builtins::Io,
 ) -> anyhow::Result<(Vec<Child<'a>>, Option<nix::unistd::Pid>)> {
-    let pipeline = pipeline.eval(env);
+    let pipeline = pipeline.eval(env)?;
     let mut cmds: Vec<_> = pipeline
         .into_exes()
         .map(|exe| Command::new(exe, io.clone()))
