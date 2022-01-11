@@ -196,7 +196,7 @@ async fn run_pipeline(
     env: &mut Env,
     shell_write: &async_std::fs::File,
 ) -> anyhow::Result<()> {
-    write_event(&shell_write, Event::RunPipeline(env.idx(), pipeline.span()))
+    write_event(shell_write, Event::RunPipeline(env.idx(), pipeline.span()))
         .await?;
     // Safety: pipelines are run serially, so only one copy of these will ever
     // exist at once. note that reusing a single copy of these at the top
