@@ -1,6 +1,6 @@
 pub mod ast;
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct Pipeline {
     exes: Vec<Exe>,
 }
@@ -11,7 +11,7 @@ impl Pipeline {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct Exe {
     exe: std::path::PathBuf,
     args: Vec<String>,
@@ -36,14 +36,14 @@ impl Exe {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Redirect {
     pub from: std::os::unix::io::RawFd,
     pub to: RedirectTarget,
     pub dir: Direction,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum RedirectTarget {
     Fd(std::os::unix::io::RawFd),
     File(std::path::PathBuf),
@@ -99,7 +99,7 @@ impl Direction {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct Error {
     input: String,
     e: pest::error::Error<ast::Rule>,

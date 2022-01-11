@@ -25,6 +25,14 @@ macro_rules! p {
     };
 }
 
+macro_rules! ep {
+    ($($exes:expr),*) => {
+        super::super::Pipeline {
+            exes: vec![$($exes),*],
+        }
+    };
+}
+
 macro_rules! e {
     ($word:expr) => {
         Exe {
@@ -52,6 +60,26 @@ macro_rules! e {
             exe: $word,
             args: vec![$($args),*],
             redirects: vec![$($redirects),*],
+        }
+    };
+}
+
+macro_rules! ee {
+    ($exe:expr) => {
+        super::super::Exe {
+            exe: std::path::PathBuf::from($exe.to_string()),
+            args: vec![],
+            redirects: vec![],
+        }
+    };
+    ($exe:expr, $($args:expr),*) => {
+        super::super::Exe {
+            exe: std::path::PathBuf::from($exe.to_string()),
+            args: [$($args),*]
+                .into_iter()
+                .map(|s| s.to_string())
+                .collect(),
+            redirects: vec![],
         }
     };
 }
@@ -113,6 +141,42 @@ macro_rules! parse_eq {
     ($line:literal, $parsed:expr) => {
         assert_eq!(&Commands::parse($line).unwrap(), &$parsed)
     };
+}
+
+macro_rules! eval_eq {
+    ($line:literal, $env:expr, $($evaled:expr),*) => {{
+        let ast = Commands::parse($line).unwrap();
+        let mut expected: Vec<super::super::Pipeline>
+            = vec![$($evaled),*];
+        for command in ast.commands {
+            let pipeline = match command {
+                Command::Pipeline(p)
+                    | Command::If(p)
+                    | Command::While(p) => p,
+                _ => continue,
+            };
+            assert_eq!(pipeline.eval(&$env).unwrap(), expected.remove(0));
+        }
+    }};
+}
+
+macro_rules! eval_fails {
+    ($line:literal, $env:expr) => {{
+        let ast = Commands::parse($line).unwrap();
+        let mut fail = false;
+        for command in ast.commands {
+            let pipeline = match command {
+                Command::Pipeline(p) | Command::If(p) | Command::While(p) => {
+                    p
+                }
+                _ => continue,
+            };
+            if pipeline.eval(&$env).is_err() {
+                fail = true;
+            }
+        }
+        assert!(fail)
+    }};
 }
 
 #[test]
@@ -286,4 +350,63 @@ fn test_alternation() {
             )
         )))
     );
+}
+
+#[test]
+fn test_eval_alternation() {
+    let mut env = Env::new();
+    env.set_var("HOME", "/home/test");
+    env.set_var("foo", "value-of-foo");
+
+    eval_eq!("echo {foo,bar}", env, ep!(ee!("echo", "foo", "bar")));
+    eval_eq!(
+        "echo {foo,bar}.rs",
+        env,
+        ep!(ee!("echo", "foo.rs", "bar.rs"))
+    );
+    eval_eq!(
+        "echo {foo,bar,baz}.rs",
+        env,
+        ep!(ee!("echo", "foo.rs", "bar.rs", "baz.rs"))
+    );
+    eval_eq!("echo {foo,}.rs", env, ep!(ee!("echo", "foo.rs", ".rs")));
+    eval_eq!("echo {foo}", env, ep!(ee!("echo", "foo")));
+    eval_eq!("echo {}", env, ep!(ee!("echo", "")));
+    eval_eq!(
+        "echo {foo,bar}.{rs,c}",
+        env,
+        ep!(ee!("echo", "foo.rs", "foo.c", "bar.rs", "bar.c"))
+    );
+    eval_eq!(
+        "echo {$foo,\"${HOME}/bin\"}.{'r'\"s\",c}",
+        env,
+        ep!(ee!(
+            "echo",
+            "value-of-foo.rs",
+            "value-of-foo.c",
+            "/home/test/bin.rs",
+            "/home/test/bin.c"
+        ))
+    );
+}
+
+#[test]
+fn test_eval_glob() {
+    let env = Env::new();
+
+    eval_eq!(
+        "echo *.toml",
+        env,
+        ep!(ee!("echo", "Cargo.toml", "deny.toml"))
+    );
+    eval_eq!("echo .*.toml", env, ep!(ee!("echo", ".rustfmt.toml")));
+    eval_eq!(
+        "echo *.{lock,toml}",
+        env,
+        ep!(ee!("echo", "Cargo.lock", "Cargo.toml", "deny.toml"))
+    );
+    eval_eq!("echo foo]", env, ep!(ee!("echo", "foo]")));
+    eval_fails!("echo foo[", env);
+    eval_fails!("echo *.doesnotexist", env);
+    eval_fails!("echo *.{toml,doesnotexist}", env);
 }
