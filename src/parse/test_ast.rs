@@ -18,9 +18,10 @@ macro_rules! cs {
 }
 
 macro_rules! p {
-    ($($exes:expr),*) => {
+    ($span:expr, $($exes:expr),*) => {
         Pipeline {
             exes: vec![$($exes),*],
+            span: $span,
         }
     };
 }
@@ -181,93 +182,119 @@ macro_rules! eval_fails {
 
 #[test]
 fn test_basic() {
-    parse_eq!("foo", cs!(p!(e!(w!("foo")))));
-    parse_eq!("foo bar", cs!(p!(e!(w!("foo"), w!("bar")))));
-    parse_eq!("foo bar baz", cs!(p!(e!(w!("foo"), w!("bar"), w!("baz")))));
-    parse_eq!("foo | bar", cs!(p!(e!(w!("foo")), e!(w!("bar")))));
+    parse_eq!("foo", cs!(p!((0, 3), e!(w!("foo")))));
+    parse_eq!("foo bar", cs!(p!((0, 7), e!(w!("foo"), w!("bar")))));
+    parse_eq!(
+        "foo bar baz",
+        cs!(p!((0, 11), e!(w!("foo"), w!("bar"), w!("baz"))))
+    );
+    parse_eq!("foo | bar", cs!(p!((0, 9), e!(w!("foo")), e!(w!("bar")))));
     parse_eq!(
         "command ls; perl -E 'say foo' | tr a-z A-Z; builtin echo bar",
         cs!(
-            p!(e!(w!("command"), w!("ls"))),
+            p!((0, 10), e!(w!("command"), w!("ls"))),
             p!(
+                (12, 42),
                 e!(w!("perl"), w!("-E"), w!(wps!("say foo"))),
                 e!(w!("tr"), w!("a-z"), w!("A-Z"))
             ),
-            p!(e!(w!("builtin"), w!("echo"), w!("bar")))
+            p!((44, 60), e!(w!("builtin"), w!("echo"), w!("bar")))
         )
     );
 }
 
 #[test]
 fn test_whitespace() {
-    parse_eq!("   foo    ", cs!(p!(e!(w!("foo")))));
-    parse_eq!("   foo    # this is a comment", cs!(p!(e!(w!("foo")))));
-    parse_eq!("foo#comment", cs!(p!(e!(w!("foo")))));
+    parse_eq!("   foo    ", cs!(p!((3, 6), e!(w!("foo")))));
+    parse_eq!(
+        "   foo    # this is a comment",
+        cs!(p!((3, 6), e!(w!("foo"))))
+    );
+    parse_eq!("foo#comment", cs!(p!((0, 3), e!(w!("foo")))));
     parse_eq!(
         "foo;bar|baz;quux#comment",
         cs!(
-            p!(e!(w!("foo"))),
-            p!(e!(w!("bar")), e!(w!("baz"))),
-            p!(e!(w!("quux")))
+            p!((0, 3), e!(w!("foo"))),
+            p!((4, 11), e!(w!("bar")), e!(w!("baz"))),
+            p!((12, 16), e!(w!("quux")))
         )
     );
-    parse_eq!("foo    | bar  ", cs!(p!(e!(w!("foo")), e!(w!("bar")))));
+    parse_eq!(
+        "foo    | bar  ",
+        cs!(p!((0, 12), e!(w!("foo")), e!(w!("bar"))))
+    );
     parse_eq!(
         "  abc def  ghi   |jkl mno|   pqr stu; vwxyz  # comment",
         cs!(
             p!(
+                (2, 36),
                 e!(w!("abc"), w!("def"), w!("ghi")),
                 e!(w!("jkl"), w!("mno")),
                 e!(w!("pqr"), w!("stu"))
             ),
-            p!(e!(w!("vwxyz")))
+            p!((38, 43), e!(w!("vwxyz")))
         )
     );
     parse_eq!(
         "foo 'bar # baz' \"quux # not a comment\" # comment",
-        cs!(p!(e!(
-            w!("foo"),
-            w!(wps!("bar # baz")),
-            w!(wpd!("quux # not a comment"))
-        )))
+        cs!(p!(
+            (0, 38),
+            e!(
+                w!("foo"),
+                w!(wps!("bar # baz")),
+                w!(wpd!("quux # not a comment"))
+            )
+        ))
     );
 }
 
 #[test]
 fn test_redirect() {
-    parse_eq!("foo > bar", cs!(p!(e!(w!("foo") ; r!(1, w!("bar"), Out)))));
-    parse_eq!("foo <bar", cs!(p!(e!(w!("foo") ; r!(0, w!("bar"), In)))));
+    parse_eq!(
+        "foo > bar",
+        cs!(p!((0, 9), e!(w!("foo") ; r!(1, w!("bar"), Out))))
+    );
+    parse_eq!(
+        "foo <bar",
+        cs!(p!((0, 8), e!(w!("foo") ; r!(0, w!("bar"), In))))
+    );
     parse_eq!(
         "foo > /dev/null 2>&1",
-        cs!(p!(e!(
-            w!("foo") ;
-            r!(1, w!("/dev/null"), Out), r!(2, w!("&1"), Out)
-        )))
+        cs!(p!(
+            (0, 20),
+            e!(
+                w!("foo") ;
+                r!(1, w!("/dev/null"), Out), r!(2, w!("&1"), Out)
+            )
+        ))
     );
     parse_eq!(
         "foo >>bar",
-        cs!(p!(e!(w!("foo") ; r!(1, w!("bar"), Append))))
+        cs!(p!((0, 9), e!(w!("foo") ; r!(1, w!("bar"), Append))))
     );
     parse_eq!(
         "foo >> bar",
-        cs!(p!(e!(w!("foo") ; r!(1, w!("bar"), Append))))
+        cs!(p!((0, 10), e!(w!("foo") ; r!(1, w!("bar"), Append))))
     );
     parse_eq!(
         "foo > 'bar baz'",
-        cs!(p!(e!(w!("foo") ; r!(1, w!(wps!("bar baz")), Out))))
+        cs!(p!((0, 15), e!(w!("foo") ; r!(1, w!(wps!("bar baz")), Out))))
     );
 }
 
 #[test]
 fn test_escape() {
-    parse_eq!("foo\\ bar", cs!(p!(e!(w!("foo bar")))));
-    parse_eq!("'foo\\ bar'", cs!(p!(e!(w!(wps!("foo\\ bar"))))));
-    parse_eq!("\"foo\\ bar\"", cs!(p!(e!(w!(wpd!("foo bar"))))));
-    parse_eq!("\"foo\\\"bar\"", cs!(p!(e!(w!(wpd!("foo\"bar"))))));
-    parse_eq!("'foo\\'bar\\\\'", cs!(p!(e!(w!(wps!("foo'bar\\"))))));
+    parse_eq!("foo\\ bar", cs!(p!((0, 8), e!(w!("foo bar")))));
+    parse_eq!("'foo\\ bar'", cs!(p!((0, 10), e!(w!(wps!("foo\\ bar"))))));
+    parse_eq!("\"foo\\ bar\"", cs!(p!((0, 10), e!(w!(wpd!("foo bar"))))));
+    parse_eq!("\"foo\\\"bar\"", cs!(p!((0, 10), e!(w!(wpd!("foo\"bar"))))));
+    parse_eq!(
+        "'foo\\'bar\\\\'",
+        cs!(p!((0, 12), e!(w!(wps!("foo'bar\\")))))
+    );
     parse_eq!(
         "foo > bar\\ baz",
-        cs!(p!(e!(w!("foo") ; r!(1, w!("bar baz"), Out))))
+        cs!(p!((0, 14), e!(w!("foo") ; r!(1, w!("bar baz"), Out))))
     );
 }
 
@@ -275,30 +302,33 @@ fn test_escape() {
 fn test_parts() {
     parse_eq!(
         "echo \"$HOME/bin\"",
-        cs!(p!(e!(w!("echo"), w!(wpv!("HOME"), wpd!("/bin")))))
+        cs!(p!((0, 16), e!(w!("echo"), w!(wpv!("HOME"), wpd!("/bin")))))
     );
     parse_eq!(
         "echo $HOME/bin",
-        cs!(p!(e!(w!("echo"), w!(wpv!("HOME"), wpb!("/bin")))))
+        cs!(p!((0, 14), e!(w!("echo"), w!(wpv!("HOME"), wpb!("/bin")))))
     );
     parse_eq!(
         "echo '$HOME/bin'",
-        cs!(p!(e!(w!("echo"), w!(wps!("$HOME/bin")))))
+        cs!(p!((0, 16), e!(w!("echo"), w!(wps!("$HOME/bin")))))
     );
     parse_eq!(
         "echo \"foo\"\"bar\"",
-        cs!(p!(e!(w!("echo"), w!(wpd!("foo"), wpd!("bar")))))
+        cs!(p!((0, 15), e!(w!("echo"), w!(wpd!("foo"), wpd!("bar")))))
     );
     parse_eq!(
         "echo $foo$bar$baz",
-        cs!(p!(e!(
-            w!("echo"),
-            w!(wpv!("foo"), wpv!("bar"), wpv!("baz"))
-        )))
+        cs!(p!(
+            (0, 17),
+            e!(w!("echo"), w!(wpv!("foo"), wpv!("bar"), wpv!("baz")))
+        ))
     );
     parse_eq!(
         "perl -E'say \"foo\"'",
-        cs!(p!(e!(w!("perl"), w!(wpb!("-E"), wps!("say \"foo\"")))))
+        cs!(p!(
+            (0, 18),
+            e!(w!("perl"), w!(wpb!("-E"), wps!("say \"foo\"")))
+        ))
     );
 }
 
@@ -306,49 +336,64 @@ fn test_parts() {
 fn test_alternation() {
     parse_eq!(
         "echo {foo,bar}",
-        cs!(p!(e!(w!("echo"), w!(wpa!(w!("foo"), w!("bar"))))))
+        cs!(p!((0, 14), e!(w!("echo"), w!(wpa!(w!("foo"), w!("bar"))))))
     );
     parse_eq!(
         "echo {foo,bar}.rs",
-        cs!(p!(e!(
-            w!("echo"),
-            w!(wpa!(w!("foo"), w!("bar")), wpb!(".rs"))
-        )))
+        cs!(p!(
+            (0, 17),
+            e!(w!("echo"), w!(wpa!(w!("foo"), w!("bar")), wpb!(".rs")))
+        ))
     );
     parse_eq!(
         "echo {foo,bar,baz}.rs",
-        cs!(p!(e!(
-            w!("echo"),
-            w!(wpa!(w!("foo"), w!("bar"), w!("baz")), wpb!(".rs"))
-        )))
+        cs!(p!(
+            (0, 21),
+            e!(
+                w!("echo"),
+                w!(wpa!(w!("foo"), w!("bar"), w!("baz")), wpb!(".rs"))
+            )
+        ))
     );
     parse_eq!(
         "echo {foo,}.rs",
-        cs!(p!(e!(w!("echo"), w!(wpa!(w!("foo"), w!()), wpb!(".rs")))))
+        cs!(p!(
+            (0, 14),
+            e!(w!("echo"), w!(wpa!(w!("foo"), w!()), wpb!(".rs")))
+        ))
     );
-    parse_eq!("echo {foo}", cs!(p!(e!(w!("echo"), w!(wpa!(w!("foo")))))));
-    parse_eq!("echo {}", cs!(p!(e!(w!("echo"), w!(wpa!(w!()))))));
+    parse_eq!(
+        "echo {foo}",
+        cs!(p!((0, 10), e!(w!("echo"), w!(wpa!(w!("foo"))))))
+    );
+    parse_eq!("echo {}", cs!(p!((0, 7), e!(w!("echo"), w!(wpa!(w!()))))));
     parse_eq!(
         "echo {foo,bar}.{rs,c}",
-        cs!(p!(e!(
-            w!("echo"),
-            w!(
-                wpa!(w!("foo"), w!("bar")),
-                wpb!("."),
-                wpa!(w!("rs"), w!("c"))
+        cs!(p!(
+            (0, 21),
+            e!(
+                w!("echo"),
+                w!(
+                    wpa!(w!("foo"), w!("bar")),
+                    wpb!("."),
+                    wpa!(w!("rs"), w!("c"))
+                )
             )
-        )))
+        ))
     );
     parse_eq!(
         "echo {$foo,\"${HOME}/bin\"}.{'r'\"s\",c}",
-        cs!(p!(e!(
-            w!("echo"),
-            w!(
-                wpa!(w!(wpv!("foo")), w!(wpv!("HOME"), wpd!("/bin"))),
-                wpb!("."),
-                wpa!(w!(wps!("r"), wpd!("s")), w!("c"))
+        cs!(p!(
+            (0, 36),
+            e!(
+                w!("echo"),
+                w!(
+                    wpa!(w!(wpv!("foo")), w!(wpv!("HOME"), wpd!("/bin"))),
+                    wpb!("."),
+                    wpa!(w!(wps!("r"), wpd!("s")), w!("c"))
+                )
             )
-        )))
+        ))
     );
 }
 
