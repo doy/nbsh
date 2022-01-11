@@ -227,6 +227,9 @@ impl Word {
             let mut s = String::new();
             let mut pat = String::new();
             let mut is_glob = false;
+            let initial_bareword = word
+                .get(0)
+                .map_or(false, |part| matches!(part, WordPart::Bareword(_)));
             for part in word {
                 match part {
                     WordPart::Alternation(_) => unreachable!(),
@@ -246,6 +249,10 @@ impl Word {
                         pat.push_str(&glob::Pattern::escape(&part));
                     }
                 }
+            }
+            if initial_bareword {
+                s = expand_home(&s)?;
+                pat = expand_home(&pat)?;
             }
             if is_glob {
                 let mut found = false;
@@ -462,6 +469,48 @@ fn parse_fd(s: &str) -> std::os::unix::io::RawFd {
         "err" => 2,
         _ => s.parse().unwrap(),
     }
+}
+
+fn expand_home(dir: &str) -> anyhow::Result<String> {
+    if dir.starts_with('~') {
+        let path: std::path::PathBuf = dir.into();
+        if let std::path::Component::Normal(prefix) =
+            path.components().next().unwrap()
+        {
+            let prefix_bytes = prefix.as_bytes();
+            let name = if prefix_bytes == b"~" {
+                None
+            } else {
+                Some(std::ffi::OsStr::from_bytes(&prefix_bytes[1..]))
+            };
+            if let Some(home) = home(name) {
+                Ok(home
+                    .join(path.strip_prefix(prefix).unwrap())
+                    .to_str()
+                    .unwrap()
+                    .to_string())
+            } else {
+                anyhow::bail!(
+                    "no such user: {}",
+                    name.map(std::ffi::OsStr::to_string_lossy)
+                        .as_ref()
+                        .unwrap_or(&std::borrow::Cow::Borrowed("(deleted)"))
+                );
+            }
+        } else {
+            unreachable!()
+        }
+    } else {
+        Ok(dir.to_string())
+    }
+}
+
+fn home(user: Option<&std::ffi::OsStr>) -> Option<std::path::PathBuf> {
+    let user = user.map_or_else(
+        || users::get_user_by_uid(users::get_current_uid()),
+        users::get_user_by_name,
+    );
+    user.map(|user| user.home_dir().to_path_buf())
 }
 
 #[cfg(test)]

@@ -60,55 +60,24 @@ fn cd(
 ) -> anyhow::Result<command::Child> {
     async fn async_cd(
         exe: crate::parse::Exe,
-        _env: &Env,
+        env: &Env,
         cfg: command::Cfg,
     ) -> std::process::ExitStatus {
-        let dir = exe.args().get(0).map_or("", String::as_str);
-        let dir = if dir.is_empty() {
-            if let Some(dir) = home(None) {
-                dir
+        let dir = if let Some(dir) = exe.args().get(0) {
+            if dir.is_empty() {
+                ".".to_string()
             } else {
-                bail!(cfg, exe, "couldn't find current user");
-            }
-        } else if dir.starts_with('~') {
-            let path: std::path::PathBuf = dir.into();
-            if let std::path::Component::Normal(prefix) =
-                path.components().next().unwrap()
-            {
-                let prefix_bytes = prefix.as_bytes();
-                let name = if prefix_bytes == b"~" {
-                    None
-                } else {
-                    Some(std::ffi::OsStr::from_bytes(&prefix_bytes[1..]))
-                };
-                if let Some(home) = home(name) {
-                    home.join(path.strip_prefix(prefix).unwrap())
-                } else {
-                    bail!(
-                        cfg,
-                        exe,
-                        "no such user: {}",
-                        name.map(std::ffi::OsStr::to_string_lossy)
-                            .as_ref()
-                            .unwrap_or(&std::borrow::Cow::Borrowed(
-                                "(deleted)"
-                            ))
-                    );
-                }
-            } else {
-                unreachable!()
+                dir.into()
             }
         } else {
-            dir.into()
+            let dir = env.var("HOME");
+            if dir.is_empty() {
+                bail!(cfg, exe, "could not find home directory");
+            }
+            dir
         };
         if let Err(e) = std::env::set_current_dir(&dir) {
-            bail!(
-                cfg,
-                exe,
-                "{}: {}",
-                crate::format::io_error(&e),
-                dir.display()
-            );
+            bail!(cfg, exe, "{}: {}", crate::format::io_error(&e), dir);
         }
         async_std::process::ExitStatus::from_raw(0)
     }
@@ -307,12 +276,4 @@ fn builtin(
     let mut cmd = crate::runner::Command::new_builtin(exe, cfg.io().clone());
     cfg.setup_command(&mut cmd);
     Ok(command::Child::new_wrapped(cmd.spawn(env)?))
-}
-
-fn home(user: Option<&std::ffi::OsStr>) -> Option<std::path::PathBuf> {
-    let user = user.map_or_else(
-        || users::get_user_by_uid(users::get_current_uid()),
-        users::get_user_by_name,
-    );
-    user.map(|user| user.home_dir().to_path_buf())
 }
