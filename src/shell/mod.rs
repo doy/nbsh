@@ -104,7 +104,7 @@ pub async fn main() -> anyhow::Result<i32> {
                     watcher
                         .watch(&dir, notify::RecursiveMode::Recursive)
                         .unwrap();
-                    std::thread::spawn(move || {
+                    async_std::task::spawn(blocking::unblock(move || {
                         while let Ok(event) = sync_watch_r.recv() {
                             let watch_w = watch_w.clone();
                             let send_failed =
@@ -115,7 +115,7 @@ pub async fn main() -> anyhow::Result<i32> {
                                 break;
                             }
                         }
-                    });
+                    }));
                     let event_w = event_w.clone();
                     async_std::task::spawn(async move {
                         while watch_r.recv().await.is_ok() {
