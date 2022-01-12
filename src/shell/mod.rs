@@ -120,7 +120,10 @@ pub async fn main() -> anyhow::Result<i32> {
                     async_std::task::spawn(async move {
                         while watch_r.recv().await.is_ok() {
                             let repo = git2::Repository::discover(&dir).ok();
-                            let info = repo.map(|repo| git::Info::new(&repo));
+                            let info = blocking::unblock(|| {
+                                repo.map(|repo| git::Info::new(&repo))
+                            })
+                            .await;
                             if event_w
                                 .send(Event::GitInfo(info))
                                 .await
@@ -134,7 +137,10 @@ pub async fn main() -> anyhow::Result<i32> {
                 } else {
                     _active_watcher = None;
                 }
-                let info = repo.map(|repo| git::Info::new(&repo));
+                let info = blocking::unblock(|| {
+                    repo.map(|repo| git::Info::new(&repo))
+                })
+                .await;
                 event_w.send(Event::GitInfo(info)).await.unwrap();
             }
         });
