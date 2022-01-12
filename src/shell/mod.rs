@@ -1,5 +1,6 @@
 use crate::shell::prelude::*;
 
+use notify::Watcher as _;
 use textmode::Textmode as _;
 
 mod event;
@@ -92,7 +93,6 @@ pub async fn main() -> anyhow::Result<i32> {
                 }
                 let repo = git2::Repository::discover(&dir).ok();
                 if repo.is_some() {
-                    use notify::Watcher as _;
                     let (sync_watch_w, sync_watch_r) =
                         std::sync::mpsc::channel();
                     let (watch_w, watch_r) = async_std::channel::unbounded();
@@ -146,9 +146,16 @@ pub async fn main() -> anyhow::Result<i32> {
         });
     }
 
-    let mut shell = Shell::new(crate::info::get_offset(), git_w).await;
+    let mut shell = Shell::new(crate::info::get_offset());
+    let mut prev_dir = shell.env.current_dir().to_path_buf();
+    git_w.send(prev_dir.clone()).await.unwrap();
     let event_reader = event::Reader::new(event_r);
     while let Some(event) = event_reader.recv().await {
+        let dir = shell.env().current_dir();
+        if dir != prev_dir {
+            prev_dir = dir.to_path_buf();
+            git_w.send(dir.to_path_buf()).await.unwrap();
+        }
         match shell.handle_event(event, &event_w).await {
             Some(Action::Refresh) => {
                 shell.render(&mut output).await?;
@@ -196,7 +203,6 @@ pub struct Shell {
     history: history::History,
     env: Env,
     git: Option<git::Info>,
-    git_w: async_std::channel::Sender<std::path::PathBuf>,
     focus: Focus,
     scene: Scene,
     escape: bool,
@@ -205,25 +211,18 @@ pub struct Shell {
 }
 
 impl Shell {
-    pub async fn new(
-        offset: time::UtcOffset,
-        git_w: async_std::channel::Sender<std::path::PathBuf>,
-    ) -> Self {
-        let env = Env::new();
-        let mut self_ = Self {
+    pub fn new(offset: time::UtcOffset) -> Self {
+        Self {
             readline: readline::Readline::new(),
             history: history::History::new(),
-            env,
+            env: Env::new(),
             git: None,
-            git_w,
             focus: Focus::Readline,
             scene: Scene::Readline,
             escape: false,
             hide_readline: false,
             offset,
-        };
-        self_.update_git().await;
-        self_
+        }
     }
 
     pub async fn render(
@@ -369,7 +368,6 @@ impl Shell {
                             let idx = self.env.idx();
                             self.env = entry.env().clone();
                             self.env.set_idx(idx);
-                            self.update_git().await;
                         }
                         self.set_focus(
                             if self.hide_readline {
@@ -604,6 +602,10 @@ impl Shell {
             .await;
     }
 
+    fn env(&self) -> &Env {
+        &self.env
+    }
+
     fn focus_idx(&self) -> Option<usize> {
         match self.focus {
             Focus::History(idx) => Some(idx),
@@ -656,12 +658,5 @@ impl Shell {
             }
         }
         self.focus_idx().map_or(Focus::Readline, Focus::History)
-    }
-
-    async fn update_git(&mut self) {
-        self.git_w
-            .send(self.env.current_dir().to_path_buf())
-            .await
-            .unwrap();
     }
 }
