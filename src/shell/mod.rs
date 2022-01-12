@@ -80,15 +80,60 @@ pub async fn main() -> anyhow::Result<i32> {
         });
     }
 
-    let (git_w, git_r) = async_std::channel::unbounded();
+    let (git_w, git_r): (async_std::channel::Sender<std::path::PathBuf>, _) =
+        async_std::channel::unbounded();
     {
         let event_w = event_w.clone();
+        let mut _active_watcher = None;
         async_std::task::spawn(async move {
             while let Ok(mut dir) = git_r.recv().await {
                 while let Ok(newer_dir) = git_r.try_recv() {
                     dir = newer_dir;
                 }
-                let repo = git2::Repository::discover(dir).ok();
+                let repo = git2::Repository::discover(&dir).ok();
+                if repo.is_some() {
+                    use notify::Watcher as _;
+                    let (sync_watch_w, sync_watch_r) =
+                        std::sync::mpsc::channel();
+                    let (watch_w, watch_r) = async_std::channel::unbounded();
+                    let mut watcher = notify::RecommendedWatcher::new(
+                        sync_watch_w,
+                        std::time::Duration::from_millis(100),
+                    )
+                    .unwrap();
+                    watcher
+                        .watch(&dir, notify::RecursiveMode::Recursive)
+                        .unwrap();
+                    std::thread::spawn(move || {
+                        while let Ok(event) = sync_watch_r.recv() {
+                            let watch_w = watch_w.clone();
+                            let send_failed =
+                                async_std::task::block_on(async move {
+                                    watch_w.send(event).await.is_err()
+                                });
+                            if send_failed {
+                                break;
+                            }
+                        }
+                    });
+                    let event_w = event_w.clone();
+                    async_std::task::spawn(async move {
+                        while watch_r.recv().await.is_ok() {
+                            let repo = git2::Repository::discover(&dir).ok();
+                            let info = repo.map(|repo| git::Info::new(&repo));
+                            if event_w
+                                .send(Event::GitInfo(info))
+                                .await
+                                .is_err()
+                            {
+                                break;
+                            }
+                        }
+                    });
+                    _active_watcher = Some(watcher);
+                } else {
+                    _active_watcher = None;
+                }
                 let info = repo.map(|repo| git::Info::new(&repo));
                 event_w.send(Event::GitInfo(info)).await.unwrap();
             }
