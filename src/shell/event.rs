@@ -52,6 +52,7 @@ impl Reader {
     }
 }
 
+#[allow(clippy::option_option)]
 #[derive(Default)]
 struct Pending {
     key: std::collections::VecDeque<textmode::Key>,
