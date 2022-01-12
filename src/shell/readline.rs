@@ -23,7 +23,7 @@ impl Readline {
         &self,
         out: &mut impl textmode::Textmode,
         env: &Env,
-        git: Option<&git2::Repository>,
+        git: Option<&super::git::Info>,
         focus: bool,
         offset: time::UtcOffset,
     ) -> anyhow::Result<()> {
@@ -58,8 +58,8 @@ impl Readline {
         }
         out.write_str(" (");
         out.write_str(&crate::format::path(pwd));
-        if git.is_some() {
-            out.write_str("|g");
+        if let Some(info) = git {
+            out.write_str(&format!("|{}", info));
         }
         out.write_str(")");
         out.move_to(self.size.0 - 2, self.size.1 - 4 - idlen - timelen);

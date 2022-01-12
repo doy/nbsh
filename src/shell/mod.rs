@@ -3,6 +3,7 @@ use crate::shell::prelude::*;
 use textmode::Textmode as _;
 
 mod event;
+mod git;
 mod history;
 mod prelude;
 mod readline;
@@ -79,7 +80,22 @@ pub async fn main() -> anyhow::Result<i32> {
         });
     }
 
-    let mut shell = Shell::new(crate::info::get_offset());
+    let (git_w, git_r) = async_std::channel::unbounded();
+    {
+        let event_w = event_w.clone();
+        async_std::task::spawn(async move {
+            while let Ok(mut dir) = git_r.recv().await {
+                while let Ok(newer_dir) = git_r.try_recv() {
+                    dir = newer_dir;
+                }
+                let repo = git2::Repository::discover(dir).ok();
+                let info = repo.map(|repo| git::Info::new(&repo));
+                event_w.send(Event::GitInfo(info)).await.unwrap();
+            }
+        });
+    }
+
+    let mut shell = Shell::new(crate::info::get_offset(), git_w).await;
     let event_reader = event::Reader::new(event_r);
     while let Some(event) = event_reader.recv().await {
         match shell.handle_event(event, &event_w).await {
@@ -128,7 +144,8 @@ pub struct Shell {
     readline: readline::Readline,
     history: history::History,
     env: Env,
-    git: Option<git2::Repository>,
+    git: Option<git::Info>,
+    git_w: async_std::channel::Sender<std::path::PathBuf>,
     focus: Focus,
     scene: Scene,
     escape: bool,
@@ -137,20 +154,24 @@ pub struct Shell {
 }
 
 impl Shell {
-    pub fn new(offset: time::UtcOffset) -> Self {
+    pub async fn new(
+        offset: time::UtcOffset,
+        git_w: async_std::channel::Sender<std::path::PathBuf>,
+    ) -> Self {
         let env = Env::new();
         let mut self_ = Self {
             readline: readline::Readline::new(),
             history: history::History::new(),
             env,
             git: None,
+            git_w,
             focus: Focus::Readline,
             scene: Scene::Readline,
             escape: false,
             hide_readline: false,
             offset,
         };
-        self_.update_git();
+        self_.update_git().await;
         self_
     }
 
@@ -297,7 +318,7 @@ impl Shell {
                             let idx = self.env.idx();
                             self.env = entry.env().clone();
                             self.env.set_idx(idx);
-                            self.update_git();
+                            self.update_git().await;
                         }
                         self.set_focus(
                             if self.hide_readline {
@@ -318,6 +339,9 @@ impl Shell {
                 if self.focus_idx() == Some(idx) {
                     self.set_focus(Focus::Readline, None).await;
                 }
+            }
+            Event::GitInfo(info) => {
+                self.git = info;
             }
             Event::ClockTimer => {}
         };
@@ -583,7 +607,10 @@ impl Shell {
         self.focus_idx().map_or(Focus::Readline, Focus::History)
     }
 
-    fn update_git(&mut self) {
-        self.git = git2::Repository::discover(self.env.current_dir()).ok();
+    async fn update_git(&mut self) {
+        self.git_w
+            .send(self.env.current_dir().to_path_buf())
+            .await
+            .unwrap();
     }
 }

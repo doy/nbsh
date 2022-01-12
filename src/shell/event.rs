@@ -6,6 +6,7 @@ pub enum Event {
     PtyClose,
     ChildRunPipeline(usize, (usize, usize)),
     ChildSuspend(usize),
+    GitInfo(Option<super::git::Info>),
     ClockTimer,
 }
 
@@ -59,6 +60,7 @@ struct Pending {
     pty_close: bool,
     child_run_pipeline: std::collections::VecDeque<(usize, (usize, usize))>,
     child_suspend: std::collections::VecDeque<usize>,
+    git_info: Option<Option<super::git::Info>>,
     clock_timer: bool,
     done: bool,
 }
@@ -76,6 +78,7 @@ impl Pending {
             || self.pty_close
             || !self.child_run_pipeline.is_empty()
             || !self.child_suspend.is_empty()
+            || self.git_info.is_some()
             || self.clock_timer
     }
 
@@ -98,6 +101,9 @@ impl Pending {
         }
         if let Some(idx) = self.child_suspend.pop_front() {
             return Some(Event::ChildSuspend(idx));
+        }
+        if let Some(info) = self.git_info.take() {
+            return Some(Event::GitInfo(info));
         }
         if self.clock_timer {
             self.clock_timer = false;
@@ -125,6 +131,7 @@ impl Pending {
             Some(Event::ChildSuspend(idx)) => {
                 self.child_suspend.push_back(idx);
             }
+            Some(Event::GitInfo(info)) => self.git_info = Some(info),
             Some(Event::ClockTimer) => self.clock_timer = true,
             None => self.done = true,
         }
