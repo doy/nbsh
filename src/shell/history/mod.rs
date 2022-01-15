@@ -29,7 +29,7 @@ impl History {
     ) -> anyhow::Result<()> {
         let mut used_lines = repl_lines;
         let mut cursor = None;
-        for (idx, entry) in
+        for (idx, mut entry) in
             self.visible(repl_lines, focus, scrolling).await.rev()
         {
             let focused = focus.map_or(false, |focus| idx == focus);

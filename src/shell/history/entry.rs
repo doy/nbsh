@@ -12,6 +12,9 @@ pub struct Entry {
     vt: vt100::Parser,
     audible_bell_state: usize,
     visual_bell_state: usize,
+    audible_bell: bool,
+    visual_bell: bool,
+    real_bell_pending: bool,
     fullscreen: Option<bool>,
     input: async_std::channel::Sender<Vec<u8>>,
     resize: async_std::channel::Sender<(u16, u16)>,
@@ -35,6 +38,9 @@ impl Entry {
             vt: vt100::Parser::new(size.0, size.1, 0),
             audible_bell_state: 0,
             visual_bell_state: 0,
+            audible_bell: false,
+            visual_bell: false,
+            real_bell_pending: false,
             input,
             resize,
             fullscreen: None,
@@ -44,7 +50,7 @@ impl Entry {
     }
 
     pub fn render(
-        &self,
+        &mut self,
         out: &mut impl textmode::Textmode,
         idx: usize,
         entry_count: usize,
@@ -71,6 +77,12 @@ impl Entry {
             },
         );
 
+        self.bell(out);
+        if focused {
+            self.audible_bell = false;
+            self.visual_bell = false;
+        }
+
         set_bgcolor(out, idx, focused);
         out.set_fgcolor(textmode::color::YELLOW);
         let entry_count_width = format!("{}", entry_count + 1).len();
@@ -95,8 +107,13 @@ impl Entry {
         }
         out.reset_attributes();
 
-        set_bgcolor(out, idx, focused);
+        if self.audible_bell || self.visual_bell {
+            out.set_bgcolor(textmode::Color::Rgb(64, 16, 16));
+        } else {
+            set_bgcolor(out, idx, focused);
+        }
         out.write_str("$ ");
+        set_bgcolor(out, idx, focused);
         let start = usize::from(out.screen().cursor_position().1);
         let end = usize::from(size.1) - time.len() - 2;
         let max_len = end - start;
@@ -203,22 +220,10 @@ impl Entry {
     }
 
     pub fn render_fullscreen(&mut self, out: &mut impl textmode::Textmode) {
-        let screen = self.vt.screen();
-        let new_audible_bell_state = screen.audible_bell_count();
-        let new_visual_bell_state = screen.visual_bell_count();
-
-        out.write(&screen.state_formatted());
-
-        if self.audible_bell_state != new_audible_bell_state {
-            out.write(b"\x07");
-            self.audible_bell_state = new_audible_bell_state;
-        }
-
-        if self.visual_bell_state != new_visual_bell_state {
-            out.write(b"\x1bg");
-            self.visual_bell_state = new_visual_bell_state;
-        }
-
+        out.write(&self.vt.screen().state_formatted());
+        self.bell(out);
+        self.audible_bell = false;
+        self.visual_bell = false;
         out.reset_attributes();
     }
 
@@ -241,6 +246,21 @@ impl Entry {
 
     pub fn process(&mut self, input: &[u8]) {
         self.vt.process(input);
+        let screen = self.vt.screen();
+
+        let new_audible_bell_state = screen.audible_bell_count();
+        if new_audible_bell_state != self.audible_bell_state {
+            self.audible_bell = true;
+            self.real_bell_pending = true;
+            self.audible_bell_state = new_audible_bell_state;
+        }
+
+        let new_visual_bell_state = screen.visual_bell_count();
+        if new_visual_bell_state != self.visual_bell_state {
+            self.visual_bell = true;
+            self.real_bell_pending = true;
+            self.visual_bell_state = new_visual_bell_state;
+        }
     }
 
     pub fn cmd(&self) -> &str {
@@ -332,6 +352,18 @@ impl Entry {
         match &self.state {
             State::Running(..) => None,
             State::Exited(exit_info) => Some(exit_info),
+        }
+    }
+
+    fn bell(&mut self, out: &mut impl textmode::Textmode) {
+        if self.real_bell_pending {
+            if self.audible_bell {
+                out.write(b"\x07");
+            }
+            if self.visual_bell {
+                out.write(b"\x1bg");
+            }
+            self.real_bell_pending = false;
         }
     }
 }
