@@ -20,13 +20,19 @@ pub struct V0 {
 }
 
 impl Env {
-    pub fn new() -> Self {
-        Self::V0(V0 {
+    pub fn new() -> anyhow::Result<Self> {
+        let mut vars: std::collections::HashMap<
+            std::ffi::OsString,
+            std::ffi::OsString,
+        > = std::env::vars_os().collect();
+        vars.insert("SHELL".into(), std::env::current_exe()?.into());
+        vars.insert("TERM".into(), "screen".into());
+        Ok(Self::V0(V0 {
             idx: 0,
             latest_status: std::process::ExitStatus::from_raw(0),
-            pwd: std::env::current_dir().unwrap(),
-            vars: std::env::vars_os().collect(),
-        })
+            pwd: std::env::current_dir()?,
+            vars,
+        }))
     }
 
     pub fn idx(&self) -> usize {

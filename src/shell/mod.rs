@@ -146,7 +146,7 @@ pub async fn main() -> anyhow::Result<i32> {
         });
     }
 
-    let mut shell = Shell::new(crate::info::get_offset());
+    let mut shell = Shell::new(crate::info::get_offset())?;
     let mut prev_dir = shell.env.current_dir().to_path_buf();
     git_w.send(prev_dir.clone()).await.unwrap();
     let event_reader = event::Reader::new(event_r);
@@ -211,18 +211,18 @@ pub struct Shell {
 }
 
 impl Shell {
-    pub fn new(offset: time::UtcOffset) -> Self {
-        Self {
+    pub fn new(offset: time::UtcOffset) -> anyhow::Result<Self> {
+        Ok(Self {
             readline: readline::Readline::new(),
             history: history::History::new(),
-            env: Env::new(),
+            env: Env::new()?,
             git: None,
             focus: Focus::Readline,
             scene: Scene::Readline,
             escape: false,
             hide_readline: false,
             offset,
-        }
+        })
     }
 
     pub async fn render(
