@@ -65,7 +65,9 @@ fn cd(
     ) -> std::process::ExitStatus {
         let dir = if let Some(dir) = exe.args().get(0) {
             if dir.is_empty() {
-                ".".to_string()
+                ".".to_string().into()
+            } else if dir == "-" {
+                env.prev_pwd().await
             } else {
                 dir.into()
             }
@@ -74,11 +76,29 @@ fn cd(
             if dir.is_empty() {
                 bail!(cfg, exe, "could not find home directory");
             }
-            dir
+            dir.into()
+        };
+        let prev = match std::env::current_dir() {
+            Ok(path) => path,
+            Err(e) => {
+                bail!(
+                    cfg,
+                    exe,
+                    "could not find current directory: {}",
+                    crate::format::io_error(&e)
+                );
+            }
         };
         if let Err(e) = std::env::set_current_dir(&dir) {
-            bail!(cfg, exe, "{}: {}", crate::format::io_error(&e), dir);
+            bail!(
+                cfg,
+                exe,
+                "{}: {}",
+                crate::format::io_error(&e),
+                dir.display()
+            );
         }
+        env.set_prev_pwd(&prev).await;
         async_std::process::ExitStatus::from_raw(0)
     }
 

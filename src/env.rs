@@ -16,6 +16,11 @@ pub struct V0 {
     )]
     latest_status: async_std::process::ExitStatus,
     pwd: std::path::PathBuf,
+    #[serde(
+        serialize_with = "serialize_prev_pwd",
+        deserialize_with = "deserialize_prev_pwd"
+    )]
+    prev_pwd: crate::mutex::Mutex<std::path::PathBuf>,
     vars: std::collections::HashMap<std::ffi::OsString, std::ffi::OsString>,
 }
 
@@ -27,10 +32,12 @@ impl Env {
         > = std::env::vars_os().collect();
         vars.insert("SHELL".into(), std::env::current_exe()?.into());
         vars.insert("TERM".into(), "screen".into());
+        let pwd = std::env::current_dir()?;
         Ok(Self::V0(V0 {
             idx: 0,
             latest_status: std::process::ExitStatus::from_raw(0),
-            pwd: std::env::current_dir()?,
+            pwd: pwd.clone(),
+            prev_pwd: crate::mutex::new(pwd),
             vars,
         }))
     }
@@ -67,14 +74,6 @@ impl Env {
         }
     }
 
-    pub fn set_current_dir(&mut self, pwd: std::path::PathBuf) {
-        match self {
-            Self::V0(env) => {
-                env.pwd = pwd;
-            }
-        }
-    }
-
     pub fn var(&self, k: &str) -> String {
         match self {
             Self::V0(env) => self.special_var(k).unwrap_or_else(|| {
@@ -94,13 +93,16 @@ impl Env {
         }
     }
 
-    pub fn set_vars(
-        &mut self,
-        it: impl Iterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
-    ) {
+    pub async fn prev_pwd(&self) -> std::path::PathBuf {
+        match self {
+            Self::V0(env) => env.prev_pwd.lock_arc().await.clone(),
+        }
+    }
+
+    pub async fn set_prev_pwd(&self, prev_pwd: &std::path::Path) {
         match self {
             Self::V0(env) => {
-                env.vars = it.collect();
+                *env.prev_pwd.lock_arc().await = prev_pwd.to_path_buf();
             }
         }
     }
@@ -151,6 +153,25 @@ impl Env {
             }),
         }
     }
+
+    fn set_current_dir(&mut self, pwd: std::path::PathBuf) {
+        match self {
+            Self::V0(env) => {
+                env.pwd = pwd;
+            }
+        }
+    }
+
+    fn set_vars(
+        &mut self,
+        it: impl Iterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
+    ) {
+        match self {
+            Self::V0(env) => {
+                env.vars = it.collect();
+            }
+        }
+    }
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -174,4 +195,30 @@ where
 {
     let status = u16::deserialize(d)?;
     Ok(std::process::ExitStatus::from_raw(i32::from(status)))
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn serialize_prev_pwd<S>(
+    prev_pwd: &crate::mutex::Mutex<std::path::PathBuf>,
+    s: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    s.serialize_bytes(
+        async_std::task::block_on(async { prev_pwd.lock_arc().await })
+            .as_os_str()
+            .as_bytes(),
+    )
+}
+
+fn deserialize_prev_pwd<'de, D>(
+    d: D,
+) -> Result<crate::mutex::Mutex<std::path::PathBuf>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(crate::mutex::new(std::path::PathBuf::from(
+        std::ffi::OsString::from_vec(Vec::deserialize(d)?),
+    )))
 }
