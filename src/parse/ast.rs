@@ -128,7 +128,7 @@ impl Exe {
                 .args
                 .into_iter()
                 .map(|arg| arg.eval(env).map(IntoIterator::into_iter))
-                .collect::<Result<Vec<std::vec::IntoIter<_>>, _>>()?
+                .collect::<Result<Vec<_>, _>>()?
                 .into_iter()
                 .flatten()
                 .collect(),
