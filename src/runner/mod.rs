@@ -144,8 +144,10 @@ async fn run_commands(
                         if stack.should_execute() {
                             list.clone()
                                 .into_iter()
-                                .map(|w| w.eval(env).map(IntoIterator::into_iter))
-                                .collect::<Result<Vec<std::vec::IntoIter<_>>, _>>()?
+                                .map(|w| {
+                                    w.eval(env).map(IntoIterator::into_iter)
+                                })
+                                .collect::<Result<Vec<_>, _>>()?
                                 .into_iter()
                                 .flatten()
                                 .collect()
