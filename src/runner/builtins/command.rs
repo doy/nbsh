@@ -185,17 +185,18 @@ impl Io {
         }
     }
 
-    pub async fn read_line_stdin(&self) -> anyhow::Result<String> {
+    pub async fn read_line_stdin(&self) -> anyhow::Result<(String, bool)> {
         let mut buf = String::new();
         if let Some(fh) = self.stdin() {
             if let File::In(fh) = &mut *fh.lock_arc().await {
                 fh.read_line(&mut buf).await?;
             }
         }
+        let done = buf.is_empty();
         if buf.ends_with('\n') {
             buf.truncate(buf.len() - 1);
         }
-        Ok(buf)
+        Ok((buf, done))
     }
 
     pub async fn write_stdout(&self, buf: &[u8]) -> anyhow::Result<()> {

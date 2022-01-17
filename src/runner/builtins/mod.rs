@@ -213,8 +213,8 @@ fn read(
             bail!(cfg, exe, "usage: read var");
         };
 
-        let (done, val) = match cfg.io().read_line_stdin().await {
-            Ok(line) => (line.is_empty(), line),
+        let (val, done) = match cfg.io().read_line_stdin().await {
+            Ok((line, done)) => (line, done),
             Err(e) => {
                 bail!(cfg, exe, e);
             }
