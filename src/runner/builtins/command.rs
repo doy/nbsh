@@ -1,7 +1,5 @@
 use crate::runner::prelude::*;
 
-use async_std::io::prelude::BufReadExt as _;
-
 pub struct Command {
     exe: crate::parse::Exe,
     f: super::Builtin,
@@ -186,13 +184,37 @@ impl Io {
     }
 
     pub async fn read_line_stdin(&self) -> anyhow::Result<(String, bool)> {
-        let mut buf = String::new();
+        let mut buf = vec![];
         if let Some(fh) = self.stdin() {
             if let File::In(fh) = &mut *fh.lock_arc().await {
-                fh.read_line(&mut buf).await?;
+                // we have to read only a single character at a time here
+                // because stdin needs to be shared across all commands in the
+                // command list, some of which may be builtins and others of
+                // which may be external commands - if we read past the end of
+                // a line, then the characters past the end of that line will
+                // no longer be available to the next command, since we have
+                // them buffered in memory rather than them being on the stdin
+                // pipe.
+                let mut c = [0_u8];
+                loop {
+                    match fh.read_exact(&mut c[..]).await {
+                        Ok(()) => {}
+                        Err(e) => {
+                            if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                                break;
+                            }
+                            return Err(e.into());
+                        }
+                    }
+                    if c[0] == b'\n' {
+                        break;
+                    }
+                    buf.push(c[0]);
+                }
             }
         }
         let done = buf.is_empty();
+        let mut buf = String::from_utf8(buf).unwrap();
         if buf.ends_with('\n') {
             buf.truncate(buf.len() - 1);
         }
@@ -273,16 +295,14 @@ impl Drop for Io {
 
 #[derive(Debug)]
 pub enum File {
-    In(async_std::io::BufReader<async_std::fs::File>),
+    In(async_std::fs::File),
     Out(async_std::fs::File),
 }
 
 impl File {
     // Safety: fd must not be owned by any other File object
     pub unsafe fn input(fd: std::os::unix::io::RawFd) -> Self {
-        Self::In(async_std::io::BufReader::new(
-            async_std::fs::File::from_raw_fd(fd),
-        ))
+        Self::In(async_std::fs::File::from_raw_fd(fd))
     }
 
     // Safety: fd must not be owned by any other File object
@@ -302,8 +322,7 @@ impl File {
 impl std::os::unix::io::AsRawFd for File {
     fn as_raw_fd(&self) -> std::os::unix::io::RawFd {
         match self {
-            Self::In(fh) => fh.get_ref().as_raw_fd(),
-            Self::Out(fh) => fh.as_raw_fd(),
+            Self::In(fh) | Self::Out(fh) => fh.as_raw_fd(),
         }
     }
 }
@@ -311,8 +330,7 @@ impl std::os::unix::io::AsRawFd for File {
 impl std::os::unix::io::IntoRawFd for File {
     fn into_raw_fd(self) -> std::os::unix::io::RawFd {
         match self {
-            Self::In(fh) => fh.into_inner().into_raw_fd(),
-            Self::Out(fh) => fh.into_raw_fd(),
+            Self::In(fh) | Self::Out(fh) => fh.into_raw_fd(),
         }
     }
 }
