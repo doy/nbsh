@@ -69,16 +69,14 @@ enum Frame {
     For(bool, usize, Vec<String>),
 }
 
-pub async fn main() -> anyhow::Result<i32> {
-    // Safety: we don't create File instances for or read/write data on fds
-    // 3 or 4 anywhere else
-    let shell_read = unsafe { async_std::fs::File::from_raw_fd(3) };
-    let shell_write = unsafe { async_std::fs::File::from_raw_fd(4) };
+pub async fn run(commands: &str) -> anyhow::Result<i32> {
+    // Safety: we don't create File instances for or read/write data on fd
+    // 3 anywhere else
+    let shell_write = unsafe { async_std::fs::File::from_raw_fd(3) };
     cloexec(3)?;
-    cloexec(4)?;
 
-    let (commands, mut env) = read_data(shell_read).await?;
-    run_commands(&commands, &mut env, &shell_write).await?;
+    let mut env = Env::new_from_env()?;
+    run_commands(commands, &mut env, &shell_write).await?;
     let status = env.latest_status();
     write_event(&shell_write, Event::Exit(env)).await?;
 
@@ -219,20 +217,6 @@ async fn run_pipeline(
     env.update()?;
     env.set_status(status);
     Ok(())
-}
-
-async fn read_data(
-    mut fh: async_std::fs::File,
-) -> anyhow::Result<(String, Env)> {
-    let mut data = vec![];
-    fh.read_to_end(&mut data).await?;
-    let commands = bincode::deserialize(&data).unwrap();
-    let len: usize = bincode::serialized_size(&commands)
-        .unwrap()
-        .try_into()
-        .unwrap();
-    let env = Env::from_bytes(&data[len..]);
-    Ok((commands, env))
 }
 
 async fn write_event(

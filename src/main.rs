@@ -25,8 +25,9 @@ mod runner;
 mod shell;
 
 async fn async_main() -> anyhow::Result<i32> {
-    if std::env::args().nth(1).as_deref() == Some("--internal-cmd-runner") {
-        return runner::main().await;
+    if std::env::args().nth(1).as_deref() == Some("-c") {
+        return runner::run(std::env::args().nth(2).as_deref().unwrap())
+            .await;
     }
 
     shell::main().await

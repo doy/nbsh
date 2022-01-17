@@ -21,14 +21,18 @@ impl Env {
         Ok(Self::V0(V0 {
             pwd: pwd.clone(),
             vars: std::env::vars_os()
-                .chain(
-                    [
-                        (__NBSH_IDX.into(), "0".into()),
-                        (__NBSH_LATEST_STATUS.into(), "0".into()),
-                        (__NBSH_PREV_PWD.into(), pwd.into()),
-                    ]
-                    .into_iter(),
-                )
+                .chain(Self::defaults(pwd).into_iter())
+                .collect(),
+        }))
+    }
+
+    pub fn new_from_env() -> anyhow::Result<Self> {
+        let pwd = std::env::current_dir()?;
+        Ok(Self::V0(V0 {
+            pwd: pwd.clone(),
+            vars: Self::defaults(pwd)
+                .into_iter()
+                .chain(std::env::vars_os())
                 .collect(),
         }))
     }
@@ -118,14 +122,6 @@ impl Env {
         Ok(())
     }
 
-    pub fn as_bytes(&self) -> Vec<u8> {
-        bincode::serialize(self).unwrap()
-    }
-
-    pub fn from_bytes(bytes: &[u8]) -> Self {
-        bincode::deserialize(bytes).unwrap()
-    }
-
     fn special_var(&self, k: &str) -> Option<String> {
         Some(match k {
             "$" => crate::info::pid(),
@@ -141,5 +137,15 @@ impl Env {
             }
             _ => return None,
         })
+    }
+
+    fn defaults(
+        pwd: std::path::PathBuf,
+    ) -> [(std::ffi::OsString, std::ffi::OsString); 3] {
+        [
+            (__NBSH_IDX.into(), "0".into()),
+            (__NBSH_LATEST_STATUS.into(), "0".into()),
+            (__NBSH_PREV_PWD.into(), pwd.into()),
+        ]
     }
 }

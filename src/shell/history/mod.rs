@@ -283,30 +283,18 @@ async fn spawn_commands(
     event_w: async_std::channel::Sender<Event>,
 ) -> anyhow::Result<async_std::process::ExitStatus> {
     let mut cmd = pty_process::Command::new(std::env::current_exe()?);
-    cmd.arg("--internal-cmd-runner");
+    cmd.args(&["-c", cmdline]);
     env.apply(&mut cmd);
-    let (to_r, to_w) = nix::unistd::pipe2(nix::fcntl::OFlag::O_CLOEXEC)?;
     let (from_r, from_w) = nix::unistd::pipe2(nix::fcntl::OFlag::O_CLOEXEC)?;
     // Safety: dup2 is an async-signal-safe function
     unsafe {
         cmd.pre_exec(move || {
-            nix::unistd::dup2(to_r, 3)?;
-            nix::unistd::dup2(from_w, 4)?;
+            nix::unistd::dup2(from_w, 3)?;
             Ok(())
         });
     }
     let child = pty.spawn(cmd)?;
-    nix::unistd::close(to_r)?;
     nix::unistd::close(from_w)?;
-
-    // Safety: to_w was just opened above, was not used until now, and can't
-    // be used after this because from_raw_fd takes it by move
-    write_env(
-        unsafe { async_std::fs::File::from_raw_fd(to_w) },
-        cmdline,
-        env,
-    )
-    .await?;
 
     let (read_w, read_r) = async_std::channel::unbounded();
     let new_read = move || {
@@ -393,14 +381,4 @@ async fn spawn_commands(
             return Ok(status);
         }
     }
-}
-
-async fn write_env(
-    mut to_w: async_std::fs::File,
-    pipeline: &str,
-    env: &Env,
-) -> anyhow::Result<()> {
-    to_w.write_all(&bincode::serialize(pipeline)?).await?;
-    to_w.write_all(&env.as_bytes()).await?;
-    Ok(())
 }
