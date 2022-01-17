@@ -147,6 +147,8 @@ impl Exe {
     fn build_ast(pair: pest::iterators::Pair<Rule>) -> Self {
         assert!(matches!(pair.as_rule(), Rule::subshell | Rule::exe));
         if matches!(pair.as_rule(), Rule::subshell) {
+            let commands = pair.into_inner().next().unwrap();
+            assert!(matches!(commands.as_rule(), Rule::commands));
             return Self {
                 exe: Word {
                     parts: vec![WordPart::SingleQuoted(
@@ -163,12 +165,7 @@ impl Exe {
                     },
                     Word {
                         parts: vec![WordPart::SingleQuoted(
-                            pair.as_str()
-                                .strip_prefix('(')
-                                .unwrap()
-                                .strip_suffix(')')
-                                .unwrap()
-                                .to_string(),
+                            commands.as_str().to_string(),
                         )],
                     },
                 ],
