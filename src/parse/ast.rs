@@ -279,7 +279,8 @@ impl Word {
                             is_glob = true;
                         }
                     }
-                    WordPart::Var(_)
+                    WordPart::Substitution(_)
+                    | WordPart::Var(_)
                     | WordPart::DoubleQuoted(_)
                     | WordPart::SingleQuoted(_) => {
                         let part = part.eval(env).await;
@@ -321,6 +322,7 @@ impl Word {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum WordPart {
     Alternation(Vec<Word>),
+    Substitution(String),
     Var(String),
     Bareword(String),
     DoubleQuoted(String),
@@ -337,6 +339,11 @@ impl WordPart {
             Rule::word_part | Rule::alternation_word_part
         ));
         pair.into_inner().map(|pair| match pair.as_rule() {
+            Rule::substitution => {
+                let commands = pair.into_inner().next().unwrap();
+                assert!(matches!(commands.as_rule(), Rule::commands));
+                Self::Substitution(commands.as_str().to_string())
+            }
             Rule::var => {
                 let s = pair.as_str();
                 let inner = s.strip_prefix('$').unwrap();
@@ -368,6 +375,21 @@ impl WordPart {
     async fn eval(self, env: &Env) -> String {
         match self {
             Self::Alternation(_) => unreachable!(),
+            Self::Substitution(commands) => {
+                let mut cmd = async_std::process::Command::new(
+                    std::env::current_exe().unwrap(),
+                );
+                cmd.args(&["-c", &commands]);
+                cmd.stdin(async_std::process::Stdio::inherit());
+                cmd.stderr(async_std::process::Stdio::inherit());
+                let mut out =
+                    String::from_utf8(cmd.output().await.unwrap().stdout)
+                        .unwrap();
+                if out.ends_with('\n') {
+                    out.truncate(out.len() - 1);
+                }
+                out
+            }
             Self::Var(name) => {
                 env.var(&name).unwrap_or_else(|| "".to_string())
             }

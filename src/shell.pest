@@ -33,12 +33,15 @@ alternation_word_part = ${
 alternation_word = ${ alternation_word_part* }
 alternation = ${ "{" ~ alternation_word ~ ("," ~ alternation_word)* ~ "}" }
 
+substitution = ${ "$(" ~ w? ~ commands ~ w? ~ ")"}
+
 word_part = ${
     alternation |
+    substitution |
     var |
     bareword |
     "'" ~ single_string ~ "'" |
-    "\"" ~ (var | double_string)+ ~ "\""
+    "\"" ~ (substitution | var | double_string)+ ~ "\""
 }
 word = ${ word_part+ }
 
