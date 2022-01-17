@@ -42,6 +42,7 @@ pub enum Command {
     If(Pipeline),
     While(Pipeline),
     For(String, Vec<Word>),
+    Else(Option<Pipeline>),
     End,
 }
 
@@ -70,6 +71,9 @@ impl Command {
                             list.into_inner().map(Word::build_ast).collect();
                         Self::For(var.as_str().to_string(), vals)
                     }
+                    Rule::control_else => Self::Else(
+                        ty.into_inner().next().map(Pipeline::build_ast),
+                    ),
                     Rule::control_end => Self::End,
                     _ => unreachable!(),
                 }

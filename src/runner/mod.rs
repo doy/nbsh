@@ -41,7 +41,7 @@ impl Stack {
 
     fn current_pc(&self, pc: usize) -> bool {
         match self.top() {
-            Some(Frame::If(_)) | None => false,
+            Some(Frame::If(..)) | None => false,
             Some(Frame::While(_, start) | Frame::For(_, start, _)) => {
                 *start == pc
             }
@@ -52,7 +52,7 @@ impl Stack {
         for frame in &self.frames {
             if matches!(
                 frame,
-                Frame::If(false)
+                Frame::If(false, ..)
                     | Frame::While(false, ..)
                     | Frame::For(false, ..)
             ) {
@@ -64,7 +64,7 @@ impl Stack {
 }
 
 enum Frame {
-    If(bool),
+    If(bool, bool),
     While(bool, usize),
     For(bool, usize, Vec<String>),
 }
@@ -104,13 +104,16 @@ async fn run_commands(
             crate::parse::ast::Command::If(pipeline) => {
                 let should = stack.should_execute();
                 if !stack.current_pc(pc) {
-                    stack.push(Frame::If(false));
+                    stack.push(Frame::If(false, false));
                 }
                 if should {
                     let status = env.latest_status();
                     run_pipeline(pipeline.clone(), env, shell_write).await?;
-                    if let Some(Frame::If(should)) = stack.top_mut() {
+                    if let Some(Frame::If(should, found)) = stack.top_mut() {
                         *should = env.latest_status().success();
+                        if *should {
+                            *found = true;
+                        }
                     } else {
                         unreachable!();
                     }
@@ -174,8 +177,34 @@ async fn run_commands(
                 }
                 pc += 1;
             }
+            crate::parse::ast::Command::Else(pipeline) => {
+                let mut top = stack.pop();
+                if stack.should_execute() {
+                    if let Frame::If(ref mut should, ref mut found) = top {
+                        if *found {
+                            *should = false;
+                        } else if let Some(pipeline) = pipeline {
+                            let status = env.latest_status();
+                            run_pipeline(pipeline.clone(), env, shell_write)
+                                .await?;
+                            *should = env.latest_status().success();
+                            if *should {
+                                *found = true;
+                            }
+                            env.set_status(status);
+                        } else {
+                            *should = true;
+                            *found = true;
+                        }
+                    } else {
+                        todo!();
+                    }
+                }
+                stack.push(top);
+                pc += 1;
+            }
             crate::parse::ast::Command::End => match stack.top() {
-                Some(Frame::If(_)) => {
+                Some(Frame::If(..)) => {
                     stack.pop();
                     pc += 1;
                 }

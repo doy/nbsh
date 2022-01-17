@@ -52,8 +52,11 @@ pipeline = ${ (subshell | exe) ~ (w? ~ "|" ~ w? ~ (subshell | exe))* }
 control_if    = ${ "if" ~ w ~ pipeline }
 control_while = ${ "while" ~ w ~ pipeline }
 control_for   = ${ "for" ~ w ~ bareword ~ w ~ "in" ~ w ~ list }
+control_else  = ${ "else" ~ (w ~ "if" ~ w ~ pipeline)? }
 control_end   = ${ "end" }
-control       = ${ control_if | control_while | control_for | control_end }
+control       = ${
+    control_if | control_while | control_for | control_else | control_end
+}
 
 command  = ${ control | pipeline }
 commands = ${ command ~ (w? ~ ";" ~ w? ~ command)* }
