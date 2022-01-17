@@ -1,7 +1,5 @@
 use crate::prelude::*;
 
-use serde::Deserialize as _;
-
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Env {
     V0(V0),
@@ -9,72 +7,44 @@ pub enum Env {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct V0 {
-    idx: usize,
-    #[serde(
-        serialize_with = "serialize_status",
-        deserialize_with = "deserialize_status"
-    )]
-    latest_status: async_std::process::ExitStatus,
     pwd: std::path::PathBuf,
-    #[serde(
-        serialize_with = "serialize_prev_pwd",
-        deserialize_with = "deserialize_prev_pwd"
-    )]
-    prev_pwd: crate::mutex::Mutex<std::path::PathBuf>,
     vars: std::collections::HashMap<std::ffi::OsString, std::ffi::OsString>,
 }
+
+const __NBSH_IDX: &str = "__NBSH_IDX";
+const __NBSH_LATEST_STATUS: &str = "__NBSH_LATEST_STATUS";
+const __NBSH_PREV_PWD: &str = "__NBSH_PREV_PWD";
 
 impl Env {
     pub fn new() -> anyhow::Result<Self> {
         let pwd = std::env::current_dir()?;
         Ok(Self::V0(V0 {
-            idx: 0,
-            latest_status: std::process::ExitStatus::from_raw(0),
             pwd: pwd.clone(),
-            prev_pwd: crate::mutex::new(pwd),
-            vars: std::env::vars_os().collect(),
+            vars: std::env::vars_os()
+                .chain(
+                    [
+                        (__NBSH_IDX.into(), "0".into()),
+                        (__NBSH_LATEST_STATUS.into(), "0".into()),
+                        (__NBSH_PREV_PWD.into(), pwd.into()),
+                    ]
+                    .into_iter(),
+                )
+                .collect(),
         }))
     }
 
-    pub fn idx(&self) -> usize {
-        match self {
-            Self::V0(env) => env.idx,
-        }
-    }
-
-    pub fn set_idx(&mut self, idx: usize) {
-        match self {
-            Self::V0(env) => env.idx = idx,
-        }
-    }
-
-    pub fn latest_status(&self) -> &async_std::process::ExitStatus {
-        match self {
-            Self::V0(env) => &env.latest_status,
-        }
-    }
-
-    pub fn set_status(&mut self, status: async_std::process::ExitStatus) {
-        match self {
-            Self::V0(env) => {
-                env.latest_status = status;
-            }
-        }
-    }
-
-    pub fn current_dir(&self) -> &std::path::Path {
+    pub fn pwd(&self) -> &std::path::Path {
         match self {
             Self::V0(env) => &env.pwd,
         }
     }
 
-    pub fn var(&self, k: &str) -> String {
+    pub fn var(&self, k: &str) -> Option<String> {
         match self {
-            Self::V0(env) => self.special_var(k).unwrap_or_else(|| {
-                env.vars.get(std::ffi::OsStr::new(k)).map_or_else(
-                    || "".to_string(),
-                    |v| v.to_str().unwrap().to_string(),
-                )
+            Self::V0(env) => self.special_var(k).or_else(|| {
+                env.vars
+                    .get(std::ffi::OsStr::new(k))
+                    .map(|v| v.to_str().unwrap().to_string())
             }),
         }
     }
@@ -94,18 +64,37 @@ impl Env {
         }
     }
 
-    pub async fn prev_pwd(&self) -> std::path::PathBuf {
-        match self {
-            Self::V0(env) => env.prev_pwd.lock_arc().await.clone(),
-        }
+    pub fn idx(&self) -> usize {
+        self.var(__NBSH_IDX).unwrap().parse().unwrap()
     }
 
-    pub async fn set_prev_pwd(&self, prev_pwd: &std::path::Path) {
-        match self {
-            Self::V0(env) => {
-                *env.prev_pwd.lock_arc().await = prev_pwd.to_path_buf();
-            }
-        }
+    pub fn set_idx(&mut self, idx: usize) {
+        self.set_var(__NBSH_IDX, format!("{}", idx));
+    }
+
+    pub fn latest_status(&self) -> std::process::ExitStatus {
+        std::process::ExitStatus::from_raw(
+            self.var(__NBSH_LATEST_STATUS).unwrap().parse().unwrap(),
+        )
+    }
+
+    pub fn set_status(&mut self, status: std::process::ExitStatus) {
+        self.set_var(
+            __NBSH_LATEST_STATUS,
+            format!(
+                "{}",
+                (status.code().unwrap_or(0) << 8)
+                    | status.signal().unwrap_or(0)
+            ),
+        );
+    }
+
+    pub fn prev_pwd(&self) -> std::path::PathBuf {
+        std::path::PathBuf::from(self.var(__NBSH_PREV_PWD).unwrap())
+    }
+
+    pub fn set_prev_pwd(&mut self, prev_pwd: std::path::PathBuf) {
+        self.set_var(__NBSH_PREV_PWD, prev_pwd);
     }
 
     pub fn apply(&self, cmd: &mut pty_process::Command) {
@@ -118,13 +107,14 @@ impl Env {
         }
     }
 
-    pub fn update(
-        &mut self,
-        status: std::process::ExitStatus,
-    ) -> anyhow::Result<()> {
+    pub fn update(&mut self) -> anyhow::Result<()> {
+        let idx = self.idx();
+        let status = self.latest_status();
+        let prev_pwd = self.prev_pwd();
+        *self = Self::new()?;
+        self.set_idx(idx);
         self.set_status(status);
-        self.set_current_dir(std::env::current_dir()?);
-        self.set_vars(std::env::vars_os());
+        self.set_prev_pwd(prev_pwd);
         Ok(())
     }
 
@@ -137,89 +127,19 @@ impl Env {
     }
 
     fn special_var(&self, k: &str) -> Option<String> {
-        match self {
-            Self::V0(env) => Some(match k {
-                "$" => crate::info::pid(),
-                "?" => {
-                    let status = env.latest_status;
-                    status
-                        .signal()
-                        .map_or_else(
-                            || status.code().unwrap(),
-                            |signal| signal + 128,
-                        )
-                        .to_string()
-                }
-                _ => return None,
-            }),
-        }
-    }
-
-    fn set_current_dir(&mut self, pwd: std::path::PathBuf) {
-        match self {
-            Self::V0(env) => {
-                env.pwd = pwd;
+        Some(match k {
+            "$" => crate::info::pid(),
+            "?" => {
+                let status = self.latest_status();
+                status
+                    .signal()
+                    .map_or_else(
+                        || status.code().unwrap(),
+                        |signal| signal + 128,
+                    )
+                    .to_string()
             }
-        }
+            _ => return None,
+        })
     }
-
-    fn set_vars(
-        &mut self,
-        it: impl Iterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
-    ) {
-        match self {
-            Self::V0(env) => {
-                env.vars = it.collect();
-            }
-        }
-    }
-}
-
-#[allow(clippy::trivially_copy_pass_by_ref)]
-fn serialize_status<S>(
-    status: &std::process::ExitStatus,
-    s: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    let code: u16 = status.code().unwrap_or(0).try_into().unwrap();
-    let signal: u16 = status.signal().unwrap_or(0).try_into().unwrap();
-    s.serialize_u16((code << 8) | signal)
-}
-
-fn deserialize_status<'de, D>(
-    d: D,
-) -> Result<std::process::ExitStatus, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let status = u16::deserialize(d)?;
-    Ok(std::process::ExitStatus::from_raw(i32::from(status)))
-}
-
-#[allow(clippy::trivially_copy_pass_by_ref)]
-fn serialize_prev_pwd<S>(
-    prev_pwd: &crate::mutex::Mutex<std::path::PathBuf>,
-    s: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    s.serialize_bytes(
-        async_std::task::block_on(async { prev_pwd.lock_arc().await })
-            .as_os_str()
-            .as_bytes(),
-    )
-}
-
-fn deserialize_prev_pwd<'de, D>(
-    d: D,
-) -> Result<crate::mutex::Mutex<std::path::PathBuf>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    Ok(crate::mutex::new(std::path::PathBuf::from(
-        std::ffi::OsString::from_vec(Vec::deserialize(d)?),
-    )))
 }

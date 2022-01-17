@@ -67,16 +67,17 @@ fn cd(
             if dir.is_empty() {
                 ".".to_string().into()
             } else if dir == "-" {
-                env.prev_pwd().await
+                env.prev_pwd()
             } else {
                 dir.into()
             }
         } else {
             let dir = env.var("HOME");
-            if dir.is_empty() {
+            if let Some(dir) = dir {
+                dir.into()
+            } else {
                 bail!(cfg, exe, "could not find home directory");
             }
-            dir.into()
         };
         let prev = match std::env::current_dir() {
             Ok(path) => path,
@@ -98,7 +99,8 @@ fn cd(
                 dir.display()
             );
         }
-        env.set_prev_pwd(&prev).await;
+        // TODO
+        // env.set_prev_pwd(prev);
         async_std::process::ExitStatus::from_raw(0)
     }
 
@@ -255,7 +257,7 @@ fn and(
         cfg.setup_command(&mut cmd);
         Ok(command::Child::new_wrapped(cmd.spawn(env)?))
     } else {
-        let status = *env.latest_status();
+        let status = env.latest_status();
         Ok(command::Child::new_fut(async move { status }))
     }
 }
@@ -267,7 +269,7 @@ fn or(
 ) -> anyhow::Result<command::Child> {
     exe.shift();
     if env.latest_status().success() {
-        let status = *env.latest_status();
+        let status = env.latest_status();
         Ok(command::Child::new_fut(async move { status }))
     } else {
         let mut cmd = crate::runner::Command::new(exe, cfg.io().clone());

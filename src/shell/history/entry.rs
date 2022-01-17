@@ -343,7 +343,7 @@ impl Entry {
         env: Env,
         event_w: async_std::channel::Sender<Event>,
     ) {
-        self.state = State::Exited(ExitInfo::new(*env.latest_status()));
+        self.state = State::Exited(ExitInfo::new(env.latest_status()));
         self.env = env;
         event_w.send(Event::PtyClose).await.unwrap();
     }

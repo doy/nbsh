@@ -330,7 +330,9 @@ impl WordPart {
     fn eval(self, env: &Env) -> String {
         match self {
             Self::Alternation(_) => unreachable!(),
-            Self::Var(name) => env.var(&name),
+            Self::Var(name) => {
+                env.var(&name).unwrap_or_else(|| "".to_string())
+            }
             Self::Bareword(s)
             | Self::DoubleQuoted(s)
             | Self::SingleQuoted(s) => s,

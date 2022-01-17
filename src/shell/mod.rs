@@ -147,11 +147,11 @@ pub async fn main() -> anyhow::Result<i32> {
     }
 
     let mut shell = Shell::new(crate::info::get_offset())?;
-    let mut prev_dir = shell.env.current_dir().to_path_buf();
+    let mut prev_dir = shell.env.pwd().to_path_buf();
     git_w.send(prev_dir.clone()).await.unwrap();
     let event_reader = event::Reader::new(event_r);
     while let Some(event) = event_reader.recv().await {
-        let dir = shell.env().current_dir();
+        let dir = shell.env().pwd();
         if dir != prev_dir {
             prev_dir = dir.to_path_buf();
             git_w.send(dir.to_path_buf()).await.unwrap();

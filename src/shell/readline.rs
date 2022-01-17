@@ -27,7 +27,7 @@ impl Readline {
         focus: bool,
         offset: time::UtcOffset,
     ) -> anyhow::Result<()> {
-        let pwd = env.current_dir();
+        let pwd = env.pwd();
         let user = crate::info::user()?;
         let hostname = crate::info::hostname()?;
         let time = crate::info::time(offset)?;
