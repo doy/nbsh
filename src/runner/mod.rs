@@ -69,16 +69,14 @@ enum Frame {
     For(bool, usize, Vec<String>),
 }
 
-pub async fn run(commands: &str) -> anyhow::Result<i32> {
-    // Safety: we don't create File instances for or read/write data on fd
-    // 3 anywhere else
-    let shell_write = unsafe { async_std::fs::File::from_raw_fd(3) };
-    cloexec(3)?;
-
+pub async fn run(
+    commands: &str,
+    shell_write: Option<&async_std::fs::File>,
+) -> anyhow::Result<i32> {
     let mut env = Env::new_from_env()?;
-    run_commands(commands, &mut env, &shell_write).await?;
+    run_commands(commands, &mut env, shell_write).await?;
     let status = env.latest_status();
-    write_event(&shell_write, Event::Exit(env)).await?;
+    write_event(shell_write, Event::Exit(env)).await?;
 
     if let Some(signal) = status.signal() {
         nix::sys::signal::raise(signal.try_into().unwrap())?;
@@ -89,7 +87,7 @@ pub async fn run(commands: &str) -> anyhow::Result<i32> {
 async fn run_commands(
     commands: &str,
     env: &mut Env,
-    shell_write: &async_std::fs::File,
+    shell_write: Option<&async_std::fs::File>,
 ) -> anyhow::Result<()> {
     let commands = crate::parse::ast::Commands::parse(commands)?;
     let commands = commands.commands();
@@ -194,7 +192,7 @@ async fn run_commands(
 async fn run_pipeline(
     pipeline: crate::parse::ast::Pipeline,
     env: &mut Env,
-    shell_write: &async_std::fs::File,
+    shell_write: Option<&async_std::fs::File>,
 ) -> anyhow::Result<()> {
     write_event(shell_write, Event::RunPipeline(env.idx(), pipeline.span()))
         .await?;
@@ -224,11 +222,13 @@ async fn run_pipeline(
 }
 
 async fn write_event(
-    mut fh: &async_std::fs::File,
+    fh: Option<&async_std::fs::File>,
     event: Event,
 ) -> anyhow::Result<()> {
-    fh.write_all(&bincode::serialize(&event)?).await?;
-    fh.flush().await?;
+    if let Some(mut fh) = fh {
+        fh.write_all(&bincode::serialize(&event)?).await?;
+        fh.flush().await?;
+    }
     Ok(())
 }
 
@@ -277,7 +277,7 @@ async fn wait_children(
     pg: Option<nix::unistd::Pid>,
     env: &Env,
     io: &builtins::Io,
-    shell_write: &async_std::fs::File,
+    shell_write: Option<&async_std::fs::File>,
 ) -> std::process::ExitStatus {
     enum Res {
         Child(nix::Result<nix::sys::wait::WaitStatus>),
@@ -511,14 +511,6 @@ fn setpgid_parent(
             Err(e)
         }
     })?;
-    Ok(())
-}
-
-fn cloexec(fd: std::os::unix::io::RawFd) -> anyhow::Result<()> {
-    nix::fcntl::fcntl(
-        fd,
-        nix::fcntl::FcntlArg::F_SETFD(nix::fcntl::FdFlag::FD_CLOEXEC),
-    )?;
     Ok(())
 }
 

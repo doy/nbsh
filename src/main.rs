@@ -24,17 +24,41 @@ mod prelude;
 mod runner;
 mod shell;
 
-async fn async_main() -> anyhow::Result<i32> {
+use prelude::*;
+
+async fn async_main(
+    shell_write: Option<&async_std::fs::File>,
+) -> anyhow::Result<i32> {
     if std::env::args().nth(1).as_deref() == Some("-c") {
-        return runner::run(std::env::args().nth(2).as_deref().unwrap())
-            .await;
+        return runner::run(
+            std::env::args().nth(2).as_deref().unwrap(),
+            shell_write,
+        )
+        .await;
     }
 
     shell::main().await
 }
 
 fn main() {
-    match async_std::task::block_on(async_main()) {
+    // need to do this here because the async-std executor allocates some fds,
+    // and so in the case where we aren't being called from the main shell and
+    // fd 3 wasn't preallocated in advance, we need to be able to tell that
+    // before async-std opens something on fd 3
+    let shell_write = if nix::sys::stat::fstat(3).is_ok() {
+        nix::fcntl::fcntl(
+            3,
+            nix::fcntl::FcntlArg::F_SETFD(nix::fcntl::FdFlag::FD_CLOEXEC),
+        )
+        .unwrap();
+        // Safety: we don't create File instances for or read/write data on fd
+        // 3 anywhere else
+        Some(unsafe { async_std::fs::File::from_raw_fd(3) })
+    } else {
+        None
+    };
+
+    match async_std::task::block_on(async_main(shell_write.as_ref())) {
         Ok(code) => {
             std::process::exit(code);
         }
