@@ -121,19 +121,19 @@ macro_rules! wpv {
 }
 
 macro_rules! wpb {
-    ($bareword:literal) => {
+    ($bareword:expr) => {
         WordPart::Bareword($bareword.to_string())
     };
 }
 
 macro_rules! wpd {
-    ($doublequoted:literal) => {
+    ($doublequoted:expr) => {
         WordPart::DoubleQuoted($doublequoted.to_string())
     };
 }
 
 macro_rules! wps {
-    ($singlequoted:literal) => {
+    ($singlequoted:expr) => {
         WordPart::SingleQuoted($singlequoted.to_string())
     };
 }
@@ -200,6 +200,25 @@ fn test_basic() {
             ),
             p!((44, 60), e!(w!("builtin"), w!("echo"), w!("bar")))
         )
+    );
+
+    // XXX this parse may change in the future
+    let exe = std::env::current_exe()
+        .unwrap()
+        .into_os_string()
+        .into_string()
+        .unwrap();
+    parse_eq!(
+        "seq 1 5 | (while read line; echo \"line: $line\"; end)",
+        cs!(p!(
+            (0, 52),
+            e!(w!("seq"), w!("1"), w!("5")),
+            e!(
+                w!(wps!(exe)),
+                w!(wps!("-c")),
+                w!(wps!("while read line; echo \"line: $line\"; end"))
+            )
+        ))
     );
 }
 
