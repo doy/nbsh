@@ -156,7 +156,10 @@ macro_rules! eval_eq {
                     | Command::While(p) => p,
                 _ => continue,
             };
-            assert_eq!(pipeline.eval(&$env).unwrap(), expected.remove(0));
+            assert_eq!(
+                async_std::task::block_on(pipeline.eval(&$env)).unwrap(),
+                expected.remove(0)
+            );
         }
     }};
 }
@@ -172,7 +175,7 @@ macro_rules! eval_fails {
                 }
                 _ => continue,
             };
-            if pipeline.eval(&$env).is_err() {
+            if async_std::task::block_on(pipeline.eval(&$env)).is_err() {
                 fail = true;
             }
         }

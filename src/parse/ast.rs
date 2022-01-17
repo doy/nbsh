@@ -90,13 +90,15 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-    pub fn eval(self, env: &Env) -> anyhow::Result<super::Pipeline> {
+    pub async fn eval(self, env: &Env) -> anyhow::Result<super::Pipeline> {
         Ok(super::Pipeline {
             exes: self
                 .exes
                 .into_iter()
                 .map(|exe| exe.eval(env))
-                .collect::<Result<_, _>>()?,
+                .collect::<futures_util::stream::FuturesOrdered<_>>()
+                .collect::<Result<_, _>>()
+                .await?,
         })
     }
 
@@ -122,8 +124,8 @@ struct Exe {
 }
 
 impl Exe {
-    fn eval(self, env: &Env) -> anyhow::Result<super::Exe> {
-        let exe = self.exe.eval(env)?;
+    async fn eval(self, env: &Env) -> anyhow::Result<super::Exe> {
+        let exe = self.exe.eval(env).await?;
         assert_eq!(exe.len(), 1); // TODO
         let exe = &exe[0];
         Ok(super::Exe {
@@ -131,8 +133,12 @@ impl Exe {
             args: self
                 .args
                 .into_iter()
-                .map(|arg| arg.eval(env).map(IntoIterator::into_iter))
-                .collect::<Result<Vec<_>, _>>()?
+                .map(|arg| async {
+                    arg.eval(env).await.map(IntoIterator::into_iter)
+                })
+                .collect::<futures_util::stream::FuturesOrdered<_>>()
+                .collect::<Result<Vec<_>, _>>()
+                .await?
                 .into_iter()
                 .flatten()
                 .collect(),
@@ -140,7 +146,9 @@ impl Exe {
                 .redirects
                 .into_iter()
                 .map(|arg| arg.eval(env))
-                .collect::<Result<_, _>>()?,
+                .collect::<futures_util::stream::FuturesOrdered<_>>()
+                .collect::<Result<_, _>>()
+                .await?,
         })
     }
 
@@ -218,7 +226,7 @@ impl Word {
         }
     }
 
-    pub fn eval(self, env: &Env) -> anyhow::Result<Vec<String>> {
+    pub async fn eval(self, env: &Env) -> anyhow::Result<Vec<String>> {
         let mut opts = glob::MatchOptions::new();
         opts.require_literal_separator = true;
         opts.require_literal_leading_dot = true;
@@ -264,7 +272,7 @@ impl Word {
                 match part {
                     WordPart::Alternation(_) => unreachable!(),
                     WordPart::Bareword(_) => {
-                        let part = part.eval(env);
+                        let part = part.eval(env).await;
                         s.push_str(&part);
                         pat.push_str(&part);
                         if part.contains(&['*', '?', '['][..]) {
@@ -274,7 +282,7 @@ impl Word {
                     WordPart::Var(_)
                     | WordPart::DoubleQuoted(_)
                     | WordPart::SingleQuoted(_) => {
-                        let part = part.eval(env);
+                        let part = part.eval(env).await;
                         s.push_str(&part);
                         pat.push_str(&glob::Pattern::escape(&part));
                     }
@@ -357,7 +365,7 @@ impl WordPart {
         })
     }
 
-    fn eval(self, env: &Env) -> String {
+    async fn eval(self, env: &Env) -> String {
         match self {
             Self::Alternation(_) => unreachable!(),
             Self::Var(name) => {
@@ -399,25 +407,25 @@ impl Redirect {
         Self { from, to, dir }
     }
 
-    fn eval(self, env: &Env) -> anyhow::Result<super::Redirect> {
+    async fn eval(self, env: &Env) -> anyhow::Result<super::Redirect> {
         let to = if self.to.parts.len() == 1 {
             if let WordPart::Bareword(s) = &self.to.parts[0] {
                 if let Some(fd) = s.strip_prefix('&') {
                     super::RedirectTarget::Fd(parse_fd(fd))
                 } else {
-                    let to = self.to.eval(env)?;
+                    let to = self.to.eval(env).await?;
                     assert_eq!(to.len(), 1); // TODO
                     let to = &to[0];
                     super::RedirectTarget::File(std::path::PathBuf::from(to))
                 }
             } else {
-                let to = self.to.eval(env)?;
+                let to = self.to.eval(env).await?;
                 assert_eq!(to.len(), 1); // TODO
                 let to = &to[0];
                 super::RedirectTarget::File(std::path::PathBuf::from(to))
             }
         } else {
-            let to = self.to.eval(env)?;
+            let to = self.to.eval(env).await?;
             assert_eq!(to.len(), 1); // TODO
             let to = &to[0];
             super::RedirectTarget::File(std::path::PathBuf::from(to))

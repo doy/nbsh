@@ -147,10 +147,13 @@ async fn run_commands(
                         if stack.should_execute() {
                             list.clone()
                                 .into_iter()
-                                .map(|w| {
-                                    w.eval(env).map(IntoIterator::into_iter)
+                                .map(|w| async {
+                                    w.eval(env)
+                                        .await
+                                        .map(IntoIterator::into_iter)
                                 })
-                                .collect::<Result<Vec<_>, _>>()?
+                                .collect::<futures_util::stream::FuturesOrdered<_>>()
+                                .collect::<Result<Vec<_>, _>>().await?
                                 .into_iter()
                                 .flatten()
                                 .collect()
@@ -247,6 +250,7 @@ async fn run_pipeline(
     io.set_stderr(stderr);
 
     let pwd = env.pwd().to_path_buf();
+    let pipeline = pipeline.eval(env).await?;
     let (children, pg) = spawn_children(pipeline, env, &io)?;
     let status = wait_children(children, pg, env, &io, shell_write).await;
     set_foreground_pg(nix::unistd::getpid())?;
@@ -270,11 +274,10 @@ async fn write_event(
 }
 
 fn spawn_children<'a>(
-    pipeline: crate::parse::ast::Pipeline,
+    pipeline: crate::parse::Pipeline,
     env: &'a Env,
     io: &builtins::Io,
 ) -> anyhow::Result<(Vec<Child<'a>>, Option<nix::unistd::Pid>)> {
-    let pipeline = pipeline.eval(env)?;
     let mut cmds: Vec<_> = pipeline
         .into_exes()
         .map(|exe| Command::new(exe, io.clone()))
