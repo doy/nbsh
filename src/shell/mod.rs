@@ -212,10 +212,13 @@ pub struct Shell {
 
 impl Shell {
     pub fn new(offset: time::UtcOffset) -> anyhow::Result<Self> {
+        let mut env = Env::new()?;
+        env.set_var("SHELL", std::env::current_exe()?);
+        env.set_var("TERM", "screen");
         Ok(Self {
             readline: readline::Readline::new(),
             history: history::History::new(),
-            env: Env::new()?,
+            env,
             git: None,
             focus: Focus::Readline,
             scene: Scene::Readline,

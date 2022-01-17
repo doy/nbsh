@@ -26,19 +26,13 @@ pub struct V0 {
 
 impl Env {
     pub fn new() -> anyhow::Result<Self> {
-        let mut vars: std::collections::HashMap<
-            std::ffi::OsString,
-            std::ffi::OsString,
-        > = std::env::vars_os().collect();
-        vars.insert("SHELL".into(), std::env::current_exe()?.into());
-        vars.insert("TERM".into(), "screen".into());
         let pwd = std::env::current_dir()?;
         Ok(Self::V0(V0 {
             idx: 0,
             latest_status: std::process::ExitStatus::from_raw(0),
             pwd: pwd.clone(),
             prev_pwd: crate::mutex::new(pwd),
-            vars,
+            vars: std::env::vars_os().collect(),
         }))
     }
 
@@ -85,7 +79,14 @@ impl Env {
         }
     }
 
-    pub fn set_var<T: Into<std::ffi::OsString>>(&mut self, k: T, v: T) {
+    pub fn set_var<
+        K: Into<std::ffi::OsString>,
+        V: Into<std::ffi::OsString>,
+    >(
+        &mut self,
+        k: K,
+        v: V,
+    ) {
         match self {
             Self::V0(env) => {
                 env.vars.insert(k.into(), v.into());
