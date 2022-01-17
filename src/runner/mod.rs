@@ -107,12 +107,14 @@ async fn run_commands(
                     stack.push(Frame::If(false));
                 }
                 if should {
+                    let status = env.latest_status();
                     run_pipeline(pipeline.clone(), env, shell_write).await?;
                     if let Some(Frame::If(should)) = stack.top_mut() {
                         *should = env.latest_status().success();
                     } else {
                         unreachable!();
                     }
+                    env.set_status(status);
                 }
                 pc += 1;
             }
@@ -122,12 +124,14 @@ async fn run_commands(
                     stack.push(Frame::While(false, pc));
                 }
                 if should {
+                    let status = env.latest_status();
                     run_pipeline(pipeline.clone(), env, shell_write).await?;
                     if let Some(Frame::While(should, _)) = stack.top_mut() {
                         *should = env.latest_status().success();
                     } else {
                         unreachable!();
                     }
+                    env.set_status(status);
                 }
                 pc += 1;
             }
