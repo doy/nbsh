@@ -158,7 +158,11 @@ async fn run_commands(
                         *should = !list.is_empty();
                         if *should {
                             let val = list.remove(0);
+                            // XXX i really need to just pick one location and
+                            // stick with it instead of trying to keep these
+                            // in sync
                             env.set_var(var, &val);
+                            std::env::set_var(var, &val);
                         }
                     } else {
                         unreachable!();

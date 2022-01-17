@@ -141,7 +141,36 @@ impl Exe {
     }
 
     fn build_ast(pair: pest::iterators::Pair<Rule>) -> Self {
-        assert!(matches!(pair.as_rule(), Rule::exe));
+        assert!(matches!(pair.as_rule(), Rule::subshell | Rule::exe));
+        if matches!(pair.as_rule(), Rule::subshell) {
+            return Self {
+                exe: Word {
+                    parts: vec![WordPart::SingleQuoted(
+                        std::env::current_exe()
+                            .unwrap()
+                            .to_str()
+                            .unwrap()
+                            .to_string(),
+                    )],
+                },
+                args: vec![
+                    Word {
+                        parts: vec![WordPart::SingleQuoted("-c".to_string())],
+                    },
+                    Word {
+                        parts: vec![WordPart::SingleQuoted(
+                            pair.as_str()
+                                .strip_prefix('(')
+                                .unwrap()
+                                .strip_suffix(')')
+                                .unwrap()
+                                .to_string(),
+                        )],
+                    },
+                ],
+                redirects: vec![],
+            };
+        }
         let mut iter = pair.into_inner();
         let exe = match WordOrRedirect::build_ast(iter.next().unwrap()) {
             WordOrRedirect::Word(word) => word,

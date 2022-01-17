@@ -3,7 +3,8 @@ escape_char       = @{ "\\" ~ ANY }
 
 bareword_char = @{
     escape_char |
-    !("|" | ";" | "\"" | "'" | "$" | "{" | WHITESPACE | COMMENT) ~ ANY
+    !("|" | ";" | "\"" | "'" | "$" | "{" | "(" | ")" | WHITESPACE | COMMENT)
+        ~ ANY
 }
 single_string_char = @{ basic_escape_char | (!"'" ~ ANY) }
 double_string_char = @{ escape_char | (!("\"" | "$") ~ ANY) }
@@ -44,8 +45,9 @@ word = ${ word_part+ }
 word_or_redirect = ${ redir_prefix? ~ word }
 
 exe      = ${ word_or_redirect ~ (w ~ word_or_redirect)* }
+subshell = ${ "(" ~ w? ~ commands ~ w? ~ ")" }
 list     = ${ word ~ (w ~ word)* }
-pipeline = ${ exe ~ (w? ~ "|" ~ w? ~ exe)* }
+pipeline = ${ (subshell | exe) ~ (w? ~ "|" ~ w? ~ (subshell | exe))* }
 
 control_if    = ${ "if" ~ w ~ pipeline }
 control_while = ${ "while" ~ w ~ pipeline }
