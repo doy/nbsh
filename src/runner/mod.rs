@@ -211,11 +211,15 @@ async fn run_pipeline(
     io.set_stdout(stdout);
     io.set_stderr(stderr);
 
+    let pwd = env.pwd().to_path_buf();
     let (children, pg) = spawn_children(pipeline, env, &io)?;
     let status = wait_children(children, pg, env, &io, shell_write).await;
     set_foreground_pg(nix::unistd::getpid())?;
     env.update()?;
     env.set_status(status);
+    if env.pwd() != pwd {
+        env.set_prev_pwd(pwd);
+    }
     Ok(())
 }
 

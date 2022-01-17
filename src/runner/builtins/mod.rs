@@ -79,17 +79,6 @@ fn cd(
                 bail!(cfg, exe, "could not find home directory");
             }
         };
-        let prev = match std::env::current_dir() {
-            Ok(path) => path,
-            Err(e) => {
-                bail!(
-                    cfg,
-                    exe,
-                    "could not find current directory: {}",
-                    crate::format::io_error(&e)
-                );
-            }
-        };
         if let Err(e) = std::env::set_current_dir(&dir) {
             bail!(
                 cfg,
@@ -99,8 +88,6 @@ fn cd(
                 dir.display()
             );
         }
-        // TODO
-        // env.set_prev_pwd(prev);
         async_std::process::ExitStatus::from_raw(0)
     }
 
