@@ -406,7 +406,7 @@ fn test_alternation() {
 
 #[test]
 fn test_eval_alternation() {
-    let mut env = Env::new();
+    let mut env = Env::new().unwrap();
     env.set_var("HOME", "/home/test");
     env.set_var("foo", "value-of-foo");
 
@@ -444,7 +444,7 @@ fn test_eval_alternation() {
 
 #[test]
 fn test_eval_glob() {
-    let env = Env::new();
+    let env = Env::new().unwrap();
 
     eval_eq!(
         "echo *.toml",
