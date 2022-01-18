@@ -155,8 +155,10 @@ impl Exe {
     fn build_ast(pair: pest::iterators::Pair<Rule>) -> Self {
         assert!(matches!(pair.as_rule(), Rule::subshell | Rule::exe));
         if matches!(pair.as_rule(), Rule::subshell) {
-            let commands = pair.into_inner().next().unwrap();
+            let mut iter = pair.into_inner();
+            let commands = iter.next().unwrap();
             assert!(matches!(commands.as_rule(), Rule::commands));
+            let redirects = iter.map(Redirect::build_ast).collect();
             return Self {
                 exe: Word {
                     parts: vec![WordPart::SingleQuoted(
@@ -177,7 +179,7 @@ impl Exe {
                         )],
                     },
                 ],
-                redirects: vec![],
+                redirects,
             };
         }
         let mut iter = pair.into_inner();

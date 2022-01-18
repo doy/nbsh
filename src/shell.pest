@@ -47,7 +47,9 @@ redir_prefix = @{
 redirect = ${ redir_prefix ~ w? ~ word }
 
 exe      = ${ (redirect | word) ~ (w ~ (redirect | word))* }
-subshell = ${ "(" ~ w? ~ commands ~ w? ~ ")" }
+subshell = ${
+    "(" ~ w? ~ commands ~ w? ~ ")" ~ (w? ~ redirect ~ (w ~ redirect)*)?
+}
 list     = ${ word ~ (w ~ word)* }
 pipeline = ${ (subshell | exe) ~ (w? ~ "|" ~ w? ~ (subshell | exe))* }
 
