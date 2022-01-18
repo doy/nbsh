@@ -283,7 +283,7 @@ async fn spawn_commands(
     event_w: async_std::channel::Sender<Event>,
 ) -> anyhow::Result<async_std::process::ExitStatus> {
     let mut cmd = pty_process::Command::new(std::env::current_exe()?);
-    cmd.args(&["-c", cmdline]);
+    cmd.args(&["-c", cmdline, "--status-fd", "3"]);
     env.apply(&mut cmd);
     let (from_r, from_w) = nix::unistd::pipe2(nix::fcntl::OFlag::O_CLOEXEC)?;
     // Safety: dup2 is an async-signal-safe function
