@@ -36,4 +36,4 @@ vt100 = "0.15.1"
 [patch.crates-io]
 # https://github.com/smol-rs/async-process/pull/19
 async-process = { git = "https://github.com/doy/async-process" }
-pty-process = { path = "../pty-process" }
+pty-process = { git = "https://github.com/doy/pty-process" }

@@ -1046,6 +1046,7 @@ dependencies = [
 [[package]]
 name = "pty-process"
 version = "0.2.0"
+source = "git+https://github.com/doy/pty-process#ebcf5f15081f6a84c861eb2aecbf962396a88695"
 dependencies = [
  "async-io",
  "async-process",
