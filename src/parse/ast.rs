@@ -210,16 +210,6 @@ pub struct Word {
 }
 
 impl Word {
-    fn build_ast(pair: pest::iterators::Pair<Rule>) -> Self {
-        assert!(matches!(
-            pair.as_rule(),
-            Rule::word | Rule::alternation_word
-        ));
-        Self {
-            parts: pair.into_inner().flat_map(WordPart::build_ast).collect(),
-        }
-    }
-
     pub async fn eval(self, env: &Env) -> anyhow::Result<Vec<String>> {
         let mut opts = glob::MatchOptions::new();
         opts.require_literal_separator = true;
@@ -311,6 +301,16 @@ impl Word {
         }
         Ok(expanded_words)
     }
+
+    fn build_ast(pair: pest::iterators::Pair<Rule>) -> Self {
+        assert!(matches!(
+            pair.as_rule(),
+            Rule::word | Rule::alternation_word
+        ));
+        Self {
+            parts: pair.into_inner().flat_map(WordPart::build_ast).collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -324,6 +324,33 @@ enum WordPart {
 }
 
 impl WordPart {
+    async fn eval(self, env: &Env) -> String {
+        match self {
+            Self::Alternation(_) => unreachable!(),
+            Self::Substitution(commands) => {
+                let mut cmd = async_std::process::Command::new(
+                    std::env::current_exe().unwrap(),
+                );
+                cmd.args(&["-c", &commands]);
+                cmd.stdin(async_std::process::Stdio::inherit());
+                cmd.stderr(async_std::process::Stdio::inherit());
+                let mut out =
+                    String::from_utf8(cmd.output().await.unwrap().stdout)
+                        .unwrap();
+                if out.ends_with('\n') {
+                    out.truncate(out.len() - 1);
+                }
+                out
+            }
+            Self::Var(name) => {
+                env.var(&name).unwrap_or_else(|| "".to_string())
+            }
+            Self::Bareword(s)
+            | Self::DoubleQuoted(s)
+            | Self::SingleQuoted(s) => s,
+        }
+    }
+
     #[allow(clippy::needless_pass_by_value)]
     fn build_ast(
         pair: pest::iterators::Pair<Rule>,
@@ -364,33 +391,6 @@ impl WordPart {
             ),
             _ => unreachable!(),
         })
-    }
-
-    async fn eval(self, env: &Env) -> String {
-        match self {
-            Self::Alternation(_) => unreachable!(),
-            Self::Substitution(commands) => {
-                let mut cmd = async_std::process::Command::new(
-                    std::env::current_exe().unwrap(),
-                );
-                cmd.args(&["-c", &commands]);
-                cmd.stdin(async_std::process::Stdio::inherit());
-                cmd.stderr(async_std::process::Stdio::inherit());
-                let mut out =
-                    String::from_utf8(cmd.output().await.unwrap().stdout)
-                        .unwrap();
-                if out.ends_with('\n') {
-                    out.truncate(out.len() - 1);
-                }
-                out
-            }
-            Self::Var(name) => {
-                env.var(&name).unwrap_or_else(|| "".to_string())
-            }
-            Self::Bareword(s)
-            | Self::DoubleQuoted(s)
-            | Self::SingleQuoted(s) => s,
-        }
     }
 }
 
