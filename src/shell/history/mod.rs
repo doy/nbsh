@@ -376,8 +376,6 @@ async fn spawn_commands(
         }
         if let (true, Some(status)) = (read_done, exit_done) {
             nix::unistd::close(from_r)?;
-            // nix::sys::signal::Signal is repr(i32)
-            #[allow(clippy::as_conversions)]
             return Ok(status);
         }
     }

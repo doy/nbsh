@@ -351,7 +351,6 @@ impl WordPart {
         }
     }
 
-    #[allow(clippy::needless_pass_by_value)]
     fn build_ast(
         pair: pest::iterators::Pair<Rule>,
     ) -> impl Iterator<Item = Self> + '_ {
@@ -402,7 +401,6 @@ struct Redirect {
 }
 
 impl Redirect {
-    #[allow(clippy::needless_pass_by_value)]
     fn build_ast(pair: pest::iterators::Pair<Rule>) -> Self {
         assert!(matches!(pair.as_rule(), Rule::redirect));
         let mut iter = pair.into_inner();
