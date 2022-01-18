@@ -26,21 +26,26 @@ mod shell;
 
 use prelude::*;
 
+#[derive(structopt::StructOpt)]
+#[structopt(about = "NoteBook SHell")]
+struct Opt {
+    #[structopt(short = "c")]
+    command: Option<String>,
+}
+
 async fn async_main(
+    opt: Opt,
     shell_write: Option<&async_std::fs::File>,
 ) -> anyhow::Result<i32> {
-    if std::env::args().nth(1).as_deref() == Some("-c") {
-        return runner::run(
-            std::env::args().nth(2).as_deref().unwrap(),
-            shell_write,
-        )
-        .await;
+    if let Some(command) = opt.command {
+        return runner::run(&command, shell_write).await;
     }
 
     shell::main().await
 }
 
-fn main() {
+#[paw::main]
+fn main(opt: Opt) {
     // need to do this here because the async-std executor allocates some fds,
     // and so in the case where we aren't being called from the main shell and
     // fd 3 wasn't preallocated in advance, we need to be able to tell that
@@ -58,7 +63,7 @@ fn main() {
         None
     };
 
-    match async_std::task::block_on(async_main(shell_write.as_ref())) {
+    match async_std::task::block_on(async_main(opt, shell_write.as_ref())) {
         Ok(code) => {
             std::process::exit(code);
         }
