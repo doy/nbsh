@@ -199,21 +199,13 @@ impl Io {
                 // no longer be available to the next command, since we have
                 // them buffered in memory rather than them being on the stdin
                 // pipe.
-                let mut c = [0_u8];
-                loop {
-                    match (&*fh).read_exact(&mut c[..]).await {
-                        Ok(()) => {}
-                        Err(e) => {
-                            if e.kind() == std::io::ErrorKind::UnexpectedEof {
-                                break;
-                            }
-                            return Err(e.into());
-                        }
-                    }
-                    if c[0] == b'\n' {
+                let mut bytes = fh.bytes();
+                while let Some(byte) = bytes.next().await {
+                    let byte = byte?;
+                    buf.push(byte);
+                    if byte == b'\n' {
                         break;
                     }
-                    buf.push(c[0]);
                 }
             }
         }
