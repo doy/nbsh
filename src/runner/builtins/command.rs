@@ -97,7 +97,7 @@ impl Cfg {
 pub struct Io {
     fds: std::collections::HashMap<
         std::os::unix::io::RawFd,
-        crate::mutex::Mutex<File>,
+        std::sync::Arc<File>,
     >,
 }
 
@@ -108,8 +108,8 @@ impl Io {
         }
     }
 
-    fn stdin(&self) -> Option<crate::mutex::Mutex<File>> {
-        self.fds.get(&0).map(crate::mutex::clone)
+    fn stdin(&self) -> Option<std::sync::Arc<File>> {
+        self.fds.get(&0).map(std::sync::Arc::clone)
     }
 
     pub fn set_stdin<T: std::os::unix::io::IntoRawFd>(&mut self, stdin: T) {
@@ -120,12 +120,12 @@ impl Io {
             0,
             // Safety: we just acquired stdin via into_raw_fd, which acquires
             // ownership of the fd, so we are now the sole owner
-            crate::mutex::new(unsafe { File::input(stdin.into_raw_fd()) }),
+            std::sync::Arc::new(unsafe { File::input(stdin.into_raw_fd()) }),
         );
     }
 
-    fn stdout(&self) -> Option<crate::mutex::Mutex<File>> {
-        self.fds.get(&1).map(crate::mutex::clone)
+    fn stdout(&self) -> Option<std::sync::Arc<File>> {
+        self.fds.get(&1).map(std::sync::Arc::clone)
     }
 
     pub fn set_stdout<T: std::os::unix::io::IntoRawFd>(&mut self, stdout: T) {
@@ -136,12 +136,14 @@ impl Io {
             1,
             // Safety: we just acquired stdout via into_raw_fd, which acquires
             // ownership of the fd, so we are now the sole owner
-            crate::mutex::new(unsafe { File::output(stdout.into_raw_fd()) }),
+            std::sync::Arc::new(unsafe {
+                File::output(stdout.into_raw_fd())
+            }),
         );
     }
 
-    fn stderr(&self) -> Option<crate::mutex::Mutex<File>> {
-        self.fds.get(&2).map(crate::mutex::clone)
+    fn stderr(&self) -> Option<std::sync::Arc<File>> {
+        self.fds.get(&2).map(std::sync::Arc::clone)
     }
 
     pub fn set_stderr<T: std::os::unix::io::IntoRawFd>(&mut self, stderr: T) {
@@ -152,7 +154,9 @@ impl Io {
             2,
             // Safety: we just acquired stderr via into_raw_fd, which acquires
             // ownership of the fd, so we are now the sole owner
-            crate::mutex::new(unsafe { File::output(stderr.into_raw_fd()) }),
+            std::sync::Arc::new(unsafe {
+                File::output(stderr.into_raw_fd())
+            }),
         );
     }
 
@@ -160,7 +164,7 @@ impl Io {
         for redirect in redirects {
             let to = match &redirect.to {
                 crate::parse::RedirectTarget::Fd(fd) => {
-                    crate::mutex::clone(&self.fds[fd])
+                    std::sync::Arc::clone(&self.fds[fd])
                 }
                 crate::parse::RedirectTarget::File(path) => {
                     let fd = redirect.dir.open(path).unwrap();
@@ -168,13 +172,13 @@ impl Io {
                         crate::parse::Direction::In => {
                             // Safety: we just opened fd, and nothing else has
                             // or can use it
-                            crate::mutex::new(unsafe { File::input(fd) })
+                            std::sync::Arc::new(unsafe { File::input(fd) })
                         }
                         crate::parse::Direction::Out
                         | crate::parse::Direction::Append => {
                             // Safety: we just opened fd, and nothing else has
                             // or can use it
-                            crate::mutex::new(unsafe { File::output(fd) })
+                            std::sync::Arc::new(unsafe { File::output(fd) })
                         }
                     }
                 }
@@ -186,7 +190,7 @@ impl Io {
     pub async fn read_line_stdin(&self) -> anyhow::Result<(String, bool)> {
         let mut buf = vec![];
         if let Some(fh) = self.stdin() {
-            if let File::In(fh) = &mut *fh.lock_arc().await {
+            if let File::In(fh) = &*fh {
                 // we have to read only a single character at a time here
                 // because stdin needs to be shared across all commands in the
                 // command list, some of which may be builtins and others of
@@ -197,7 +201,7 @@ impl Io {
                 // pipe.
                 let mut c = [0_u8];
                 loop {
-                    match fh.read_exact(&mut c[..]).await {
+                    match (&*fh).read_exact(&mut c[..]).await {
                         Ok(()) => {}
                         Err(e) => {
                             if e.kind() == std::io::ErrorKind::UnexpectedEof {
@@ -223,8 +227,8 @@ impl Io {
 
     pub async fn write_stdout(&self, buf: &[u8]) -> anyhow::Result<()> {
         if let Some(fh) = self.stdout() {
-            if let File::Out(fh) = &mut *fh.lock_arc().await {
-                Ok(fh.write_all(buf).await.map(|_| ())?)
+            if let File::Out(fh) = &*fh {
+                Ok((&*fh).write_all(buf).await.map(|_| ())?)
             } else {
                 Ok(())
             }
@@ -235,8 +239,8 @@ impl Io {
 
     pub async fn write_stderr(&self, buf: &[u8]) -> anyhow::Result<()> {
         if let Some(fh) = self.stderr() {
-            if let File::Out(fh) = &mut *fh.lock_arc().await {
-                Ok(fh.write_all(buf).await.map(|_| ())?)
+            if let File::Out(fh) = &*fh {
+                Ok((&*fh).write_all(buf).await.map(|_| ())?)
             } else {
                 Ok(())
             }
@@ -247,7 +251,7 @@ impl Io {
 
     pub fn setup_command(mut self, cmd: &mut crate::runner::Command) {
         if let Some(stdin) = self.fds.remove(&0) {
-            if let Some(stdin) = crate::mutex::unwrap(stdin) {
+            if let Ok(stdin) = std::sync::Arc::try_unwrap(stdin) {
                 let stdin = stdin.into_raw_fd();
                 if stdin != 0 {
                     // Safety: we just acquired stdin via into_raw_fd, which
@@ -259,7 +263,7 @@ impl Io {
             }
         }
         if let Some(stdout) = self.fds.remove(&1) {
-            if let Some(stdout) = crate::mutex::unwrap(stdout) {
+            if let Ok(stdout) = std::sync::Arc::try_unwrap(stdout) {
                 let stdout = stdout.into_raw_fd();
                 if stdout != 1 {
                     // Safety: we just acquired stdout via into_raw_fd, which
@@ -271,7 +275,7 @@ impl Io {
             }
         }
         if let Some(stderr) = self.fds.remove(&2) {
-            if let Some(stderr) = crate::mutex::unwrap(stderr) {
+            if let Ok(stderr) = std::sync::Arc::try_unwrap(stderr) {
                 let stderr = stderr.into_raw_fd();
                 if stderr != 2 {
                     // Safety: we just acquired stderr via into_raw_fd, which
@@ -310,8 +314,8 @@ impl File {
         Self::Out(async_std::fs::File::from_raw_fd(fd))
     }
 
-    fn maybe_drop(file: crate::mutex::Mutex<Self>) {
-        if let Some(file) = crate::mutex::unwrap(file) {
+    fn maybe_drop(file: std::sync::Arc<Self>) {
+        if let Ok(file) = std::sync::Arc::try_unwrap(file) {
             if file.as_raw_fd() <= 2 {
                 let _ = file.into_raw_fd();
             }
