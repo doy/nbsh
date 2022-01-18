@@ -251,9 +251,12 @@ async fn run_pipeline(
 
     let pwd = env.pwd().to_path_buf();
     let pipeline = pipeline.eval(env).await?;
-    let (children, pg) = spawn_children(pipeline, env, &io)?;
+    let interactive = shell_write.is_some();
+    let (children, pg) = spawn_children(pipeline, env, &io, interactive)?;
     let status = wait_children(children, pg, env, &io, shell_write).await;
-    set_foreground_pg(nix::unistd::getpid())?;
+    if interactive {
+        set_foreground_pg(nix::unistd::getpid())?;
+    }
     env.update()?;
     env.set_status(status);
     if env.pwd() != pwd {
@@ -277,6 +280,7 @@ fn spawn_children<'a>(
     pipeline: crate::parse::Pipeline,
     env: &'a Env,
     io: &builtins::Io,
+    interactive: bool,
 ) -> anyhow::Result<(Vec<Child<'a>>, Option<nix::unistd::Pid>)> {
     let mut cmds: Vec<_> = pipeline
         .into_exes()
@@ -304,7 +308,9 @@ fn spawn_children<'a>(
             setpgid_parent(child_pid, pg_pid)?;
             if pg_pid.is_none() {
                 pg_pid = Some(child_pid);
-                set_foreground_pg(child_pid)?;
+                if interactive {
+                    set_foreground_pg(child_pid)?;
+                }
             }
         }
         children.push(child);
