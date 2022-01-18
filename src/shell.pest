@@ -9,10 +9,6 @@ bareword_char = @{
 single_string_char = @{ basic_escape_char | (!"'" ~ ANY) }
 double_string_char = @{ escape_char | (!("\"" | "$") ~ ANY) }
 
-redir_prefix = @{
-    ("in" | "out" | "err" | ASCII_DIGIT*) ~ (">>" | ">" | "<") ~ WHITESPACE*
-}
-
 var = @{
     ("$" ~ XID_START ~ XID_CONTINUE*) |
     ("$" ~ ("?" | "$" | "*" | ASCII_DIGIT)) |
@@ -45,9 +41,12 @@ word_part = ${
 }
 word = ${ word_part+ }
 
-word_or_redirect = ${ redir_prefix? ~ word }
+redir_prefix = @{
+    ("in" | "out" | "err" | ASCII_DIGIT*) ~ (">>" | ">" | "<")
+}
+redirect = ${ redir_prefix ~ w? ~ word }
 
-exe      = ${ word_or_redirect ~ (w ~ word_or_redirect)* }
+exe      = ${ (redirect | word) ~ (w ~ (redirect | word))* }
 subshell = ${ "(" ~ w? ~ commands ~ w? ~ ")" }
 list     = ${ word ~ (w ~ word)* }
 pipeline = ${ (subshell | exe) ~ (w? ~ "|" ~ w? ~ (subshell | exe))* }

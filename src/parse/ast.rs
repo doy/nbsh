@@ -181,27 +181,21 @@ impl Exe {
             };
         }
         let mut iter = pair.into_inner();
-        let exe = match WordOrRedirect::build_ast(iter.next().unwrap()) {
-            WordOrRedirect::Word(word) => word,
-            WordOrRedirect::Redirect(_) => todo!(),
+        let exe = iter.next().unwrap();
+        let exe = match exe.as_rule() {
+            Rule::word => Word::build_ast(exe),
+            Rule::redirect => todo!(),
+            _ => unreachable!(),
         };
-        let (args, redirects): (_, Vec<_>) = iter
-            .map(WordOrRedirect::build_ast)
-            .partition(|word| matches!(word, WordOrRedirect::Word(_)));
-        let args = args
-            .into_iter()
-            .map(|word| match word {
-                WordOrRedirect::Word(word) => word,
-                WordOrRedirect::Redirect(_) => unreachable!(),
-            })
-            .collect();
-        let redirects = redirects
-            .into_iter()
-            .map(|word| match word {
-                WordOrRedirect::Word(_) => unreachable!(),
-                WordOrRedirect::Redirect(redirect) => redirect,
-            })
-            .collect();
+        let mut args = vec![];
+        let mut redirects = vec![];
+        for arg in iter {
+            match arg.as_rule() {
+                Rule::word => args.push(Word::build_ast(arg)),
+                Rule::redirect => redirects.push(Redirect::build_ast(arg)),
+                _ => unreachable!(),
+            }
+        }
         Self {
             exe,
             args,
@@ -408,7 +402,12 @@ struct Redirect {
 }
 
 impl Redirect {
-    fn parse(prefix: &str, to: Word) -> Self {
+    #[allow(clippy::needless_pass_by_value)]
+    fn build_ast(pair: pest::iterators::Pair<Rule>) -> Self {
+        assert!(matches!(pair.as_rule(), Rule::redirect));
+        let mut iter = pair.into_inner();
+
+        let prefix = iter.next().unwrap().as_str();
         let (from, dir) = if let Some(from) = prefix.strip_suffix(">>") {
             (from, super::Direction::Append)
         } else if let Some(from) = prefix.strip_suffix('>') {
@@ -426,6 +425,9 @@ impl Redirect {
         } else {
             parse_fd(from)
         };
+
+        let to = Word::build_ast(iter.next().unwrap());
+
         Self { from, to, dir }
     }
 
@@ -457,32 +459,6 @@ impl Redirect {
             to,
             dir: self.dir,
         })
-    }
-}
-
-enum WordOrRedirect {
-    Word(Word),
-    Redirect(Redirect),
-}
-
-impl WordOrRedirect {
-    fn build_ast(pair: pest::iterators::Pair<Rule>) -> Self {
-        assert!(matches!(pair.as_rule(), Rule::word_or_redirect));
-        let mut inner = pair.into_inner().peekable();
-        let prefix = if matches!(
-            inner.peek().map(pest::iterators::Pair::as_rule),
-            Some(Rule::redir_prefix)
-        ) {
-            Some(inner.next().unwrap().as_str().trim().to_string())
-        } else {
-            None
-        };
-        let word = Word::build_ast(inner.next().unwrap());
-        if let Some(prefix) = prefix {
-            Self::Redirect(Redirect::parse(&prefix, word))
-        } else {
-            Self::Word(word)
-        }
     }
 }
 
