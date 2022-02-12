@@ -46,14 +46,8 @@ pub fn set_foreground_pg(pg: nix::unistd::Pid) -> anyhow::Result<()> {
     nix::unistd::close(pty)?;
 
     nix::sys::signal::kill(neg_pid(pg), nix::sys::signal::Signal::SIGCONT)
-        .or_else(|e| {
-            // the process group has already exited
-            if e == nix::errno::Errno::ESRCH {
-                Ok(())
-            } else {
-                Err(e)
-            }
-        })?;
+        // the process group has already exited
+        .allow(nix::errno::Errno::ESRCH)?;
 
     Ok(())
 }
@@ -67,16 +61,12 @@ pub fn setpgid_parent(
     pid: nix::unistd::Pid,
     pg: Option<nix::unistd::Pid>,
 ) -> anyhow::Result<()> {
-    nix::unistd::setpgid(pid, pg.unwrap_or(PID0)).or_else(|e| {
-        // EACCES means that the child already called exec, but if it did,
-        // then it also must have already called setpgid itself, so we don't
-        // care. ESRCH means that the process already exited, which is similar
-        if e == nix::errno::Errno::EACCES || e == nix::errno::Errno::ESRCH {
-            Ok(())
-        } else {
-            Err(e)
-        }
-    })?;
+    nix::unistd::setpgid(pid, pg.unwrap_or(PID0))
+        // the child already called exec, so it must have already called
+        // setpgid itself
+        .allow(nix::errno::Errno::EACCES)
+        // the child already exited, so we don't care
+        .allow(nix::errno::Errno::ESRCH)?;
     Ok(())
 }
 
