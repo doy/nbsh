@@ -85,6 +85,8 @@ pub async fn main() -> anyhow::Result<i32> {
         async_std::channel::unbounded();
     {
         let event_w = event_w.clone();
+        // clippy can't tell that we assign to this later
+        #[allow(clippy::no_effect_underscore_binding)]
         let mut _active_watcher = None;
         async_std::task::spawn(async move {
             while let Ok(mut dir) = git_r.recv().await {

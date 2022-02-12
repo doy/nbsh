@@ -70,9 +70,10 @@ async fn pty_task(
                     event_w.send(Event::PtyOutput).await.unwrap();
                 }
                 Err(e) => {
-                    if e.raw_os_error() != Some(libc::EIO) {
-                        panic!("pty read failed: {:?}", e);
+                    if e.raw_os_error() == Some(libc::EIO) {
+                        continue;
                     }
+                    panic!("pty read failed: {:?}", e);
                 }
             },
             Res::Write(res) => match res {
