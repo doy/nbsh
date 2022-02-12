@@ -4,8 +4,7 @@ mod builtins;
 mod command;
 pub use command::{Child, Command};
 mod prelude;
-
-const PID0: nix::unistd::Pid = nix::unistd::Pid::from_raw(0);
+mod sys;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum Event {
@@ -255,7 +254,7 @@ async fn run_pipeline(
     let (children, pg) = spawn_children(pipeline, env, &io, interactive)?;
     let status = wait_children(children, pg, env, &io, shell_write).await;
     if interactive {
-        set_foreground_pg(nix::unistd::getpid())?;
+        sys::set_foreground_pg(nix::unistd::getpid())?;
     }
     env.update()?;
     env.set_status(status);
@@ -287,7 +286,7 @@ fn spawn_children<'a>(
         .map(|exe| Command::new(exe, io.clone()))
         .collect();
     for i in 0..(cmds.len() - 1) {
-        let (r, w) = pipe()?;
+        let (r, w) = sys::pipe()?;
         cmds[i].stdout(w);
         cmds[i + 1].stdin(r);
     }
@@ -298,18 +297,18 @@ fn spawn_children<'a>(
         // Safety: setpgid is an async-signal-safe function
         unsafe {
             cmd.pre_exec(move || {
-                setpgid_child(pg_pid)?;
+                sys::setpgid_child(pg_pid)?;
                 Ok(())
             });
         }
         let child = cmd.spawn(env)?;
         if let Some(id) = child.id() {
-            let child_pid = id_to_pid(id);
-            setpgid_parent(child_pid, pg_pid)?;
+            let child_pid = sys::id_to_pid(id);
+            sys::setpgid_parent(child_pid, pg_pid)?;
             if pg_pid.is_none() {
                 pg_pid = Some(child_pid);
                 if interactive {
-                    set_foreground_pg(child_pid)?;
+                    sys::set_foreground_pg(child_pid)?;
                 }
             }
         }
@@ -351,7 +350,7 @@ async fn wait_children(
     let mut children: std::collections::HashMap<_, _> = children
         .into_iter()
         .map(|(i, child)| {
-            (id_to_pid(child.id().unwrap()), (child, i == count - 1))
+            (sys::id_to_pid(child.id().unwrap()), (child, i == count - 1))
         })
         .collect();
     let mut builtins: futures_util::stream::FuturesUnordered<_> =
@@ -369,7 +368,7 @@ async fn wait_children(
             async_std::task::spawn(async move {
                 let res = blocking::unblock(move || {
                     nix::sys::wait::waitpid(
-                        neg_pid(pg),
+                        sys::neg_pid(pg),
                         Some(nix::sys::wait::WaitPidFlag::WUNTRACED),
                     )
                 })
@@ -480,90 +479,4 @@ async fn wait_children(
     }
 
     final_status.unwrap()
-}
-
-fn pipe() -> anyhow::Result<(std::fs::File, std::fs::File)> {
-    let (r, w) = nix::unistd::pipe2(nix::fcntl::OFlag::O_CLOEXEC)?;
-    // Safety: these file descriptors were just returned by pipe2 above, and
-    // are only available in this function, so nothing else can be accessing
-    // them
-    Ok((unsafe { std::fs::File::from_raw_fd(r) }, unsafe {
-        std::fs::File::from_raw_fd(w)
-    }))
-}
-
-fn set_foreground_pg(pg: nix::unistd::Pid) -> anyhow::Result<()> {
-    let pty = nix::fcntl::open(
-        "/dev/tty",
-        nix::fcntl::OFlag::empty(),
-        nix::sys::stat::Mode::empty(),
-    )?;
-
-    // if a background process calls tcsetpgrp, the kernel will send it
-    // SIGTTOU which suspends it. if that background process is the session
-    // leader and doesn't have SIGTTOU blocked, the kernel will instead just
-    // return ENOTTY from the tcsetpgrp call rather than sending a signal to
-    // avoid deadlocking the process. therefore, we need to ensure that
-    // SIGTTOU is blocked here.
-
-    // Safety: setting a signal handler to SigIgn is always safe
-    unsafe {
-        nix::sys::signal::signal(
-            nix::sys::signal::Signal::SIGTTOU,
-            nix::sys::signal::SigHandler::SigIgn,
-        )?;
-    }
-    let res = nix::unistd::tcsetpgrp(pty, pg);
-    // Safety: setting a signal handler to SigDfl is always safe
-    unsafe {
-        nix::sys::signal::signal(
-            nix::sys::signal::Signal::SIGTTOU,
-            nix::sys::signal::SigHandler::SigDfl,
-        )?;
-    }
-    res?;
-
-    nix::unistd::close(pty)?;
-
-    nix::sys::signal::kill(neg_pid(pg), nix::sys::signal::Signal::SIGCONT)
-        .or_else(|e| {
-            // the process group has already exited
-            if e == nix::errno::Errno::ESRCH {
-                Ok(())
-            } else {
-                Err(e)
-            }
-        })?;
-
-    Ok(())
-}
-
-fn setpgid_child(pg: Option<nix::unistd::Pid>) -> std::io::Result<()> {
-    nix::unistd::setpgid(PID0, pg.unwrap_or(PID0))?;
-    Ok(())
-}
-
-fn setpgid_parent(
-    pid: nix::unistd::Pid,
-    pg: Option<nix::unistd::Pid>,
-) -> anyhow::Result<()> {
-    nix::unistd::setpgid(pid, pg.unwrap_or(PID0)).or_else(|e| {
-        // EACCES means that the child already called exec, but if it did,
-        // then it also must have already called setpgid itself, so we don't
-        // care. ESRCH means that the process already exited, which is similar
-        if e == nix::errno::Errno::EACCES || e == nix::errno::Errno::ESRCH {
-            Ok(())
-        } else {
-            Err(e)
-        }
-    })?;
-    Ok(())
-}
-
-fn id_to_pid(id: u32) -> nix::unistd::Pid {
-    nix::unistd::Pid::from_raw(id.try_into().unwrap())
-}
-
-fn neg_pid(pid: nix::unistd::Pid) -> nix::unistd::Pid {
-    nix::unistd::Pid::from_raw(-pid.as_raw())
 }
