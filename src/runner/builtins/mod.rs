@@ -88,7 +88,7 @@ fn cd(
                 dir.display()
             );
         }
-        async_std::process::ExitStatus::from_raw(0)
+        std::process::ExitStatus::from_raw(0)
     }
 
     Ok(command::Child::new_fut(async move {
@@ -119,7 +119,7 @@ fn set(
         };
 
         std::env::set_var(k, v);
-        async_std::process::ExitStatus::from_raw(0)
+        std::process::ExitStatus::from_raw(0)
     }
 
     Ok(command::Child::new_fut(async move {
@@ -145,7 +145,7 @@ fn unset(
         };
 
         std::env::remove_var(k);
-        async_std::process::ExitStatus::from_raw(0)
+        std::process::ExitStatus::from_raw(0)
     }
 
     Ok(command::Child::new_fut(async move {
@@ -174,7 +174,7 @@ fn echo(
                         .write_stderr(format!("echo: {}", e).as_bytes())
                         .await
                         .unwrap();
-                    return async_std::process::ExitStatus::from_raw(1 << 8);
+                    return std::process::ExitStatus::from_raw(1 << 8);
                 }
             };
         }
@@ -188,7 +188,7 @@ fn echo(
             }
         }
 
-        async_std::process::ExitStatus::from_raw(0)
+        std::process::ExitStatus::from_raw(0)
     }
 
     Ok(command::Child::new_fut(async move {
@@ -221,11 +221,7 @@ fn read(
         };
 
         std::env::set_var(var, val);
-        async_std::process::ExitStatus::from_raw(if done {
-            1 << 8
-        } else {
-            0
-        })
+        std::process::ExitStatus::from_raw(if done { 1 << 8 } else { 0 })
     }
 
     Ok(command::Child::new_fut(async move {

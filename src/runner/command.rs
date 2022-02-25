@@ -27,7 +27,7 @@ impl Command {
     pub fn new_binary(exe: crate::parse::Exe) -> Self {
         let exe_path = exe.exe().to_path_buf();
         let redirects = exe.redirects().to_vec();
-        let mut cmd = async_std::process::Command::new(exe.exe());
+        let mut cmd = tokio::process::Command::new(exe.exe());
         cmd.args(exe.args());
         Self {
             inner: Inner::Binary(cmd),
@@ -146,19 +146,19 @@ impl Command {
 }
 
 pub enum Inner {
-    Binary(async_std::process::Command),
+    Binary(tokio::process::Command),
     Builtin(super::builtins::Command),
 }
 
 pub enum Child<'a> {
-    Binary(async_std::process::Child),
+    Binary(tokio::process::Child),
     Builtin(super::builtins::Child<'a>),
 }
 
 impl<'a> Child<'a> {
     pub fn id(&self) -> Option<u32> {
         match self {
-            Self::Binary(child) => Some(child.id()),
+            Self::Binary(child) => child.id(),
             Self::Builtin(child) => child.id(),
         }
     }
@@ -176,7 +176,7 @@ impl<'a> Child<'a> {
     > {
         Box::pin(async move {
             match self {
-                Self::Binary(child) => Ok(child.status_no_drop().await?),
+                Self::Binary(mut child) => Ok(child.wait().await?),
                 Self::Builtin(child) => Ok(child.status().await?),
             }
         })

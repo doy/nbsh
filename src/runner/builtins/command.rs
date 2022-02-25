@@ -97,7 +97,7 @@ impl Cfg {
 pub struct Io {
     fds: std::collections::HashMap<
         std::os::unix::io::RawFd,
-        std::sync::Arc<File>,
+        std::sync::Arc<tokio::sync::Mutex<File>>,
     >,
 }
 
@@ -108,7 +108,7 @@ impl Io {
         }
     }
 
-    fn stdin(&self) -> Option<std::sync::Arc<File>> {
+    fn stdin(&self) -> Option<std::sync::Arc<tokio::sync::Mutex<File>>> {
         self.fds.get(&0).map(std::sync::Arc::clone)
     }
 
@@ -120,11 +120,13 @@ impl Io {
             0,
             // Safety: we just acquired stdin via into_raw_fd, which acquires
             // ownership of the fd, so we are now the sole owner
-            std::sync::Arc::new(unsafe { File::input(stdin.into_raw_fd()) }),
+            std::sync::Arc::new(tokio::sync::Mutex::new(unsafe {
+                File::input(stdin.into_raw_fd())
+            })),
         );
     }
 
-    fn stdout(&self) -> Option<std::sync::Arc<File>> {
+    fn stdout(&self) -> Option<std::sync::Arc<tokio::sync::Mutex<File>>> {
         self.fds.get(&1).map(std::sync::Arc::clone)
     }
 
@@ -136,13 +138,13 @@ impl Io {
             1,
             // Safety: we just acquired stdout via into_raw_fd, which acquires
             // ownership of the fd, so we are now the sole owner
-            std::sync::Arc::new(unsafe {
+            std::sync::Arc::new(tokio::sync::Mutex::new(unsafe {
                 File::output(stdout.into_raw_fd())
-            }),
+            })),
         );
     }
 
-    fn stderr(&self) -> Option<std::sync::Arc<File>> {
+    fn stderr(&self) -> Option<std::sync::Arc<tokio::sync::Mutex<File>>> {
         self.fds.get(&2).map(std::sync::Arc::clone)
     }
 
@@ -154,9 +156,9 @@ impl Io {
             2,
             // Safety: we just acquired stderr via into_raw_fd, which acquires
             // ownership of the fd, so we are now the sole owner
-            std::sync::Arc::new(unsafe {
+            std::sync::Arc::new(tokio::sync::Mutex::new(unsafe {
                 File::output(stderr.into_raw_fd())
-            }),
+            })),
         );
     }
 
@@ -172,13 +174,17 @@ impl Io {
                         crate::parse::Direction::In => {
                             // Safety: we just opened fd, and nothing else has
                             // or can use it
-                            std::sync::Arc::new(unsafe { File::input(fd) })
+                            std::sync::Arc::new(tokio::sync::Mutex::new(
+                                unsafe { File::input(fd) },
+                            ))
                         }
                         crate::parse::Direction::Out
                         | crate::parse::Direction::Append => {
                             // Safety: we just opened fd, and nothing else has
                             // or can use it
-                            std::sync::Arc::new(unsafe { File::output(fd) })
+                            std::sync::Arc::new(tokio::sync::Mutex::new(
+                                unsafe { File::output(fd) },
+                            ))
                         }
                     }
                 }
@@ -190,7 +196,7 @@ impl Io {
     pub async fn read_line_stdin(&self) -> anyhow::Result<(String, bool)> {
         let mut buf = vec![];
         if let Some(fh) = self.stdin() {
-            if let File::In(fh) = &*fh {
+            if let File::In(fh) = &mut *fh.clone().lock_owned().await {
                 // we have to read only a single character at a time here
                 // because stdin needs to be shared across all commands in the
                 // command list, some of which may be builtins and others of
@@ -199,9 +205,7 @@ impl Io {
                 // no longer be available to the next command, since we have
                 // them buffered in memory rather than them being on the stdin
                 // pipe.
-                let mut bytes = fh.bytes();
-                while let Some(byte) = bytes.next().await {
-                    let byte = byte?;
+                while let Ok(byte) = fh.read_u8().await {
                     buf.push(byte);
                     if byte == b'\n' {
                         break;
@@ -219,8 +223,8 @@ impl Io {
 
     pub async fn write_stdout(&self, buf: &[u8]) -> anyhow::Result<()> {
         if let Some(fh) = self.stdout() {
-            if let File::Out(fh) = &*fh {
-                Ok((&*fh).write_all(buf).await.map(|_| ())?)
+            if let File::Out(fh) = &mut *fh.clone().lock_owned().await {
+                Ok(fh.write_all(buf).await.map(|_| ())?)
             } else {
                 Ok(())
             }
@@ -231,8 +235,8 @@ impl Io {
 
     pub async fn write_stderr(&self, buf: &[u8]) -> anyhow::Result<()> {
         if let Some(fh) = self.stderr() {
-            if let File::Out(fh) = &*fh {
-                Ok((&*fh).write_all(buf).await.map(|_| ())?)
+            if let File::Out(fh) = &mut *fh.clone().lock_owned().await {
+                Ok(fh.write_all(buf).await.map(|_| ())?)
             } else {
                 Ok(())
             }
@@ -244,7 +248,7 @@ impl Io {
     pub fn setup_command(mut self, cmd: &mut crate::runner::Command) {
         if let Some(stdin) = self.fds.remove(&0) {
             if let Ok(stdin) = std::sync::Arc::try_unwrap(stdin) {
-                let stdin = stdin.into_raw_fd();
+                let stdin = stdin.into_inner().into_raw_fd();
                 if stdin != 0 {
                     // Safety: we just acquired stdin via into_raw_fd, which
                     // acquires ownership of the fd, so we are now the sole
@@ -256,7 +260,7 @@ impl Io {
         }
         if let Some(stdout) = self.fds.remove(&1) {
             if let Ok(stdout) = std::sync::Arc::try_unwrap(stdout) {
-                let stdout = stdout.into_raw_fd();
+                let stdout = stdout.into_inner().into_raw_fd();
                 if stdout != 1 {
                     // Safety: we just acquired stdout via into_raw_fd, which
                     // acquires ownership of the fd, so we are now the sole
@@ -268,7 +272,7 @@ impl Io {
         }
         if let Some(stderr) = self.fds.remove(&2) {
             if let Ok(stderr) = std::sync::Arc::try_unwrap(stderr) {
-                let stderr = stderr.into_raw_fd();
+                let stderr = stderr.into_inner().into_raw_fd();
                 if stderr != 2 {
                     // Safety: we just acquired stderr via into_raw_fd, which
                     // acquires ownership of the fd, so we are now the sole
@@ -291,23 +295,24 @@ impl Drop for Io {
 
 #[derive(Debug)]
 pub enum File {
-    In(async_std::fs::File),
-    Out(async_std::fs::File),
+    In(tokio::fs::File),
+    Out(tokio::fs::File),
 }
 
 impl File {
     // Safety: fd must not be owned by any other File object
     pub unsafe fn input(fd: std::os::unix::io::RawFd) -> Self {
-        Self::In(async_std::fs::File::from_raw_fd(fd))
+        Self::In(tokio::fs::File::from_raw_fd(fd))
     }
 
     // Safety: fd must not be owned by any other File object
     pub unsafe fn output(fd: std::os::unix::io::RawFd) -> Self {
-        Self::Out(async_std::fs::File::from_raw_fd(fd))
+        Self::Out(tokio::fs::File::from_raw_fd(fd))
     }
 
-    fn maybe_drop(file: std::sync::Arc<Self>) {
+    fn maybe_drop(file: std::sync::Arc<tokio::sync::Mutex<Self>>) {
         if let Ok(file) = std::sync::Arc::try_unwrap(file) {
+            let file = file.into_inner();
             if file.as_raw_fd() <= 2 {
                 let _ = file.into_raw_fd();
             }
@@ -326,7 +331,10 @@ impl std::os::unix::io::AsRawFd for File {
 impl std::os::unix::io::IntoRawFd for File {
     fn into_raw_fd(self) -> std::os::unix::io::RawFd {
         match self {
-            Self::In(fh) | Self::Out(fh) => fh.into_raw_fd(),
+            Self::In(fh) | Self::Out(fh) => {
+                // XXX
+                fh.try_into_std().unwrap().into_raw_fd()
+            }
         }
     }
 }
@@ -373,7 +381,7 @@ impl<'a> Child<'a> {
     ) -> std::pin::Pin<
         Box<
             dyn std::future::Future<
-                    Output = anyhow::Result<async_std::process::ExitStatus>,
+                    Output = anyhow::Result<std::process::ExitStatus>,
                 > + Send
                 + Sync
                 + 'a,

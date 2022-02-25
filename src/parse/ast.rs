@@ -97,7 +97,7 @@ impl Pipeline {
                 .into_iter()
                 .map(|exe| exe.eval(env))
                 .collect::<futures_util::stream::FuturesOrdered<_>>()
-                .collect::<Result<_, _>>()
+                .try_collect()
                 .await?,
         })
     }
@@ -137,7 +137,7 @@ impl Exe {
                     arg.eval(env).await.map(IntoIterator::into_iter)
                 })
                 .collect::<futures_util::stream::FuturesOrdered<_>>()
-                .collect::<Result<Vec<_>, _>>()
+                .try_collect::<Vec<_>>()
                 .await?
                 .into_iter()
                 .flatten()
@@ -147,7 +147,7 @@ impl Exe {
                 .into_iter()
                 .map(|arg| arg.eval(env))
                 .collect::<futures_util::stream::FuturesOrdered<_>>()
-                .collect::<Result<_, _>>()
+                .try_collect()
                 .await?,
         })
     }
@@ -330,12 +330,12 @@ impl WordPart {
         match self {
             Self::Alternation(_) => unreachable!(),
             Self::Substitution(commands) => {
-                let mut cmd = async_std::process::Command::new(
+                let mut cmd = tokio::process::Command::new(
                     std::env::current_exe().unwrap(),
                 );
                 cmd.args(&["-c", &commands]);
-                cmd.stdin(async_std::process::Stdio::inherit());
-                cmd.stderr(async_std::process::Stdio::inherit());
+                cmd.stdin(std::process::Stdio::inherit());
+                cmd.stderr(std::process::Stdio::inherit());
                 let mut out =
                     String::from_utf8(cmd.output().await.unwrap().stdout)
                         .unwrap();
@@ -408,15 +408,20 @@ impl Redirect {
         let mut iter = pair.into_inner();
 
         let prefix = iter.next().unwrap().as_str();
-        let (from, dir) = if let Some(from) = prefix.strip_suffix(">>") {
-            (from, super::Direction::Append)
-        } else if let Some(from) = prefix.strip_suffix('>') {
-            (from, super::Direction::Out)
-        } else if let Some(from) = prefix.strip_suffix('<') {
-            (from, super::Direction::In)
-        } else {
-            unreachable!()
-        };
+        let (from, dir) = prefix.strip_suffix(">>").map_or_else(
+            || {
+                prefix.strip_suffix('>').map_or_else(
+                    || {
+                        (
+                            prefix.strip_suffix('<').unwrap(),
+                            super::Direction::In,
+                        )
+                    },
+                    |from| (from, super::Direction::Out),
+                )
+            },
+            |from| (from, super::Direction::Append),
+        );
         let from = if from.is_empty() {
             match dir {
                 super::Direction::In => 0,

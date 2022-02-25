@@ -36,17 +36,18 @@ struct Opt {
     status_fd: Option<std::os::unix::io::RawFd>,
 }
 
+#[tokio::main]
 async fn async_main(opt: Opt) -> anyhow::Result<i32> {
     if let Some(command) = opt.command {
-        let shell_write = opt.status_fd.and_then(|fd| {
+        let mut shell_write = opt.status_fd.and_then(|fd| {
             nix::sys::stat::fstat(fd).ok().map(|_| {
                 // Safety: we don't create File instances for or read/write
                 // data on this fd anywhere else
-                unsafe { async_std::fs::File::from_raw_fd(fd) }
+                unsafe { tokio::fs::File::from_raw_fd(fd) }
             })
         });
 
-        return runner::run(&command, shell_write.as_ref()).await;
+        return runner::run(&command, &mut shell_write).await;
     }
 
     shell::main().await
@@ -54,7 +55,7 @@ async fn async_main(opt: Opt) -> anyhow::Result<i32> {
 
 #[paw::main]
 fn main(opt: Opt) {
-    match async_std::task::block_on(async_main(opt)) {
+    match async_main(opt) {
         Ok(code) => {
             std::process::exit(code);
         }

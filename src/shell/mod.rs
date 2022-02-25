@@ -10,7 +10,7 @@ mod prelude;
 mod readline;
 
 pub async fn main() -> anyhow::Result<i32> {
-    let mut input = textmode::Input::new().await?;
+    let mut input = textmode::blocking::Input::new()?;
     let mut output = textmode::Output::new().await?;
 
     // avoid the guards getting stuck in a task that doesn't run to
@@ -18,23 +18,23 @@ pub async fn main() -> anyhow::Result<i32> {
     let _input_guard = input.take_raw_guard();
     let _output_guard = output.take_screen_guard();
 
-    let (event_w, event_r) = async_std::channel::unbounded();
+    let (event_w, event_r) = tokio::sync::mpsc::unbounded_channel();
 
     {
-        // nix::sys::signal::Signal is repr(i32)
-        #[allow(clippy::as_conversions)]
-        let signals = signal_hook_async_std::Signals::new(&[
-            nix::sys::signal::Signal::SIGWINCH as i32,
-        ])?;
+        let mut signals = tokio::signal::unix::signal(
+            tokio::signal::unix::SignalKind::window_change(),
+        )?;
         let event_w = event_w.clone();
-        async_std::task::spawn(async move {
-            // nix::sys::signal::Signal is repr(i32)
-            #[allow(clippy::as_conversions)]
-            let mut signals = async_std::stream::once(
-                nix::sys::signal::Signal::SIGWINCH as i32,
-            )
-            .chain(signals);
-            while signals.next().await.is_some() {
+        tokio::task::spawn(async move {
+            event_w
+                .send(Event::Resize(terminal_size::terminal_size().map_or(
+                    (24, 80),
+                    |(terminal_size::Width(w), terminal_size::Height(h))| {
+                        (h, w)
+                    },
+                )))
+                .unwrap();
+            while signals.recv().await.is_some() {
                 event_w
                     .send(Event::Resize(
                         terminal_size::terminal_size().map_or(
@@ -45,7 +45,6 @@ pub async fn main() -> anyhow::Result<i32> {
                             )| { (h, w) },
                         ),
                     ))
-                    .await
                     .unwrap();
             }
         });
@@ -53,9 +52,9 @@ pub async fn main() -> anyhow::Result<i32> {
 
     {
         let event_w = event_w.clone();
-        async_std::task::spawn(async move {
-            while let Some(key) = input.read_key().await.unwrap() {
-                event_w.send(Event::Key(key)).await.unwrap();
+        std::thread::spawn(move || {
+            while let Some(key) = input.read_key().unwrap() {
+                event_w.send(Event::Key(key)).unwrap();
             }
         });
     }
@@ -63,33 +62,35 @@ pub async fn main() -> anyhow::Result<i32> {
     // redraw the clock every second
     {
         let event_w = event_w.clone();
-        async_std::task::spawn(async move {
-            let first_sleep = 1_000_000_000_u64.saturating_sub(
-                time::OffsetDateTime::now_utc().nanosecond().into(),
-            );
-            async_std::task::sleep(std::time::Duration::from_nanos(
-                first_sleep,
-            ))
-            .await;
-            let mut interval = async_std::stream::interval(
+        tokio::task::spawn(async move {
+            let now_clock = time::OffsetDateTime::now_utc();
+            let now_instant = tokio::time::Instant::now();
+            let mut interval = tokio::time::interval_at(
+                now_instant
+                    + std::time::Duration::from_nanos(
+                        1_000_000_000_u64
+                            .saturating_sub(now_clock.nanosecond().into()),
+                    ),
                 std::time::Duration::from_secs(1),
             );
-            event_w.send(Event::ClockTimer).await.unwrap();
-            while interval.next().await.is_some() {
-                event_w.send(Event::ClockTimer).await.unwrap();
+            loop {
+                interval.tick().await;
+                event_w.send(Event::ClockTimer).unwrap();
             }
         });
     }
 
-    let (git_w, git_r): (async_std::channel::Sender<std::path::PathBuf>, _) =
-        async_std::channel::unbounded();
+    let (git_w, mut git_r): (
+        tokio::sync::mpsc::UnboundedSender<std::path::PathBuf>,
+        _,
+    ) = tokio::sync::mpsc::unbounded_channel();
     {
         let event_w = event_w.clone();
         // clippy can't tell that we assign to this later
         #[allow(clippy::no_effect_underscore_binding)]
         let mut _active_watcher = None;
-        async_std::task::spawn(async move {
-            while let Ok(mut dir) = git_r.recv().await {
+        tokio::task::spawn(async move {
+            while let Some(mut dir) = git_r.recv().await {
                 while let Ok(newer_dir) = git_r.try_recv() {
                     dir = newer_dir;
                 }
@@ -97,7 +98,8 @@ pub async fn main() -> anyhow::Result<i32> {
                 if repo.is_some() {
                     let (sync_watch_w, sync_watch_r) =
                         std::sync::mpsc::channel();
-                    let (watch_w, watch_r) = async_std::channel::unbounded();
+                    let (watch_w, mut watch_r) =
+                        tokio::sync::mpsc::unbounded_channel();
                     let mut watcher = notify::RecommendedWatcher::new(
                         sync_watch_w,
                         std::time::Duration::from_millis(100),
@@ -106,31 +108,25 @@ pub async fn main() -> anyhow::Result<i32> {
                     watcher
                         .watch(&dir, notify::RecursiveMode::Recursive)
                         .unwrap();
-                    async_std::task::spawn(blocking::unblock(move || {
+                    tokio::task::spawn_blocking(move || {
                         while let Ok(event) = sync_watch_r.recv() {
                             let watch_w = watch_w.clone();
-                            let send_failed =
-                                async_std::task::block_on(async move {
-                                    watch_w.send(event).await.is_err()
-                                });
+                            let send_failed = watch_w.send(event).is_err();
                             if send_failed {
                                 break;
                             }
                         }
-                    }));
+                    });
                     let event_w = event_w.clone();
-                    async_std::task::spawn(async move {
-                        while watch_r.recv().await.is_ok() {
+                    tokio::task::spawn(async move {
+                        while watch_r.recv().await.is_some() {
                             let repo = git2::Repository::discover(&dir).ok();
-                            let info = blocking::unblock(|| {
+                            let info = tokio::task::spawn_blocking(|| {
                                 repo.map(|repo| git::Info::new(&repo))
                             })
-                            .await;
-                            if event_w
-                                .send(Event::GitInfo(info))
-                                .await
-                                .is_err()
-                            {
+                            .await
+                            .unwrap();
+                            if event_w.send(Event::GitInfo(info)).is_err() {
                                 break;
                             }
                         }
@@ -139,24 +135,25 @@ pub async fn main() -> anyhow::Result<i32> {
                 } else {
                     _active_watcher = None;
                 }
-                let info = blocking::unblock(|| {
+                let info = tokio::task::spawn_blocking(|| {
                     repo.map(|repo| git::Info::new(&repo))
                 })
-                .await;
-                event_w.send(Event::GitInfo(info)).await.unwrap();
+                .await
+                .unwrap();
+                event_w.send(Event::GitInfo(info)).unwrap();
             }
         });
     }
 
     let mut shell = Shell::new(crate::info::get_offset())?;
     let mut prev_dir = shell.env.pwd().to_path_buf();
-    git_w.send(prev_dir.clone()).await.unwrap();
+    git_w.send(prev_dir.clone()).unwrap();
     let event_reader = event::Reader::new(event_r);
     while let Some(event) = event_reader.recv().await {
         let dir = shell.env().pwd();
         if dir != prev_dir {
             prev_dir = dir.to_path_buf();
-            git_w.send(dir.to_path_buf()).await.unwrap();
+            git_w.send(dir.to_path_buf()).unwrap();
         }
         match shell.handle_event(event, &event_w).await {
             Some(Action::Refresh) => {
@@ -322,7 +319,7 @@ impl Shell {
     pub async fn handle_event(
         &mut self,
         event: Event,
-        event_w: &async_std::channel::Sender<Event>,
+        event_w: &tokio::sync::mpsc::UnboundedSender<Event>,
     ) -> Option<Action> {
         match event {
             Event::Key(key) => {
@@ -405,7 +402,7 @@ impl Shell {
     async fn handle_key_escape(
         &mut self,
         key: textmode::Key,
-        event_w: async_std::channel::Sender<Event>,
+        event_w: tokio::sync::mpsc::UnboundedSender<Event>,
     ) -> Option<Action> {
         match key {
             textmode::Key::Ctrl(b'd') => {
@@ -514,7 +511,7 @@ impl Shell {
     async fn handle_key_readline(
         &mut self,
         key: textmode::Key,
-        event_w: async_std::channel::Sender<Event>,
+        event_w: tokio::sync::mpsc::UnboundedSender<Event>,
     ) -> Option<Action> {
         match key {
             textmode::Key::Char(c) => {

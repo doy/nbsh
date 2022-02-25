@@ -16,8 +16,8 @@ pub struct Entry {
     visual_bell: bool,
     real_bell_pending: bool,
     fullscreen: Option<bool>,
-    input: async_std::channel::Sender<Vec<u8>>,
-    resize: async_std::channel::Sender<(u16, u16)>,
+    input: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
+    resize: tokio::sync::mpsc::UnboundedSender<(u16, u16)>,
     start_time: time::OffsetDateTime,
     start_instant: std::time::Instant,
 }
@@ -27,8 +27,8 @@ impl Entry {
         cmdline: String,
         env: Env,
         size: (u16, u16),
-        input: async_std::channel::Sender<Vec<u8>>,
-        resize: async_std::channel::Sender<(u16, u16)>,
+        input: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
+        resize: tokio::sync::mpsc::UnboundedSender<(u16, u16)>,
     ) -> Self {
         let span = (0, cmdline.len());
         Self {
@@ -229,13 +229,13 @@ impl Entry {
 
     pub async fn send_input(&self, bytes: Vec<u8>) {
         if self.running() {
-            self.input.send(bytes).await.unwrap();
+            self.input.send(bytes).unwrap();
         }
     }
 
     pub async fn resize(&mut self, size: (u16, u16)) {
         if self.running() {
-            self.resize.send(size).await.unwrap();
+            self.resize.send(size).unwrap();
             self.vt.set_size(size.0, size.1);
         }
     }
@@ -341,11 +341,11 @@ impl Entry {
     pub async fn finish(
         &mut self,
         env: Env,
-        event_w: async_std::channel::Sender<Event>,
+        event_w: tokio::sync::mpsc::UnboundedSender<Event>,
     ) {
         self.state = State::Exited(ExitInfo::new(env.latest_status()));
         self.env = env;
-        event_w.send(Event::PtyClose).await.unwrap();
+        event_w.send(Event::PtyClose).unwrap();
     }
 
     fn exit_info(&self) -> Option<&ExitInfo> {
@@ -369,12 +369,12 @@ impl Entry {
 }
 
 struct ExitInfo {
-    status: async_std::process::ExitStatus,
+    status: std::process::ExitStatus,
     instant: std::time::Instant,
 }
 
 impl ExitInfo {
-    fn new(status: async_std::process::ExitStatus) -> Self {
+    fn new(status: std::process::ExitStatus) -> Self {
         Self {
             status,
             instant: std::time::Instant::now(),

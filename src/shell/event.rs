@@ -11,22 +11,23 @@ pub enum Event {
 }
 
 pub struct Reader {
-    pending: async_std::sync::Mutex<Pending>,
-    cvar: async_std::sync::Condvar,
+    pending: tokio::sync::Mutex<Pending>,
+    cvar: tokio::sync::Notify,
 }
 
 impl Reader {
     pub fn new(
-        input: async_std::channel::Receiver<Event>,
-    ) -> async_std::sync::Arc<Self> {
-        let this = async_std::sync::Arc::new(Self {
-            pending: async_std::sync::Mutex::new(Pending::new()),
-            cvar: async_std::sync::Condvar::new(),
-        });
+        mut input: tokio::sync::mpsc::UnboundedReceiver<Event>,
+    ) -> std::sync::Arc<Self> {
+        let this = Self {
+            pending: tokio::sync::Mutex::new(Pending::new()),
+            cvar: tokio::sync::Notify::new(),
+        };
+        let this = std::sync::Arc::new(this);
         {
-            let this = async_std::sync::Arc::clone(&this);
-            async_std::task::spawn(async move {
-                while let Ok(event) = input.recv().await {
+            let this = this.clone();
+            tokio::task::spawn(async move {
+                while let Some(event) = input.recv().await {
                     this.new_event(Some(event)).await;
                 }
                 this.new_event(None).await;
@@ -36,13 +37,14 @@ impl Reader {
     }
 
     pub async fn recv(&self) -> Option<Event> {
-        let mut pending = self
-            .cvar
-            .wait_until(self.pending.lock().await, |pending| {
-                pending.has_event()
-            })
-            .await;
-        pending.get_event()
+        loop {
+            let mut pending = self.pending.lock().await;
+            if pending.has_event() {
+                return pending.get_event();
+            }
+            drop(pending);
+            self.cvar.notified().await;
+        }
     }
 
     async fn new_event(&self, event: Option<Event>) {
