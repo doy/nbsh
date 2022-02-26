@@ -1,5 +1,7 @@
 pub use crate::env::Env;
 
+pub use std::io::{Read as _, Write as _};
+
 pub use futures_util::future::FutureExt as _;
 pub use futures_util::stream::StreamExt as _;
 pub use futures_util::stream::TryStreamExt as _;

@@ -252,7 +252,7 @@ async fn run_pipeline(
     let pipeline = pipeline.eval(env).await?;
     let interactive = shell_write.is_some();
     let (children, pg) = spawn_children(pipeline, env, &io, interactive)?;
-    let status = wait_children(children, pg, env, &io, shell_write).await;
+    let status = wait_children(children, pg, env, shell_write).await;
     if interactive {
         sys::set_foreground_pg(nix::unistd::getpid())?;
     }
@@ -275,12 +275,12 @@ async fn write_event(
     Ok(())
 }
 
-fn spawn_children<'a>(
+fn spawn_children(
     pipeline: crate::parse::Pipeline,
-    env: &'a Env,
+    env: &Env,
     io: &builtins::Io,
     interactive: bool,
-) -> anyhow::Result<(Vec<Child<'a>>, Option<nix::unistd::Pid>)> {
+) -> anyhow::Result<(Vec<Child>, Option<nix::unistd::Pid>)> {
     let mut cmds: Vec<_> = pipeline
         .into_exes()
         .map(|exe| Command::new(exe, io.clone()))
@@ -318,10 +318,9 @@ fn spawn_children<'a>(
 }
 
 async fn wait_children(
-    children: Vec<Child<'_>>,
+    children: Vec<Child>,
     pg: Option<nix::unistd::Pid>,
     env: &Env,
-    io: &builtins::Io,
     shell_write: &mut Option<tokio::fs::File>,
 ) -> std::process::ExitStatus {
     enum Res {
@@ -331,11 +330,7 @@ async fn wait_children(
 
     macro_rules! bail {
         ($e:expr) => {
-            // if writing to stderr is not possible, we still want to exit
-            // normally with a failure exit code
-            #[allow(clippy::let_underscore_drop)]
-            let _ =
-                io.write_stderr(format!("nbsh: {}\n", $e).as_bytes()).await;
+            eprintln!("nbsh: {}\n", $e);
             return std::process::ExitStatus::from_raw(1 << 8);
         };
     }

@@ -150,12 +150,12 @@ pub enum Inner {
     Builtin(super::builtins::Command),
 }
 
-pub enum Child<'a> {
+pub enum Child {
     Binary(tokio::process::Child),
-    Builtin(super::builtins::Child<'a>),
+    Builtin(super::builtins::Child),
 }
 
-impl<'a> Child<'a> {
+impl Child {
     pub fn id(&self) -> Option<u32> {
         match self {
             Self::Binary(child) => child.id(),
@@ -170,8 +170,7 @@ impl<'a> Child<'a> {
             dyn std::future::Future<
                     Output = anyhow::Result<std::process::ExitStatus>,
                 > + Send
-                + Sync
-                + 'a,
+                + Sync,
         >,
     > {
         Box::pin(async move {
