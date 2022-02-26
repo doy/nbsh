@@ -1,7 +1,7 @@
 use crate::shell::prelude::*;
 
 pub struct Pty {
-    pts: pty_process::Pts,
+    pts: std::sync::Arc<pty_process::Pts>,
     close_w: tokio::sync::mpsc::UnboundedSender<()>,
 }
 
@@ -17,10 +17,11 @@ impl Pty {
 
         let pty = pty_process::Pty::new()?;
         pty.resize(pty_process::Size::new(size.0, size.1))?;
-        let pts = pty.pts()?;
+        let pts = std::sync::Arc::new(pty.pts()?);
 
         tokio::task::spawn(pty_task(
             pty,
+            std::sync::Arc::clone(&pts),
             crate::mutex::clone(entry),
             input_r,
             resize_r,
@@ -35,7 +36,7 @@ impl Pty {
         &self,
         mut cmd: pty_process::Command,
     ) -> anyhow::Result<tokio::process::Child> {
-        Ok(cmd.spawn(&self.pts)?)
+        Ok(cmd.spawn(&*self.pts)?)
     }
 
     pub async fn close(&self) {
@@ -45,6 +46,9 @@ impl Pty {
 
 async fn pty_task(
     pty: pty_process::Pty,
+    // take the pts here just to ensure that we don't close it before this
+    // task finishes, otherwise the read call can return EIO
+    _pts: std::sync::Arc<pty_process::Pts>,
     entry: crate::mutex::Mutex<super::Entry>,
     input_r: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
     resize_r: tokio::sync::mpsc::UnboundedReceiver<(u16, u16)>,
