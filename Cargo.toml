@@ -37,5 +37,3 @@ vt100 = "0.15.1"
 nix = { git = "https://github.com/nix-rust/nix" }
 pty-process = { git = "https://github.com/doy/pty-process" }
 textmode = { git = "https://github.com/doy/textmode" }
-
-[features]

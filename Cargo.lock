@@ -828,7 +828,7 @@ dependencies = [
 [[package]]
 name = "pty-process"
 version = "0.2.0"
-source = "git+https://github.com/doy/pty-process#aca49b2f55df04142d4b2fcfcb361361e76d0820"
+source = "git+https://github.com/doy/pty-process#f0710ededc80610fdaff3209f8b94fa0d7bb78ce"
 dependencies = [
  "libc",
  "nix",
