@@ -71,7 +71,7 @@ enum Frame {
 pub async fn run(
     commands: &str,
     shell_write: &mut Option<tokio::fs::File>,
-) -> anyhow::Result<i32> {
+) -> Result<i32> {
     let mut env = Env::new_from_env()?;
     run_commands(commands, &mut env, shell_write).await?;
     let status = env.latest_status();
@@ -87,7 +87,7 @@ async fn run_commands(
     commands: &str,
     env: &mut Env,
     shell_write: &mut Option<tokio::fs::File>,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     let commands = crate::parse::ast::Commands::parse(commands)?;
     let commands = commands.commands();
     let mut pc = 0;
@@ -232,7 +232,7 @@ async fn run_pipeline(
     pipeline: crate::parse::ast::Pipeline,
     env: &mut Env,
     shell_write: &mut Option<tokio::fs::File>,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     write_event(shell_write, Event::RunPipeline(env.idx(), pipeline.span()))
         .await?;
     // Safety: pipelines are run serially, so only one copy of these will ever
@@ -267,7 +267,7 @@ async fn run_pipeline(
 async fn write_event(
     fh: &mut Option<tokio::fs::File>,
     event: Event,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     if let Some(fh) = fh {
         fh.write_all(&bincode::serialize(&event)?).await?;
         fh.flush().await?;
@@ -280,7 +280,7 @@ fn spawn_children(
     env: &Env,
     io: &builtins::Io,
     interactive: bool,
-) -> anyhow::Result<(Vec<Child>, Option<nix::unistd::Pid>)> {
+) -> Result<(Vec<Child>, Option<nix::unistd::Pid>)> {
     let mut cmds: Vec<_> = pipeline
         .into_exes()
         .map(|exe| Command::new(exe, io.clone()))
@@ -325,7 +325,7 @@ async fn wait_children(
 ) -> std::process::ExitStatus {
     enum Res {
         Child(nix::Result<nix::sys::wait::WaitStatus>),
-        Builtin((anyhow::Result<std::process::ExitStatus>, bool)),
+        Builtin((Result<std::process::ExitStatus>, bool)),
     }
 
     macro_rules! bail {

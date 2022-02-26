@@ -7,7 +7,7 @@ type Builtin = &'static (dyn for<'a> Fn(
     crate::parse::Exe,
     &'a Env,
     command::Cfg,
-) -> anyhow::Result<command::Child>
+) -> Result<command::Child>
               + Sync
               + Send);
 
@@ -54,7 +54,7 @@ fn cd(
     exe: crate::parse::Exe,
     env: &Env,
     cfg: command::Cfg,
-) -> anyhow::Result<command::Child> {
+) -> Result<command::Child> {
     let prev_pwd = env.prev_pwd();
     let home = env.var("HOME");
     Ok(command::Child::new_task(move || {
@@ -92,7 +92,7 @@ fn set(
     exe: crate::parse::Exe,
     _env: &Env,
     cfg: command::Cfg,
-) -> anyhow::Result<command::Child> {
+) -> Result<command::Child> {
     Ok(command::Child::new_task(move || {
         let k = if let Some(k) = exe.args().get(0).map(String::as_str) {
             k
@@ -115,7 +115,7 @@ fn unset(
     exe: crate::parse::Exe,
     _env: &Env,
     cfg: command::Cfg,
-) -> anyhow::Result<command::Child> {
+) -> Result<command::Child> {
     Ok(command::Child::new_task(move || {
         let k = if let Some(k) = exe.args().get(0).map(String::as_str) {
             k
@@ -136,7 +136,7 @@ fn echo(
     exe: crate::parse::Exe,
     _env: &Env,
     cfg: command::Cfg,
-) -> anyhow::Result<command::Child> {
+) -> Result<command::Child> {
     Ok(command::Child::new_task(move || {
         macro_rules! write_stdout {
             ($bytes:expr) => {
@@ -167,7 +167,7 @@ fn read(
     exe: crate::parse::Exe,
     _env: &Env,
     cfg: command::Cfg,
-) -> anyhow::Result<command::Child> {
+) -> Result<command::Child> {
     Ok(command::Child::new_task(move || {
         let var = if let Some(var) = exe.args().get(0).map(String::as_str) {
             var
@@ -191,7 +191,7 @@ fn and(
     mut exe: crate::parse::Exe,
     env: &Env,
     cfg: command::Cfg,
-) -> anyhow::Result<command::Child> {
+) -> Result<command::Child> {
     exe.shift();
     if env.latest_status().success() {
         let mut cmd = crate::runner::Command::new(exe, cfg.io().clone());
@@ -207,7 +207,7 @@ fn or(
     mut exe: crate::parse::Exe,
     env: &Env,
     cfg: command::Cfg,
-) -> anyhow::Result<command::Child> {
+) -> Result<command::Child> {
     exe.shift();
     if env.latest_status().success() {
         let status = env.latest_status();
@@ -223,7 +223,7 @@ fn command(
     mut exe: crate::parse::Exe,
     env: &Env,
     cfg: command::Cfg,
-) -> anyhow::Result<command::Child> {
+) -> Result<command::Child> {
     exe.shift();
     let mut cmd = crate::runner::Command::new_binary(exe);
     cfg.setup_command(&mut cmd);
@@ -234,7 +234,7 @@ fn builtin(
     mut exe: crate::parse::Exe,
     env: &Env,
     cfg: command::Cfg,
-) -> anyhow::Result<command::Child> {
+) -> Result<command::Child> {
     exe.shift();
     let mut cmd = crate::runner::Command::new_builtin(exe, cfg.io().clone());
     cfg.setup_command(&mut cmd);

@@ -16,7 +16,7 @@ const __NBSH_LATEST_STATUS: &str = "__NBSH_LATEST_STATUS";
 const __NBSH_PREV_PWD: &str = "__NBSH_PREV_PWD";
 
 impl Env {
-    pub fn new() -> anyhow::Result<Self> {
+    pub fn new() -> Result<Self> {
         let pwd = std::env::current_dir()?;
         Ok(Self::V0(V0 {
             pwd: pwd.clone(),
@@ -26,7 +26,7 @@ impl Env {
         }))
     }
 
-    pub fn new_from_env() -> anyhow::Result<Self> {
+    pub fn new_from_env() -> Result<Self> {
         let pwd = std::env::current_dir()?;
         Ok(Self::V0(V0 {
             pwd: pwd.clone(),
@@ -111,7 +111,7 @@ impl Env {
         }
     }
 
-    pub fn update(&mut self) -> anyhow::Result<()> {
+    pub fn update(&mut self) -> Result<()> {
         let idx = self.idx();
         let status = self.latest_status();
         let prev_pwd = self.prev_pwd();

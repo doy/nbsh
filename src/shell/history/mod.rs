@@ -26,7 +26,7 @@ impl History {
         focus: Option<usize>,
         scrolling: bool,
         offset: time::UtcOffset,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         let mut used_lines = repl_lines;
         let mut cursor = None;
         for (idx, mut entry) in
@@ -87,7 +87,7 @@ impl History {
         cmdline: &str,
         env: &Env,
         event_w: crate::shell::event::Writer,
-    ) -> anyhow::Result<usize> {
+    ) -> Result<usize> {
         let (input_w, input_r) = tokio::sync::mpsc::unbounded_channel();
         let (resize_w, resize_r) = tokio::sync::mpsc::unbounded_channel();
 
@@ -279,7 +279,7 @@ async fn spawn_commands(
     pty: &pty::Pty,
     env: &mut Env,
     event_w: crate::shell::event::Writer,
-) -> anyhow::Result<std::process::ExitStatus> {
+) -> Result<std::process::ExitStatus> {
     enum Res {
         Read(crate::runner::Event),
         Exit(std::io::Result<std::process::ExitStatus>),

@@ -37,7 +37,7 @@ struct Opt {
 }
 
 #[tokio::main]
-async fn async_main(opt: Opt) -> anyhow::Result<i32> {
+async fn async_main(opt: Opt) -> Result<i32> {
     if let Some(command) = opt.command {
         let mut shell_write = opt.status_fd.and_then(|fd| {
             nix::sys::stat::fstat(fd).ok().map(|_| {

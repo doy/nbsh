@@ -1,12 +1,14 @@
-pub fn user() -> anyhow::Result<String> {
+use crate::prelude::*;
+
+pub fn user() -> Result<String> {
     Ok(users::get_current_username()
-        .ok_or_else(|| anyhow::anyhow!("couldn't get username"))?
+        .ok_or_else(|| anyhow!("couldn't get username"))?
         .to_string_lossy()
         .into_owned())
 }
 
 #[allow(clippy::unnecessary_wraps)]
-pub fn prompt_char() -> anyhow::Result<String> {
+pub fn prompt_char() -> Result<String> {
     if users::get_current_uid() == 0 {
         Ok("#".into())
     } else {
@@ -14,7 +16,7 @@ pub fn prompt_char() -> anyhow::Result<String> {
     }
 }
 
-pub fn hostname() -> anyhow::Result<String> {
+pub fn hostname() -> Result<String> {
     let mut hostname = hostname::get()?.to_string_lossy().into_owned();
     if let Some(idx) = hostname.find('.') {
         hostname.truncate(idx);
@@ -23,7 +25,7 @@ pub fn hostname() -> anyhow::Result<String> {
 }
 
 #[allow(clippy::unnecessary_wraps)]
-pub fn time(offset: time::UtcOffset) -> anyhow::Result<String> {
+pub fn time(offset: time::UtcOffset) -> Result<String> {
     Ok(crate::format::time(
         time::OffsetDateTime::now_utc().to_offset(offset),
     ))

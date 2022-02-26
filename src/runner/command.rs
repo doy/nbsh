@@ -94,7 +94,7 @@ impl Command {
         self.pre_exec = Some(Box::new(f));
     }
 
-    pub fn spawn(self, env: &Env) -> anyhow::Result<Child> {
+    pub fn spawn(self, env: &Env) -> Result<Child> {
         let Self {
             inner,
             exe,
@@ -127,7 +127,7 @@ impl Command {
                 // functions
                 unsafe { cmd.pre_exec(pre_exec) };
                 Ok(Child::Binary(cmd.spawn().map_err(|e| {
-                    anyhow::anyhow!(
+                    anyhow!(
                         "{}: {}",
                         crate::format::io_error(&e),
                         exe.display()
@@ -167,9 +167,8 @@ impl Child {
         self,
     ) -> std::pin::Pin<
         Box<
-            dyn std::future::Future<
-                    Output = anyhow::Result<std::process::ExitStatus>,
-                > + Send
+            dyn std::future::Future<Output = Result<std::process::ExitStatus>>
+                + Send
                 + Sync,
         >,
     > {

@@ -9,7 +9,7 @@ mod history;
 mod prelude;
 mod readline;
 
-pub async fn main() -> anyhow::Result<i32> {
+pub async fn main() -> Result<i32> {
     let mut input = textmode::blocking::Input::new()?;
     let mut output = textmode::Output::new().await?;
 
@@ -205,7 +205,7 @@ pub struct Shell {
 }
 
 impl Shell {
-    pub fn new(offset: time::UtcOffset) -> anyhow::Result<Self> {
+    pub fn new(offset: time::UtcOffset) -> Result<Self> {
         let mut env = Env::new()?;
         env.set_var("SHELL", std::env::current_exe()?);
         env.set_var("TERM", "screen");
@@ -225,7 +225,7 @@ impl Shell {
     pub async fn render(
         &self,
         out: &mut impl textmode::Textmode,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         out.clear();
         out.write(&vt100::Parser::default().screen().input_mode_formatted());
         match self.scene {

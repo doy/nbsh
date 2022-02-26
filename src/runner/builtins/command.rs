@@ -51,7 +51,7 @@ impl Command {
         self.cfg.io.apply_redirects(redirects);
     }
 
-    pub fn spawn(self, env: &Env) -> anyhow::Result<Child> {
+    pub fn spawn(self, env: &Env) -> Result<Child> {
         let Self { f, exe, cfg } = self;
         (f)(exe, env, cfg)
     }
@@ -187,7 +187,7 @@ impl Io {
         }
     }
 
-    pub fn read_line_stdin(&self) -> anyhow::Result<(String, bool)> {
+    pub fn read_line_stdin(&self) -> Result<(String, bool)> {
         let mut line = vec![];
         if let Some(file) = self.stdin() {
             if let File::In(fh) = &*file {
@@ -216,7 +216,7 @@ impl Io {
         Ok((line, done))
     }
 
-    pub fn write_stdout(&self, buf: &[u8]) -> anyhow::Result<()> {
+    pub fn write_stdout(&self, buf: &[u8]) -> Result<()> {
         if let Some(file) = self.stdout() {
             if let File::Out(fh) = &*file {
                 Ok((&*fh).write_all(buf)?)
@@ -228,7 +228,7 @@ impl Io {
         }
     }
 
-    pub fn write_stderr(&self, buf: &[u8]) -> anyhow::Result<()> {
+    pub fn write_stderr(&self, buf: &[u8]) -> Result<()> {
         if let Some(file) = self.stderr() {
             if let File::Out(fh) = &*file {
                 Ok((&*fh).write_all(buf)?)
@@ -358,17 +358,14 @@ impl Child {
         self,
     ) -> std::pin::Pin<
         Box<
-            dyn std::future::Future<
-                    Output = anyhow::Result<std::process::ExitStatus>,
-                > + Send
+            dyn std::future::Future<Output = Result<std::process::ExitStatus>>
+                + Send
                 + Sync,
         >,
     > {
         Box::pin(async move {
             match self {
-                Self::Task(task) => {
-                    task.await.map_err(|e| anyhow::anyhow!(e))
-                }
+                Self::Task(task) => task.await.map_err(|e| anyhow!(e)),
                 Self::Wrapped(child) => child.status().await,
             }
         })

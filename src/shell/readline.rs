@@ -26,7 +26,7 @@ impl Readline {
         git: Option<&super::git::Info>,
         focus: bool,
         offset: time::UtcOffset,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         let pwd = env.pwd();
         let user = crate::info::user()?;
         let hostname = crate::info::hostname()?;

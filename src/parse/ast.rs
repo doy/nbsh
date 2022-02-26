@@ -90,7 +90,7 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-    pub async fn eval(self, env: &Env) -> anyhow::Result<super::Pipeline> {
+    pub async fn eval(self, env: &Env) -> Result<super::Pipeline> {
         Ok(super::Pipeline {
             exes: self
                 .exes
@@ -124,7 +124,7 @@ struct Exe {
 }
 
 impl Exe {
-    async fn eval(self, env: &Env) -> anyhow::Result<super::Exe> {
+    async fn eval(self, env: &Env) -> Result<super::Exe> {
         let exe = self.exe.eval(env).await?;
         assert_eq!(exe.len(), 1); // TODO
         let exe = &exe[0];
@@ -212,7 +212,7 @@ pub struct Word {
 }
 
 impl Word {
-    pub async fn eval(self, env: &Env) -> anyhow::Result<Vec<String>> {
+    pub async fn eval(self, env: &Env) -> Result<Vec<String>> {
         let mut opts = glob::MatchOptions::new();
         opts.require_literal_separator = true;
         opts.require_literal_leading_dot = true;
@@ -436,7 +436,7 @@ impl Redirect {
         Self { from, to, dir }
     }
 
-    async fn eval(self, env: &Env) -> anyhow::Result<super::Redirect> {
+    async fn eval(self, env: &Env) -> Result<super::Redirect> {
         let to = if self.to.parts.len() == 1 {
             if let WordPart::Bareword(s) = &self.to.parts[0] {
                 if let Some(fd) = s.strip_prefix('&') {
@@ -514,7 +514,7 @@ fn parse_fd(s: &str) -> std::os::unix::io::RawFd {
     }
 }
 
-fn expand_home(dir: &str) -> anyhow::Result<String> {
+fn expand_home(dir: &str) -> Result<String> {
     if dir.starts_with('~') {
         let path: std::path::PathBuf = dir.into();
         if let std::path::Component::Normal(prefix) =

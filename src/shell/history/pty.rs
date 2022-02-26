@@ -12,7 +12,7 @@ impl Pty {
         input_r: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
         resize_r: tokio::sync::mpsc::UnboundedReceiver<(u16, u16)>,
         event_w: crate::shell::event::Writer,
-    ) -> anyhow::Result<Self> {
+    ) -> Result<Self> {
         let (close_w, close_r) = tokio::sync::mpsc::unbounded_channel();
 
         let pty = pty_process::Pty::new()?;
@@ -35,7 +35,7 @@ impl Pty {
     pub fn spawn(
         &self,
         mut cmd: pty_process::Command,
-    ) -> anyhow::Result<tokio::process::Child> {
+    ) -> Result<tokio::process::Child> {
         Ok(cmd.spawn(&*self.pts)?)
     }
 

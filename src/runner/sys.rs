@@ -2,7 +2,7 @@ use crate::runner::prelude::*;
 
 const PID0: nix::unistd::Pid = nix::unistd::Pid::from_raw(0);
 
-pub fn pipe() -> anyhow::Result<(std::fs::File, std::fs::File)> {
+pub fn pipe() -> Result<(std::fs::File, std::fs::File)> {
     let (r, w) = nix::unistd::pipe2(nix::fcntl::OFlag::O_CLOEXEC)?;
     // Safety: these file descriptors were just returned by pipe2 above, and
     // are only available in this function, so nothing else can be accessing
@@ -12,7 +12,7 @@ pub fn pipe() -> anyhow::Result<(std::fs::File, std::fs::File)> {
     }))
 }
 
-pub fn set_foreground_pg(pg: nix::unistd::Pid) -> anyhow::Result<()> {
+pub fn set_foreground_pg(pg: nix::unistd::Pid) -> Result<()> {
     let pty = nix::fcntl::open(
         "/dev/tty",
         nix::fcntl::OFlag::empty(),
@@ -60,7 +60,7 @@ pub fn setpgid_child(pg: Option<nix::unistd::Pid>) -> std::io::Result<()> {
 pub fn setpgid_parent(
     pid: nix::unistd::Pid,
     pg: Option<nix::unistd::Pid>,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     nix::unistd::setpgid(pid, pg.unwrap_or(PID0))
         // the child already called exec, so it must have already called
         // setpgid itself
