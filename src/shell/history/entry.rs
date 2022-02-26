@@ -341,11 +341,11 @@ impl Entry {
     pub async fn finish(
         &mut self,
         env: Env,
-        event_w: tokio::sync::mpsc::UnboundedSender<Event>,
+        event_w: crate::shell::event::Writer,
     ) {
         self.state = State::Exited(ExitInfo::new(env.latest_status()));
         self.env = env;
-        event_w.send(Event::PtyClose).unwrap();
+        event_w.send(Event::PtyClose);
     }
 
     fn exit_info(&self) -> Option<&ExitInfo> {

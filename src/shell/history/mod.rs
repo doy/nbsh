@@ -86,7 +86,7 @@ impl History {
         &mut self,
         cmdline: &str,
         env: &Env,
-        event_w: tokio::sync::mpsc::UnboundedSender<Event>,
+        event_w: crate::shell::event::Writer,
     ) -> anyhow::Result<usize> {
         let (input_w, input_r) = tokio::sync::mpsc::unbounded_channel();
         let (resize_w, resize_r) = tokio::sync::mpsc::unbounded_channel();
@@ -223,7 +223,7 @@ fn run_commands(
     mut env: Env,
     input_r: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
     resize_r: tokio::sync::mpsc::UnboundedReceiver<(u16, u16)>,
-    event_w: tokio::sync::mpsc::UnboundedSender<Event>,
+    event_w: crate::shell::event::Writer,
 ) {
     tokio::task::spawn(async move {
         let pty = match pty::Pty::new(
@@ -278,7 +278,7 @@ async fn spawn_commands(
     cmdline: &str,
     pty: &pty::Pty,
     env: &mut Env,
-    event_w: tokio::sync::mpsc::UnboundedSender<Event>,
+    event_w: crate::shell::event::Writer,
 ) -> anyhow::Result<std::process::ExitStatus> {
     enum Res {
         Read(crate::runner::Event),
@@ -339,10 +339,10 @@ async fn spawn_commands(
         match res {
             Res::Read(event) => match event {
                 crate::runner::Event::RunPipeline(idx, span) => {
-                    event_w.send(Event::ChildRunPipeline(idx, span)).unwrap();
+                    event_w.send(Event::ChildRunPipeline(idx, span));
                 }
                 crate::runner::Event::Suspend(idx) => {
-                    event_w.send(Event::ChildSuspend(idx)).unwrap();
+                    event_w.send(Event::ChildSuspend(idx));
                 }
                 crate::runner::Event::Exit(new_env) => {
                     *env = new_env;

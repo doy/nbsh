@@ -18,7 +18,7 @@ pub async fn main() -> anyhow::Result<i32> {
     let _input_guard = input.take_raw_guard();
     let _output_guard = output.take_screen_guard();
 
-    let (event_w, event_r) = tokio::sync::mpsc::unbounded_channel();
+    let (event_w, event_r) = event::channel();
 
     {
         let mut signals = tokio::signal::unix::signal(
@@ -26,26 +26,24 @@ pub async fn main() -> anyhow::Result<i32> {
         )?;
         let event_w = event_w.clone();
         tokio::task::spawn(async move {
-            event_w
-                .send(Event::Resize(terminal_size::terminal_size().map_or(
+            event_w.send(Event::Resize(
+                terminal_size::terminal_size().map_or(
                     (24, 80),
                     |(terminal_size::Width(w), terminal_size::Height(h))| {
                         (h, w)
                     },
-                )))
-                .unwrap();
+                ),
+            ));
             while signals.recv().await.is_some() {
-                event_w
-                    .send(Event::Resize(
-                        terminal_size::terminal_size().map_or(
-                            (24, 80),
-                            |(
-                                terminal_size::Width(w),
-                                terminal_size::Height(h),
-                            )| { (h, w) },
-                        ),
-                    ))
-                    .unwrap();
+                event_w.send(Event::Resize(
+                    terminal_size::terminal_size().map_or(
+                        (24, 80),
+                        |(
+                            terminal_size::Width(w),
+                            terminal_size::Height(h),
+                        )| { (h, w) },
+                    ),
+                ));
             }
         });
     }
@@ -54,7 +52,7 @@ pub async fn main() -> anyhow::Result<i32> {
         let event_w = event_w.clone();
         std::thread::spawn(move || {
             while let Some(key) = input.read_key().unwrap() {
-                event_w.send(Event::Key(key)).unwrap();
+                event_w.send(Event::Key(key));
             }
         });
     }
@@ -75,7 +73,7 @@ pub async fn main() -> anyhow::Result<i32> {
             );
             loop {
                 interval.tick().await;
-                event_w.send(Event::ClockTimer).unwrap();
+                event_w.send(Event::ClockTimer);
             }
         });
     }
@@ -126,9 +124,7 @@ pub async fn main() -> anyhow::Result<i32> {
                             })
                             .await
                             .unwrap();
-                            if event_w.send(Event::GitInfo(info)).is_err() {
-                                break;
-                            }
+                            event_w.send(Event::GitInfo(info));
                         }
                     });
                     _active_watcher = Some(watcher);
@@ -140,7 +136,7 @@ pub async fn main() -> anyhow::Result<i32> {
                 })
                 .await
                 .unwrap();
-                event_w.send(Event::GitInfo(info)).unwrap();
+                event_w.send(Event::GitInfo(info));
             }
         });
     }
@@ -148,8 +144,7 @@ pub async fn main() -> anyhow::Result<i32> {
     let mut shell = Shell::new(crate::info::get_offset())?;
     let mut prev_dir = shell.env.pwd().to_path_buf();
     git_w.send(prev_dir.clone()).unwrap();
-    let event_reader = event::Reader::new(event_r);
-    while let Some(event) = event_reader.recv().await {
+    while let Some(event) = event_r.recv().await {
         let dir = shell.env().pwd();
         if dir != prev_dir {
             prev_dir = dir.to_path_buf();
@@ -319,7 +314,7 @@ impl Shell {
     pub async fn handle_event(
         &mut self,
         event: Event,
-        event_w: &tokio::sync::mpsc::UnboundedSender<Event>,
+        event_w: &crate::shell::event::Writer,
     ) -> Option<Action> {
         match event {
             Event::Key(key) => {
@@ -402,7 +397,7 @@ impl Shell {
     async fn handle_key_escape(
         &mut self,
         key: textmode::Key,
-        event_w: tokio::sync::mpsc::UnboundedSender<Event>,
+        event_w: crate::shell::event::Writer,
     ) -> Option<Action> {
         match key {
             textmode::Key::Ctrl(b'd') => {
@@ -511,7 +506,7 @@ impl Shell {
     async fn handle_key_readline(
         &mut self,
         key: textmode::Key,
-        event_w: tokio::sync::mpsc::UnboundedSender<Event>,
+        event_w: crate::shell::event::Writer,
     ) -> Option<Action> {
         match key {
             textmode::Key::Char(c) => {

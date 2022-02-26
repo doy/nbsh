@@ -11,7 +11,7 @@ impl Pty {
         entry: &crate::mutex::Mutex<super::Entry>,
         input_r: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
         resize_r: tokio::sync::mpsc::UnboundedReceiver<(u16, u16)>,
-        event_w: tokio::sync::mpsc::UnboundedSender<Event>,
+        event_w: crate::shell::event::Writer,
     ) -> anyhow::Result<Self> {
         let (close_w, close_r) = tokio::sync::mpsc::unbounded_channel();
 
@@ -49,7 +49,7 @@ async fn pty_task(
     input_r: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
     resize_r: tokio::sync::mpsc::UnboundedReceiver<(u16, u16)>,
     close_r: tokio::sync::mpsc::UnboundedReceiver<()>,
-    event_w: tokio::sync::mpsc::UnboundedSender<Event>,
+    event_w: crate::shell::event::Writer,
 ) {
     enum Res {
         Read(Result<bytes::Bytes, std::io::Error>),
@@ -80,7 +80,7 @@ async fn pty_task(
             Res::Read(res) => match res {
                 Ok(bytes) => {
                     entry.clone().lock_owned().await.process(&bytes);
-                    event_w.send(Event::PtyOutput).unwrap();
+                    event_w.send(Event::PtyOutput);
                 }
                 Err(e) => {
                     panic!("pty read failed: {:?}", e);
@@ -93,7 +93,7 @@ async fn pty_task(
                 .resize(pty_process::Size::new(size.0, size.1))
                 .unwrap(),
             Res::Close(()) => {
-                event_w.send(Event::PtyClose).unwrap();
+                event_w.send(Event::PtyClose);
                 return;
             }
         }

@@ -10,13 +10,47 @@ pub enum Event {
     ClockTimer,
 }
 
-pub struct Reader {
+pub fn channel() -> (Writer, Reader) {
+    let (event_w, event_r) = tokio::sync::mpsc::unbounded_channel();
+    (Writer::new(event_w), Reader::new(event_r))
+}
+
+#[derive(Clone)]
+pub struct Writer(tokio::sync::mpsc::UnboundedSender<Event>);
+
+impl Writer {
+    pub fn new(event_w: tokio::sync::mpsc::UnboundedSender<Event>) -> Self {
+        Self(event_w)
+    }
+
+    pub fn send(&self, event: Event) {
+        // the only time this should ever error is when the application is
+        // shutting down, at which point we don't actually care about any
+        // further dropped messages
+        #[allow(clippy::let_underscore_drop)]
+        let _ = self.0.send(event);
+    }
+}
+
+pub struct Reader(std::sync::Arc<InnerReader>);
+
+impl Reader {
+    pub fn new(input: tokio::sync::mpsc::UnboundedReceiver<Event>) -> Self {
+        Self(InnerReader::new(input))
+    }
+
+    pub async fn recv(&self) -> Option<Event> {
+        self.0.recv().await
+    }
+}
+
+struct InnerReader {
     pending: tokio::sync::Mutex<Pending>,
     cvar: tokio::sync::Notify,
 }
 
-impl Reader {
-    pub fn new(
+impl InnerReader {
+    fn new(
         mut input: tokio::sync::mpsc::UnboundedReceiver<Event>,
     ) -> std::sync::Arc<Self> {
         let this = Self {
@@ -36,7 +70,7 @@ impl Reader {
         this
     }
 
-    pub async fn recv(&self) -> Option<Event> {
+    async fn recv(&self) -> Option<Event> {
         loop {
             let mut pending = self.pending.lock().await;
             if pending.has_event() {
