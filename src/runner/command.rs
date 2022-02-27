@@ -8,6 +8,7 @@ pub struct Command {
         Box<dyn FnMut() -> std::io::Result<()> + Send + Sync + 'static>,
     >,
 }
+
 impl Command {
     pub fn new(exe: crate::parse::Exe, io: super::builtins::Io) -> Self {
         let exe_path = exe.exe().to_path_buf();
