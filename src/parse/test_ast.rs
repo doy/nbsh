@@ -157,7 +157,7 @@ macro_rules! eval_eq {
                 _ => continue,
             };
             assert_eq!(
-                async_std::task::block_on(pipeline.eval(&$env)).unwrap(),
+                pipeline.eval(&$env).await.unwrap(),
                 expected.remove(0)
             );
         }
@@ -175,7 +175,7 @@ macro_rules! eval_fails {
                 }
                 _ => continue,
             };
-            if async_std::task::block_on(pipeline.eval(&$env)).is_err() {
+            if pipeline.eval(&$env).await.is_err() {
                 fail = true;
             }
         }
@@ -426,8 +426,9 @@ fn test_alternation() {
     );
 }
 
+#[tokio::main]
 #[test]
-fn test_eval_alternation() {
+async fn test_eval_alternation() {
     let mut env = Env::new().unwrap();
     env.set_var("HOME", "/home/test");
     env.set_var("foo", "value-of-foo");
@@ -464,8 +465,9 @@ fn test_eval_alternation() {
     );
 }
 
+#[tokio::main]
 #[test]
-fn test_eval_glob() {
+async fn test_eval_glob() {
     let env = Env::new().unwrap();
 
     eval_eq!(
