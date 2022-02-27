@@ -86,8 +86,8 @@ impl Command {
         }
     }
 
-    // Safety: see pre_exec in async_std::os::unix::process::CommandExt (this
-    // is just a wrapper)
+    // Safety: see pre_exec in tokio::process::Command (this is just a
+    // wrapper)
     pub unsafe fn pre_exec<F>(&mut self, f: F)
     where
         F: 'static + FnMut() -> std::io::Result<()> + Send + Sync,
