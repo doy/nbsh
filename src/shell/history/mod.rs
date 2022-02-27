@@ -6,7 +6,7 @@ mod pty;
 
 pub struct History {
     size: (u16, u16),
-    entries: Vec<crate::mutex::Mutex<Entry>>,
+    entries: Vec<std::sync::Arc<tokio::sync::Mutex<Entry>>>,
     scroll_pos: usize,
 }
 
@@ -91,16 +91,16 @@ impl History {
         let (input_w, input_r) = tokio::sync::mpsc::unbounded_channel();
         let (resize_w, resize_r) = tokio::sync::mpsc::unbounded_channel();
 
-        let entry = crate::mutex::new(Entry::new(
+        let entry = std::sync::Arc::new(tokio::sync::Mutex::new(Entry::new(
             cmdline.to_string(),
             env.clone(),
             self.size,
             input_w,
             resize_w,
-        ));
+        )));
         run_commands(
             cmdline.to_string(),
-            crate::mutex::clone(&entry),
+            std::sync::Arc::clone(&entry),
             env.clone(),
             input_r,
             resize_r,
@@ -111,7 +111,10 @@ impl History {
         Ok(self.entries.len() - 1)
     }
 
-    pub async fn entry(&self, idx: usize) -> crate::mutex::Guard<Entry> {
+    pub async fn entry(
+        &self,
+        idx: usize,
+    ) -> tokio::sync::OwnedMutexGuard<Entry> {
         self.entries[idx].clone().lock_owned().await
     }
 
@@ -187,7 +190,10 @@ impl History {
 }
 
 struct VisibleEntries {
-    entries: std::collections::VecDeque<(usize, crate::mutex::Guard<Entry>)>,
+    entries: std::collections::VecDeque<(
+        usize,
+        tokio::sync::OwnedMutexGuard<Entry>,
+    )>,
 }
 
 impl VisibleEntries {
@@ -197,14 +203,18 @@ impl VisibleEntries {
         }
     }
 
-    fn add(&mut self, idx: usize, entry: crate::mutex::Guard<Entry>) {
+    fn add(
+        &mut self,
+        idx: usize,
+        entry: tokio::sync::OwnedMutexGuard<Entry>,
+    ) {
         // push_front because we are adding them in reverse order
         self.entries.push_front((idx, entry));
     }
 }
 
 impl std::iter::Iterator for VisibleEntries {
-    type Item = (usize, crate::mutex::Guard<Entry>);
+    type Item = (usize, tokio::sync::OwnedMutexGuard<Entry>);
 
     fn next(&mut self) -> Option<Self::Item> {
         self.entries.pop_front()
@@ -219,7 +229,7 @@ impl std::iter::DoubleEndedIterator for VisibleEntries {
 
 fn run_commands(
     cmdline: String,
-    entry: crate::mutex::Mutex<Entry>,
+    entry: std::sync::Arc<tokio::sync::Mutex<Entry>>,
     mut env: Env,
     input_r: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
     resize_r: tokio::sync::mpsc::UnboundedReceiver<(u16, u16)>,

@@ -559,7 +559,7 @@ impl Shell {
     async fn default_scene(
         &self,
         focus: Focus,
-        entry: Option<crate::mutex::Guard<history::Entry>>,
+        entry: Option<tokio::sync::OwnedMutexGuard<history::Entry>>,
     ) -> Scene {
         match focus {
             Focus::Readline | Focus::Scrolling(_) => Scene::Readline,
@@ -581,7 +581,7 @@ impl Shell {
     async fn set_focus(
         &mut self,
         new_focus: Focus,
-        entry: Option<crate::mutex::Guard<history::Entry>>,
+        entry: Option<tokio::sync::OwnedMutexGuard<history::Entry>>,
     ) {
         self.focus = new_focus;
         self.hide_readline = false;

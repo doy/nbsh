@@ -8,7 +8,7 @@ pub struct Pty {
 impl Pty {
     pub fn new(
         size: (u16, u16),
-        entry: &crate::mutex::Mutex<super::Entry>,
+        entry: &std::sync::Arc<tokio::sync::Mutex<super::Entry>>,
         input_r: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
         resize_r: tokio::sync::mpsc::UnboundedReceiver<(u16, u16)>,
         event_w: crate::shell::event::Writer,
@@ -22,7 +22,7 @@ impl Pty {
         tokio::task::spawn(pty_task(
             pty,
             std::sync::Arc::clone(&pts),
-            crate::mutex::clone(entry),
+            std::sync::Arc::clone(entry),
             input_r,
             resize_r,
             close_r,
@@ -49,7 +49,7 @@ async fn pty_task(
     // take the pts here just to ensure that we don't close it before this
     // task finishes, otherwise the read call can return EIO
     _pts: std::sync::Arc<pty_process::Pts>,
-    entry: crate::mutex::Mutex<super::Entry>,
+    entry: std::sync::Arc<tokio::sync::Mutex<super::Entry>>,
     input_r: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
     resize_r: tokio::sync::mpsc::UnboundedReceiver<(u16, u16)>,
     close_r: tokio::sync::mpsc::UnboundedReceiver<()>,

@@ -19,7 +19,6 @@
 mod env;
 mod format;
 mod info;
-mod mutex;
 mod parse;
 mod prelude;
 mod runner;
