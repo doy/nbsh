@@ -225,7 +225,7 @@ fn command(
     cfg: command::Cfg,
 ) -> Result<command::Child> {
     exe.shift();
-    let mut cmd = crate::runner::Command::new_binary(exe);
+    let mut cmd = crate::runner::Command::new_binary(&exe);
     cfg.setup_command(&mut cmd);
     Ok(command::Child::new_wrapped(cmd.spawn(env)?))
 }

@@ -15,7 +15,7 @@ impl Command {
         let redirects = exe.redirects().to_vec();
         Self {
             inner: super::builtins::Command::new(exe, io).map_or_else(
-                |exe| Self::new_binary(exe).inner,
+                |exe| Self::new_binary(&exe).inner,
                 Inner::Builtin,
             ),
             exe: exe_path,
@@ -24,8 +24,7 @@ impl Command {
         }
     }
 
-    #[allow(clippy::needless_pass_by_value)]
-    pub fn new_binary(exe: crate::parse::Exe) -> Self {
+    pub fn new_binary(exe: &crate::parse::Exe) -> Self {
         let exe_path = exe.exe().to_path_buf();
         let redirects = exe.redirects().to_vec();
         let mut cmd = tokio::process::Command::new(exe.exe());
