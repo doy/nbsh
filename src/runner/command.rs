@@ -175,7 +175,8 @@ impl Child {
     > {
         Box::pin(async move {
             match self {
-                Self::Binary(mut child) => Ok(child.wait().await?),
+                // this case is handled by waitpid
+                Self::Binary(_) => unreachable!(),
                 Self::Builtin(child) => Ok(child.status().await?),
             }
         })
