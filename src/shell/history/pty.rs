@@ -8,7 +8,7 @@ pub struct Pty {
 impl Pty {
     pub fn new(
         size: (u16, u16),
-        entry: &std::sync::Arc<tokio::sync::Mutex<super::Entry>>,
+        entry: &std::sync::Arc<std::sync::Mutex<super::Entry>>,
         input_r: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
         resize_r: tokio::sync::mpsc::UnboundedReceiver<(u16, u16)>,
         event_w: crate::shell::event::Writer,
@@ -39,7 +39,7 @@ impl Pty {
         Ok(cmd.spawn(&*self.pts)?)
     }
 
-    pub async fn close(&self) {
+    pub fn close(&self) {
         self.close_w.send(()).unwrap();
     }
 }
@@ -49,7 +49,7 @@ async fn pty_task(
     // take the pts here just to ensure that we don't close it before this
     // task finishes, otherwise the read call can return EIO
     _pts: std::sync::Arc<pty_process::Pts>,
-    entry: std::sync::Arc<tokio::sync::Mutex<super::Entry>>,
+    entry: std::sync::Arc<std::sync::Mutex<super::Entry>>,
     input_r: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
     resize_r: tokio::sync::mpsc::UnboundedReceiver<(u16, u16)>,
     close_r: tokio::sync::mpsc::UnboundedReceiver<()>,
@@ -83,7 +83,7 @@ async fn pty_task(
         match res {
             Res::Read(res) => match res {
                 Ok(bytes) => {
-                    entry.clone().lock_owned().await.process(&bytes);
+                    entry.lock().unwrap().process(&bytes);
                     event_w.send(Event::PtyOutput);
                 }
                 Err(e) => {

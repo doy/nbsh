@@ -43,9 +43,9 @@ impl Reader {
             let inner = inner.clone();
             tokio::task::spawn(async move {
                 while let Some(event) = input.recv().await {
-                    inner.new_event(Some(event)).await;
+                    inner.new_event(Some(event));
                 }
-                inner.new_event(None).await;
+                inner.new_event(None);
             });
         }
         Self(inner)
@@ -57,29 +57,29 @@ impl Reader {
 }
 
 struct InnerReader {
-    pending: tokio::sync::Mutex<Pending>,
+    pending: std::sync::Mutex<Pending>,
     cvar: tokio::sync::Notify,
 }
 
 impl InnerReader {
     fn new() -> Self {
         Self {
-            pending: tokio::sync::Mutex::new(Pending::new()),
+            pending: std::sync::Mutex::new(Pending::new()),
             cvar: tokio::sync::Notify::new(),
         }
     }
 
     async fn recv(&self) -> Option<Event> {
         loop {
-            if let Some(event) = self.pending.lock().await.get_event() {
+            if let Some(event) = self.pending.lock().unwrap().get_event() {
                 return event;
             }
             self.cvar.notified().await;
         }
     }
 
-    async fn new_event(&self, event: Option<Event>) {
-        self.pending.lock().await.new_event(event);
+    fn new_event(&self, event: Option<Event>) {
+        self.pending.lock().unwrap().new_event(event);
         self.cvar.notify_one();
     }
 }

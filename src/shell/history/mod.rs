@@ -6,7 +6,7 @@ mod pty;
 
 pub struct History {
     size: (u16, u16),
-    entries: Vec<std::sync::Arc<tokio::sync::Mutex<Entry>>>,
+    entries: Vec<std::sync::Arc<std::sync::Mutex<Entry>>>,
     scroll_pos: usize,
 }
 
@@ -19,18 +19,18 @@ impl History {
         }
     }
 
-    pub async fn render(
+    pub fn render(
         &self,
         out: &mut impl textmode::Textmode,
         repl_lines: usize,
         focus: Option<usize>,
         scrolling: bool,
         offset: time::UtcOffset,
-    ) -> Result<()> {
+    ) {
         let mut used_lines = repl_lines;
         let mut cursor = None;
         for (idx, mut entry) in
-            self.visible(repl_lines, focus, scrolling).await.rev()
+            self.visible(repl_lines, focus, scrolling).rev()
         {
             let focused = focus.map_or(false, |focus| idx == focus);
             used_lines +=
@@ -59,39 +59,45 @@ impl History {
             out.move_to(pos.0, pos.1);
             out.hide_cursor(hide);
         }
-        Ok(())
     }
 
-    pub async fn render_fullscreen(
+    pub fn render_fullscreen(
         &self,
         out: &mut impl textmode::Textmode,
         idx: usize,
     ) {
-        let mut entry = self.entries[idx].clone().lock_owned().await;
-        entry.render_fullscreen(out);
+        self.with_entry_mut(idx, |entry| entry.render_fullscreen(out));
     }
 
-    pub async fn send_input(&mut self, idx: usize, input: Vec<u8>) {
-        self.entry(idx).await.send_input(input).await;
+    pub fn send_input(&mut self, idx: usize, input: Vec<u8>) {
+        self.with_entry(idx, |entry| entry.send_input(input));
     }
 
-    pub async fn resize(&mut self, size: (u16, u16)) {
+    pub fn should_fullscreen(&self, idx: usize) -> bool {
+        self.with_entry(idx, Entry::should_fullscreen)
+    }
+
+    pub fn running(&self, idx: usize) -> bool {
+        self.with_entry(idx, Entry::running)
+    }
+
+    pub fn resize(&mut self, size: (u16, u16)) {
         self.size = size;
         for entry in &self.entries {
-            entry.clone().lock_owned().await.resize(size).await;
+            entry.lock().unwrap().resize(size);
         }
     }
 
-    pub async fn run(
+    pub fn run(
         &mut self,
         cmdline: &str,
         env: &Env,
         event_w: crate::shell::event::Writer,
-    ) -> Result<usize> {
+    ) -> usize {
         let (input_w, input_r) = tokio::sync::mpsc::unbounded_channel();
         let (resize_w, resize_r) = tokio::sync::mpsc::unbounded_channel();
 
-        let entry = std::sync::Arc::new(tokio::sync::Mutex::new(Entry::new(
+        let entry = std::sync::Arc::new(std::sync::Mutex::new(Entry::new(
             cmdline.to_string(),
             env.clone(),
             self.size,
@@ -108,21 +114,32 @@ impl History {
         );
 
         self.entries.push(entry);
-        Ok(self.entries.len() - 1)
+        self.entries.len() - 1
     }
 
-    pub async fn entry(
+    pub fn with_entry<T>(
         &self,
         idx: usize,
-    ) -> tokio::sync::OwnedMutexGuard<Entry> {
-        self.entries[idx].clone().lock_owned().await
+        f: impl FnOnce(&Entry) -> T,
+    ) -> T {
+        let entry = self.entries[idx].lock().unwrap();
+        f(&*entry)
+    }
+
+    pub fn with_entry_mut<T>(
+        &self,
+        idx: usize,
+        f: impl FnOnce(&mut Entry) -> T,
+    ) -> T {
+        let mut entry = self.entries[idx].lock().unwrap();
+        f(&mut *entry)
     }
 
     pub fn entry_count(&self) -> usize {
         self.entries.len()
     }
 
-    pub async fn make_focus_visible(
+    pub fn make_focus_visible(
         &mut self,
         repl_lines: usize,
         focus: Option<usize>,
@@ -137,7 +154,6 @@ impl History {
         while focus
             < self
                 .visible(repl_lines, Some(focus), scrolling)
-                .await
                 .map(|(idx, _)| idx)
                 .next()
                 .unwrap()
@@ -152,7 +168,6 @@ impl History {
         while focus
             > self
                 .visible(repl_lines, Some(focus), scrolling)
-                .await
                 .map(|(idx, _)| idx)
                 .last()
                 .unwrap()
@@ -161,7 +176,7 @@ impl History {
         }
     }
 
-    async fn visible(
+    fn visible(
         &self,
         repl_lines: usize,
         focus: Option<usize>,
@@ -176,7 +191,7 @@ impl History {
         for (idx, entry) in
             self.entries.iter().enumerate().rev().skip(self.scroll_pos)
         {
-            let entry = entry.clone().lock_owned().await;
+            let entry = entry.lock().unwrap();
             let focused = focus.map_or(false, |focus| idx == focus);
             used_lines +=
                 entry.lines(self.entry_count(), focused && !scrolling);
@@ -189,39 +204,33 @@ impl History {
     }
 }
 
-struct VisibleEntries {
-    entries: std::collections::VecDeque<(
-        usize,
-        tokio::sync::OwnedMutexGuard<Entry>,
-    )>,
+struct VisibleEntries<'a> {
+    entries:
+        std::collections::VecDeque<(usize, std::sync::MutexGuard<'a, Entry>)>,
 }
 
-impl VisibleEntries {
+impl<'a> VisibleEntries<'a> {
     fn new() -> Self {
         Self {
             entries: std::collections::VecDeque::new(),
         }
     }
 
-    fn add(
-        &mut self,
-        idx: usize,
-        entry: tokio::sync::OwnedMutexGuard<Entry>,
-    ) {
+    fn add(&mut self, idx: usize, entry: std::sync::MutexGuard<'a, Entry>) {
         // push_front because we are adding them in reverse order
         self.entries.push_front((idx, entry));
     }
 }
 
-impl std::iter::Iterator for VisibleEntries {
-    type Item = (usize, tokio::sync::OwnedMutexGuard<Entry>);
+impl<'a> std::iter::Iterator for VisibleEntries<'a> {
+    type Item = (usize, std::sync::MutexGuard<'a, Entry>);
 
     fn next(&mut self) -> Option<Self::Item> {
         self.entries.pop_front()
     }
 }
 
-impl std::iter::DoubleEndedIterator for VisibleEntries {
+impl<'a> std::iter::DoubleEndedIterator for VisibleEntries<'a> {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.entries.pop_back()
     }
@@ -229,15 +238,16 @@ impl std::iter::DoubleEndedIterator for VisibleEntries {
 
 fn run_commands(
     cmdline: String,
-    entry: std::sync::Arc<tokio::sync::Mutex<Entry>>,
+    entry: std::sync::Arc<std::sync::Mutex<Entry>>,
     mut env: Env,
     input_r: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
     resize_r: tokio::sync::mpsc::UnboundedReceiver<(u16, u16)>,
     event_w: crate::shell::event::Writer,
 ) {
     tokio::task::spawn(async move {
+        let size = entry.lock().unwrap().size();
         let pty = match pty::Pty::new(
-            entry.clone().lock_owned().await.size(),
+            size,
             &entry,
             input_r,
             resize_r,
@@ -245,13 +255,13 @@ fn run_commands(
         ) {
             Ok(pty) => pty,
             Err(e) => {
-                let mut entry = entry.clone().lock_owned().await;
+                let mut entry = entry.lock().unwrap();
                 entry.process(
                     format!("nbsh: failed to allocate pty: {}\r\n", e)
                         .as_bytes(),
                 );
                 env.set_status(std::process::ExitStatus::from_raw(1 << 8));
-                entry.finish(env, event_w).await;
+                entry.finish(env, &event_w);
                 return;
             }
         };
@@ -262,7 +272,7 @@ fn run_commands(
             {
                 Ok(status) => status,
                 Err(e) => {
-                    let mut entry = entry.clone().lock_owned().await;
+                    let mut entry = entry.lock().unwrap();
                     entry.process(
                         format!(
                             "nbsh: failed to spawn {}: {}\r\n",
@@ -273,14 +283,14 @@ fn run_commands(
                     env.set_status(std::process::ExitStatus::from_raw(
                         1 << 8,
                     ));
-                    entry.finish(env, event_w).await;
+                    entry.finish(env, &event_w);
                     return;
                 }
             };
         env.set_status(status);
 
-        entry.clone().lock_owned().await.finish(env, event_w).await;
-        pty.close().await;
+        entry.lock().unwrap().finish(env, &event_w);
+        pty.close();
     });
 }
 

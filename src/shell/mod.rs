@@ -150,18 +150,18 @@ pub async fn main() -> Result<i32> {
             prev_dir = dir.to_path_buf();
             git_w.send(dir.to_path_buf()).unwrap();
         }
-        match shell.handle_event(event, &event_w).await {
+        match shell.handle_event(event, &event_w) {
             Some(Action::Refresh) => {
-                shell.render(&mut output).await?;
+                shell.render(&mut output)?;
                 output.refresh().await?;
             }
             Some(Action::HardRefresh) => {
-                shell.render(&mut output).await?;
+                shell.render(&mut output)?;
                 output.hard_refresh().await?;
             }
             Some(Action::Resize(rows, cols)) => {
                 output.set_size(rows, cols);
-                shell.render(&mut output).await?;
+                shell.render(&mut output)?;
                 output.hard_refresh().await?;
             }
             Some(Action::Quit) => break,
@@ -222,87 +222,76 @@ impl Shell {
         })
     }
 
-    pub async fn render(
-        &self,
-        out: &mut impl textmode::Textmode,
-    ) -> Result<()> {
+    pub fn render(&self, out: &mut impl textmode::Textmode) -> Result<()> {
         out.clear();
         out.write(&vt100::Parser::default().screen().input_mode_formatted());
         match self.scene {
             Scene::Readline => match self.focus {
                 Focus::Readline => {
-                    self.history
-                        .render(
-                            out,
-                            self.readline.lines(),
-                            None,
-                            false,
-                            self.offset,
-                        )
-                        .await?;
-                    self.readline
-                        .render(
-                            out,
-                            &self.env,
-                            self.git.as_ref(),
-                            true,
-                            self.offset,
-                        )
-                        .await?;
+                    self.history.render(
+                        out,
+                        self.readline.lines(),
+                        None,
+                        false,
+                        self.offset,
+                    );
+                    self.readline.render(
+                        out,
+                        &self.env,
+                        self.git.as_ref(),
+                        true,
+                        self.offset,
+                    )?;
                 }
                 Focus::History(idx) => {
                     if self.hide_readline {
-                        self.history
-                            .render(out, 0, Some(idx), false, self.offset)
-                            .await?;
+                        self.history.render(
+                            out,
+                            0,
+                            Some(idx),
+                            false,
+                            self.offset,
+                        );
                     } else {
-                        self.history
-                            .render(
-                                out,
-                                self.readline.lines(),
-                                Some(idx),
-                                false,
-                                self.offset,
-                            )
-                            .await?;
+                        self.history.render(
+                            out,
+                            self.readline.lines(),
+                            Some(idx),
+                            false,
+                            self.offset,
+                        );
                         let pos = out.screen().cursor_position();
-                        self.readline
-                            .render(
-                                out,
-                                &self.env,
-                                self.git.as_ref(),
-                                false,
-                                self.offset,
-                            )
-                            .await?;
+                        self.readline.render(
+                            out,
+                            &self.env,
+                            self.git.as_ref(),
+                            false,
+                            self.offset,
+                        )?;
                         out.move_to(pos.0, pos.1);
                     }
                 }
                 Focus::Scrolling(idx) => {
-                    self.history
-                        .render(
-                            out,
-                            self.readline.lines(),
-                            idx,
-                            true,
-                            self.offset,
-                        )
-                        .await?;
-                    self.readline
-                        .render(
-                            out,
-                            &self.env,
-                            self.git.as_ref(),
-                            idx.is_none(),
-                            self.offset,
-                        )
-                        .await?;
+                    self.history.render(
+                        out,
+                        self.readline.lines(),
+                        idx,
+                        true,
+                        self.offset,
+                    );
+                    self.readline.render(
+                        out,
+                        &self.env,
+                        self.git.as_ref(),
+                        idx.is_none(),
+                        self.offset,
+                    )?;
                     out.hide_cursor(true);
                 }
             },
             Scene::Fullscreen => {
                 if let Focus::History(idx) = self.focus {
-                    self.history.render_fullscreen(out, idx).await;
+                    self.history.render_fullscreen(out, idx);
                 } else {
                     unreachable!();
                 }
@@ -311,7 +300,7 @@ impl Shell {
         Ok(())
     }
 
-    pub async fn handle_event(
+    pub fn handle_event(
         &mut self,
         event: Event,
         event_w: &crate::shell::event::Writer,
@@ -320,50 +309,60 @@ impl Shell {
             Event::Key(key) => {
                 return if self.escape {
                     self.escape = false;
-                    self.handle_key_escape(key, event_w.clone()).await
+                    self.handle_key_escape(&key, event_w.clone())
                 } else if key == textmode::Key::Ctrl(b'e') {
                     self.escape = true;
                     None
                 } else {
                     match self.focus {
                         Focus::Readline => {
-                            self.handle_key_readline(key, event_w.clone())
-                                .await
+                            self.handle_key_readline(&key, event_w.clone())
                         }
                         Focus::History(idx) => {
-                            self.handle_key_history(key, idx).await;
+                            self.handle_key_history(key, idx);
                             None
                         }
                         Focus::Scrolling(_) => {
-                            self.handle_key_escape(key, event_w.clone()).await
+                            self.handle_key_escape(&key, event_w.clone())
                         }
                     }
                 };
             }
             Event::Resize(new_size) => {
-                self.readline.resize(new_size).await;
-                self.history.resize(new_size).await;
+                self.readline.resize(new_size);
+                self.history.resize(new_size);
                 return Some(Action::Resize(new_size.0, new_size.1));
             }
             Event::PtyOutput => {
+                let idx = self.focus_idx();
                 // the number of visible lines may have changed, so make sure
                 // the focus is still visible
-                self.history
-                    .make_focus_visible(
-                        self.readline.lines(),
-                        self.focus_idx(),
-                        matches!(self.focus, Focus::Scrolling(_)),
-                    )
-                    .await;
-                self.scene = self.default_scene(self.focus, None).await;
+                self.history.make_focus_visible(
+                    self.readline.lines(),
+                    idx,
+                    matches!(self.focus, Focus::Scrolling(_)),
+                );
+                self.scene = Self::default_scene(
+                    self.focus,
+                    idx.map_or(false, |idx| {
+                        self.history.should_fullscreen(idx)
+                    }),
+                );
             }
             Event::PtyClose => {
                 if let Some(idx) = self.focus_idx() {
-                    let entry = self.history.entry(idx).await;
-                    if !entry.running() {
+                    let (running, env, fullscreen) =
+                        self.history.with_entry(idx, |entry| {
+                            (
+                                entry.running(),
+                                entry.env().clone(),
+                                entry.should_fullscreen(),
+                            )
+                        });
+                    if !running {
                         if self.hide_readline {
                             let idx = self.env.idx();
-                            self.env = entry.env().clone();
+                            self.env = env;
                             self.env.set_idx(idx);
                         }
                         self.set_focus(
@@ -372,18 +371,17 @@ impl Shell {
                             } else {
                                 Focus::Scrolling(Some(idx))
                             },
-                            Some(entry),
-                        )
-                        .await;
+                            fullscreen,
+                        );
                     }
                 }
             }
-            Event::ChildRunPipeline(idx, span) => {
-                self.history.entry(idx).await.set_span(span);
-            }
+            Event::ChildRunPipeline(idx, span) => self
+                .history
+                .with_entry_mut(idx, |entry| entry.set_span(span)),
             Event::ChildSuspend(idx) => {
                 if self.focus_idx() == Some(idx) {
-                    self.set_focus(Focus::Readline, None).await;
+                    self.set_focus(Focus::Readline, false);
                 }
             }
             Event::GitInfo(info) => {
@@ -394,9 +392,9 @@ impl Shell {
         Some(Action::Refresh)
     }
 
-    async fn handle_key_escape(
+    fn handle_key_escape(
         &mut self,
-        key: textmode::Key,
+        key: &textmode::Key,
         event_w: crate::shell::event::Writer,
     ) -> Option<Action> {
         match key {
@@ -404,8 +402,7 @@ impl Shell {
                 return Some(Action::Quit);
             }
             textmode::Key::Ctrl(b'e') => {
-                self.set_focus(Focus::Scrolling(self.focus_idx()), None)
-                    .await;
+                self.set_focus(Focus::Scrolling(self.focus_idx()), false);
             }
             textmode::Key::Ctrl(b'l') => {
                 return Some(Action::HardRefresh);
@@ -413,88 +410,101 @@ impl Shell {
             textmode::Key::Ctrl(b'm') => {
                 if let Some(idx) = self.focus_idx() {
                     self.readline.clear_input();
-                    let entry = self.history.entry(idx).await;
-                    let input = entry.cmd();
-                    let idx = self
-                        .history
-                        .run(input, &self.env, event_w.clone())
-                        .await
-                        .unwrap();
-                    self.set_focus(Focus::History(idx), Some(entry)).await;
+                    let (input, fullscreen) =
+                        self.history.with_entry(idx, |entry| {
+                            (
+                                entry.cmd().to_string(),
+                                entry.should_fullscreen(),
+                            )
+                        });
+                    let idx = self.history.run(&input, &self.env, event_w);
+                    self.set_focus(Focus::History(idx), fullscreen);
                     self.hide_readline = true;
                     self.env.set_idx(idx + 1);
                 } else {
-                    self.set_focus(Focus::Readline, None).await;
+                    self.set_focus(Focus::Readline, false);
                 }
             }
             textmode::Key::Char(' ') => {
                 let idx = self.focus_idx();
-                let (focus, entry) = if let Some(idx) = idx {
-                    let entry = self.history.entry(idx).await;
-                    (entry.running(), Some(entry))
+                if let Some(idx) = idx {
+                    let (running, fullscreen) =
+                        self.history.with_entry(idx, |entry| {
+                            (entry.running(), entry.should_fullscreen())
+                        });
+                    if running {
+                        self.set_focus(Focus::History(idx), fullscreen);
+                    }
                 } else {
-                    (true, None)
-                };
-                if focus {
-                    self.set_focus(
-                        idx.map_or(Focus::Readline, |idx| {
-                            Focus::History(idx)
-                        }),
-                        entry,
-                    )
-                    .await;
+                    self.set_focus(Focus::Readline, false);
                 }
             }
             textmode::Key::Char('e') => {
                 if let Focus::History(idx) = self.focus {
-                    self.handle_key_history(textmode::Key::Ctrl(b'e'), idx)
-                        .await;
+                    self.handle_key_history(textmode::Key::Ctrl(b'e'), idx);
                 }
             }
             textmode::Key::Char('f') => {
                 if let Some(idx) = self.focus_idx() {
-                    let mut entry = self.history.entry(idx).await;
                     let mut focus = Focus::History(idx);
-                    if let Focus::Scrolling(_) = self.focus {
-                        entry.set_fullscreen(true);
-                    } else {
-                        entry.toggle_fullscreen();
-                        if !entry.should_fullscreen() && !entry.running() {
-                            focus = Focus::Scrolling(Some(idx));
-                        }
-                    }
-                    self.set_focus(focus, Some(entry)).await;
+                    let fullscreen =
+                        self.history.with_entry_mut(idx, |entry| {
+                            if let Focus::Scrolling(_) = self.focus {
+                                entry.set_fullscreen(true);
+                            } else {
+                                entry.toggle_fullscreen();
+                                if !entry.should_fullscreen()
+                                    && !entry.running()
+                                {
+                                    focus = Focus::Scrolling(Some(idx));
+                                }
+                            }
+                            entry.should_fullscreen()
+                        });
+                    self.set_focus(focus, fullscreen);
                 }
             }
             textmode::Key::Char('i') => {
                 if let Some(idx) = self.focus_idx() {
-                    let entry = self.history.entry(idx).await;
-                    self.readline.set_input(entry.cmd());
-                    self.set_focus(Focus::Readline, Some(entry)).await;
+                    let input = self
+                        .history
+                        .with_entry(idx, |entry| entry.cmd().to_string());
+                    self.readline.set_input(&input);
+                    self.set_focus(Focus::Readline, false);
                 }
             }
             textmode::Key::Char('j') | textmode::Key::Down => {
                 self.set_focus(
                     Focus::Scrolling(self.scroll_down(self.focus_idx())),
-                    None,
-                )
-                .await;
+                    false,
+                );
             }
             textmode::Key::Char('k') | textmode::Key::Up => {
                 self.set_focus(
                     Focus::Scrolling(self.scroll_up(self.focus_idx())),
-                    None,
-                )
-                .await;
+                    false,
+                );
             }
             textmode::Key::Char('n') => {
-                self.set_focus(self.next_running().await, None).await;
+                let focus = self.next_running();
+                let fullscreen = if let Focus::History(idx) = focus {
+                    self.history.should_fullscreen(idx)
+                } else {
+                    false
+                };
+                self.set_focus(focus, fullscreen);
             }
             textmode::Key::Char('p') => {
-                self.set_focus(self.prev_running().await, None).await;
+                let focus = self.prev_running();
+                let fullscreen = if let Focus::History(idx) = focus {
+                    self.history.should_fullscreen(idx)
+                } else {
+                    false
+                };
+                self.set_focus(focus, fullscreen);
             }
             textmode::Key::Char('r') => {
-                self.set_focus(Focus::Readline, None).await;
+                self.set_focus(Focus::Readline, false);
             }
             _ => {
                 return None;
@@ -503,9 +513,9 @@ impl Shell {
         Some(Action::Refresh)
     }
 
-    async fn handle_key_readline(
+    fn handle_key_readline(
         &mut self,
-        key: textmode::Key,
+        key: &textmode::Key,
         event_w: crate::shell::event::Writer,
     ) -> Option<Action> {
         match key {
@@ -522,12 +532,11 @@ impl Shell {
             textmode::Key::Ctrl(b'm') => {
                 let input = self.readline.input();
                 if !input.is_empty() {
-                    let idx = self
-                        .history
-                        .run(input, &self.env, event_w.clone())
-                        .await
-                        .unwrap();
-                    self.set_focus(Focus::History(idx), None).await;
+                    let idx = self.history.run(input, &self.env, event_w);
+                    self.set_focus(
+                        Focus::History(idx),
+                        self.history.should_fullscreen(idx),
+                    );
                     self.hide_readline = true;
                     self.env.set_idx(idx + 1);
                     self.readline.clear_input();
@@ -542,9 +551,8 @@ impl Shell {
                 if entry_count > 0 {
                     self.set_focus(
                         Focus::Scrolling(Some(entry_count - 1)),
-                        None,
-                    )
-                    .await;
+                        false,
+                    );
                 }
             }
             _ => return None,
@@ -552,23 +560,14 @@ impl Shell {
         Some(Action::Refresh)
     }
 
-    async fn handle_key_history(&mut self, key: textmode::Key, idx: usize) {
-        self.history.send_input(idx, key.into_bytes()).await;
+    fn handle_key_history(&mut self, key: textmode::Key, idx: usize) {
+        self.history.send_input(idx, key.into_bytes());
     }
 
-    async fn default_scene(
-        &self,
-        focus: Focus,
-        entry: Option<tokio::sync::OwnedMutexGuard<history::Entry>>,
-    ) -> Scene {
+    fn default_scene(focus: Focus, fullscreen: bool) -> Scene {
         match focus {
             Focus::Readline | Focus::Scrolling(_) => Scene::Readline,
-            Focus::History(idx) => {
-                let fullscreen = if let Some(entry) = entry {
-                    entry.should_fullscreen()
-                } else {
-                    self.history.entry(idx).await.should_fullscreen()
-                };
+            Focus::History(_) => {
                 if fullscreen {
                     Scene::Fullscreen
                 } else {
@@ -578,25 +577,19 @@ impl Shell {
         }
     }
 
-    async fn set_focus(
-        &mut self,
-        new_focus: Focus,
-        entry: Option<tokio::sync::OwnedMutexGuard<history::Entry>>,
-    ) {
+    fn set_focus(&mut self, new_focus: Focus, fullscreen: bool) {
         self.focus = new_focus;
         self.hide_readline = false;
-        self.scene = self.default_scene(new_focus, entry).await;
+        self.scene = Self::default_scene(new_focus, fullscreen);
         // passing entry into default_scene above consumes it, which means
         // that the mutex lock will be dropped before we call into
         // make_focus_visible, which is important because otherwise we might
         // get a deadlock depending on what is visible
-        self.history
-            .make_focus_visible(
-                self.readline.lines(),
-                self.focus_idx(),
-                matches!(self.focus, Focus::Scrolling(_)),
-            )
-            .await;
+        self.history.make_focus_visible(
+            self.readline.lines(),
+            self.focus_idx(),
+            matches!(self.focus, Focus::Scrolling(_)),
+        );
     }
 
     fn env(&self) -> &Env {
@@ -635,22 +628,22 @@ impl Shell {
         })
     }
 
-    async fn next_running(&self) -> Focus {
+    fn next_running(&self) -> Focus {
         let count = self.history.entry_count();
         let cur = self.focus_idx().unwrap_or(count);
         for idx in ((cur + 1)..count).chain(0..cur) {
-            if self.history.entry(idx).await.running() {
+            if self.history.running(idx) {
                 return Focus::History(idx);
             }
         }
         self.focus_idx().map_or(Focus::Readline, Focus::History)
     }
 
-    async fn prev_running(&self) -> Focus {
+    fn prev_running(&self) -> Focus {
         let count = self.history.entry_count();
         let cur = self.focus_idx().unwrap_or(count);
         for idx in ((cur + 1)..count).chain(0..cur).rev() {
-            if self.history.entry(idx).await.running() {
+            if self.history.running(idx) {
                 return Focus::History(idx);
             }
         }

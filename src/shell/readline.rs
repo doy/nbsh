@@ -19,7 +19,7 @@ impl Readline {
         }
     }
 
-    pub async fn render(
+    pub fn render(
         &self,
         out: &mut impl textmode::Textmode,
         env: &Env,
@@ -83,7 +83,7 @@ impl Readline {
         Ok(())
     }
 
-    pub async fn resize(&mut self, size: (u16, u16)) {
+    pub fn resize(&mut self, size: (u16, u16)) {
         self.size = size;
     }
 

@@ -227,13 +227,13 @@ impl Entry {
         out.reset_attributes();
     }
 
-    pub async fn send_input(&self, bytes: Vec<u8>) {
+    pub fn send_input(&self, bytes: Vec<u8>) {
         if self.running() {
             self.input.send(bytes).unwrap();
         }
     }
 
-    pub async fn resize(&mut self, size: (u16, u16)) {
+    pub fn resize(&mut self, size: (u16, u16)) {
         if self.running() {
             self.resize.send(size).unwrap();
             self.vt.set_size(size.0, size.1);
@@ -338,10 +338,10 @@ impl Entry {
         }
     }
 
-    pub async fn finish(
+    pub fn finish(
         &mut self,
         env: Env,
-        event_w: crate::shell::event::Writer,
+        event_w: &crate::shell::event::Writer,
     ) {
         self.state = State::Exited(ExitInfo::new(env.latest_status()));
         self.env = env;
