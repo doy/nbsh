@@ -9,12 +9,7 @@ pub struct Entry {
     cmdline: String,
     env: Env,
     state: State,
-    vt: vt100::Parser,
-    audible_bell_state: usize,
-    visual_bell_state: usize,
-    audible_bell: bool,
-    visual_bell: bool,
-    real_bell_pending: bool,
+    vt: super::vt::Vt,
     fullscreen: Option<bool>,
     input: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
     resize: tokio::sync::mpsc::UnboundedSender<(u16, u16)>,
@@ -35,12 +30,7 @@ impl Entry {
             cmdline,
             env,
             state: State::Running(span),
-            vt: vt100::Parser::new(size.0, size.1, 0),
-            audible_bell_state: 0,
-            visual_bell_state: 0,
-            audible_bell: false,
-            visual_bell: false,
-            real_bell_pending: false,
+            vt: super::vt::Vt::new(size),
             input,
             resize,
             fullscreen: None,
@@ -77,12 +67,6 @@ impl Entry {
             },
         );
 
-        self.bell(out);
-        if focused {
-            self.audible_bell = false;
-            self.visual_bell = false;
-        }
-
         set_bgcolor(out, idx, focused);
         out.set_fgcolor(textmode::color::YELLOW);
         let entry_count_width = format!("{}", entry_count + 1).len();
@@ -107,7 +91,11 @@ impl Entry {
         }
         out.reset_attributes();
 
-        if self.audible_bell || self.visual_bell {
+        self.vt.bell(out, focused);
+
+        let vt = &self.vt;
+
+        if vt.is_bell() {
             out.set_bgcolor(textmode::Color::Rgb(64, 16, 16));
         } else {
             set_bgcolor(out, idx, focused);
@@ -164,7 +152,7 @@ impl Entry {
         out.write_str(" ");
         out.reset_attributes();
 
-        if self.binary() {
+        if vt.binary() {
             let msg = "This appears to be binary data. Fullscreen this entry to view anyway.";
             let len: u16 = msg.len().try_into().unwrap();
             out.move_to(
@@ -175,7 +163,8 @@ impl Entry {
             out.write_str(msg);
             out.hide_cursor(true);
         } else {
-            let last_row = self.output_lines(focused && !scrolling);
+            let last_row =
+                vt.output_lines(focused && !scrolling, self.running());
             let mut max_lines = self.max_lines(entry_count);
             if last_row > max_lines {
                 out.write(b"\r\n");
@@ -185,7 +174,7 @@ impl Entry {
                 max_lines -= 1;
             }
             let mut out_row = out.screen().cursor_position().0 + 1;
-            let screen = self.vt.screen();
+            let screen = vt.screen();
             let pos = screen.cursor_position();
             let mut wrapped = false;
             let mut cursor_found = None;
@@ -216,14 +205,14 @@ impl Entry {
                 }
             }
         }
+
         out.reset_attributes();
     }
 
     pub fn render_fullscreen(&mut self, out: &mut impl textmode::Textmode) {
-        out.write(&self.vt.screen().state_formatted());
-        self.bell(out);
-        self.audible_bell = false;
-        self.visual_bell = false;
+        let vt = &mut self.vt;
+        out.write(&vt.screen().state_formatted());
+        vt.bell(out, true);
         out.reset_attributes();
     }
 
@@ -236,31 +225,16 @@ impl Entry {
     pub fn resize(&mut self, size: (u16, u16)) {
         if self.running() {
             self.resize.send(size).unwrap();
-            self.vt.set_size(size.0, size.1);
+            self.vt.set_size(size);
         }
     }
 
     pub fn size(&self) -> (u16, u16) {
-        self.vt.screen().size()
+        self.vt.size()
     }
 
     pub fn process(&mut self, input: &[u8]) {
         self.vt.process(input);
-        let screen = self.vt.screen();
-
-        let new_audible_bell_state = screen.audible_bell_count();
-        if new_audible_bell_state != self.audible_bell_state {
-            self.audible_bell = true;
-            self.real_bell_pending = true;
-            self.audible_bell_state = new_audible_bell_state;
-        }
-
-        let new_visual_bell_state = screen.visual_bell_count();
-        if new_visual_bell_state != self.visual_bell_state {
-            self.visual_bell = true;
-            self.real_bell_pending = true;
-            self.visual_bell_state = new_visual_bell_state;
-        }
     }
 
     pub fn cmd(&self) -> &str {
@@ -287,44 +261,19 @@ impl Entry {
         matches!(self.state, State::Running(_))
     }
 
-    pub fn binary(&self) -> bool {
-        self.vt.screen().errors() > 5
-    }
-
     pub fn lines(&self, entry_count: usize, focused: bool) -> usize {
         1 + std::cmp::min(
-            self.output_lines(focused),
+            self.vt.output_lines(focused, self.running()),
             self.max_lines(entry_count),
         )
     }
 
     fn max_lines(&self, entry_count: usize) -> usize {
         if self.env.idx() == entry_count - 1 {
-            usize::from(self.size().0) * 2 / 3
+            15
         } else {
             5
         }
-    }
-
-    pub fn output_lines(&self, focused: bool) -> usize {
-        if self.binary() {
-            return 1;
-        }
-
-        let screen = self.vt.screen();
-        let mut last_row = 0;
-        for (idx, row) in screen.rows(0, self.size().1).enumerate() {
-            if !row.is_empty() {
-                last_row = idx + 1;
-            }
-        }
-        if focused && self.running() {
-            last_row = std::cmp::max(
-                last_row,
-                usize::from(screen.cursor_position().0) + 1,
-            );
-        }
-        last_row
     }
 
     pub fn should_fullscreen(&self) -> bool {
@@ -352,18 +301,6 @@ impl Entry {
         match &self.state {
             State::Running(..) => None,
             State::Exited(exit_info) => Some(exit_info),
-        }
-    }
-
-    fn bell(&mut self, out: &mut impl textmode::Textmode) {
-        if self.real_bell_pending {
-            if self.audible_bell {
-                out.write(b"\x07");
-            }
-            if self.visual_bell {
-                out.write(b"\x1bg");
-            }
-            self.real_bell_pending = false;
         }
     }
 }

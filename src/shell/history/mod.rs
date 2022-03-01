@@ -3,6 +3,7 @@ use crate::shell::prelude::*;
 mod entry;
 pub use entry::Entry;
 mod pty;
+mod vt;
 
 pub struct History {
     size: (u16, u16),
