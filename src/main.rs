@@ -47,7 +47,7 @@ async fn async_main(opt: Opt) -> Result<i32> {
             })
         });
 
-        return runner::run(&command, &mut shell_write).await;
+        return runner::run(command, &mut shell_write).await;
     }
 
     shell::main().await

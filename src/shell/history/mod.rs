@@ -90,24 +90,24 @@ impl History {
 
     pub fn run(
         &mut self,
-        cmdline: &str,
-        env: &Env,
+        cmdline: String,
+        env: Env,
         event_w: crate::shell::event::Writer,
     ) -> usize {
         let (input_w, input_r) = tokio::sync::mpsc::unbounded_channel();
         let (resize_w, resize_r) = tokio::sync::mpsc::unbounded_channel();
 
         let entry = std::sync::Arc::new(std::sync::Mutex::new(Entry::new(
-            cmdline.to_string(),
+            cmdline.clone(),
             env.clone(),
             self.size,
             input_w,
             resize_w,
         )));
         run_commands(
-            cmdline.to_string(),
+            cmdline,
             std::sync::Arc::clone(&entry),
-            env.clone(),
+            env,
             input_r,
             resize_r,
             event_w,

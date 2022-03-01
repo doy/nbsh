@@ -417,7 +417,8 @@ impl Shell {
                                 entry.should_fullscreen(),
                             )
                         });
-                    let idx = self.history.run(&input, &self.env, event_w);
+                    let idx =
+                        self.history.run(input, self.env.clone(), event_w);
                     self.set_focus(Focus::History(idx), fullscreen);
                     self.hide_readline = true;
                     self.env.set_idx(idx + 1);
@@ -469,7 +470,7 @@ impl Shell {
                     let input = self
                         .history
                         .with_entry(idx, |entry| entry.cmd().to_string());
-                    self.readline.set_input(&input);
+                    self.readline.set_input(input);
                     self.set_focus(Focus::Readline, false);
                 }
             }
@@ -532,7 +533,11 @@ impl Shell {
             textmode::Key::Ctrl(b'm') => {
                 let input = self.readline.input();
                 if !input.is_empty() {
-                    let idx = self.history.run(input, &self.env, event_w);
+                    let idx = self.history.run(
+                        input.to_string(),
+                        self.env.clone(),
+                        event_w,
+                    );
                     self.set_focus(
                         Focus::History(idx),
                         self.history.should_fullscreen(idx),

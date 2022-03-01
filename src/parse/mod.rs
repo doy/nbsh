@@ -106,9 +106,9 @@ pub struct Error {
 }
 
 impl Error {
-    fn new(input: &str, e: pest::error::Error<ast::Rule>) -> Self {
+    fn new(input: String, e: pest::error::Error<ast::Rule>) -> Self {
         Self {
-            input: input.to_string(),
+            input,
             e,
         }
     }

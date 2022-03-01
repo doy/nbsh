@@ -69,7 +69,7 @@ enum Frame {
 }
 
 pub async fn run(
-    commands: &str,
+    commands: String,
     shell_write: &mut Option<tokio::fs::File>,
 ) -> Result<i32> {
     let mut env = Env::new_from_env()?;
@@ -84,11 +84,11 @@ pub async fn run(
 }
 
 async fn run_commands(
-    commands: &str,
+    commands: String,
     env: &mut Env,
     shell_write: &mut Option<tokio::fs::File>,
 ) -> Result<()> {
-    let commands = crate::parse::ast::Commands::parse(commands)?;
+    let commands = crate::parse::ast::Commands::parse(&commands)?;
     let commands = commands.commands();
     let mut pc = 0;
     let mut stack = Stack::new();

@@ -102,9 +102,9 @@ impl Readline {
         self.inc_pos(s.chars().count());
     }
 
-    pub fn set_input(&mut self, s: &str) {
-        self.input_line = s.to_string();
+    pub fn set_input(&mut self, s: String) {
         self.set_pos(s.chars().count());
+        self.input_line = s;
     }
 
     pub fn backspace(&mut self) {
