@@ -1,11 +1,10 @@
 use crate::shell::prelude::*;
 
-use notify::Watcher as _;
 use textmode::Textmode as _;
 
 mod event;
-mod git;
 mod history;
+mod inputs;
 mod prelude;
 mod readline;
 
@@ -20,135 +19,16 @@ pub async fn main() -> Result<i32> {
 
     let (event_w, event_r) = event::channel();
 
-    {
-        let mut signals = tokio::signal::unix::signal(
-            tokio::signal::unix::SignalKind::window_change(),
-        )?;
-        let event_w = event_w.clone();
-        tokio::task::spawn(async move {
-            event_w.send(Event::Resize(
-                terminal_size::terminal_size().map_or(
-                    (24, 80),
-                    |(terminal_size::Width(w), terminal_size::Height(h))| {
-                        (h, w)
-                    },
-                ),
-            ));
-            while signals.recv().await.is_some() {
-                event_w.send(Event::Resize(
-                    terminal_size::terminal_size().map_or(
-                        (24, 80),
-                        |(
-                            terminal_size::Width(w),
-                            terminal_size::Height(h),
-                        )| { (h, w) },
-                    ),
-                ));
-            }
-        });
-    }
-
-    {
-        let event_w = event_w.clone();
-        std::thread::spawn(move || {
-            while let Some(key) = input.read_key().unwrap() {
-                event_w.send(Event::Key(key));
-            }
-        });
-    }
-
-    // redraw the clock every second
-    {
-        let event_w = event_w.clone();
-        tokio::task::spawn(async move {
-            let now_clock = time::OffsetDateTime::now_utc();
-            let now_instant = tokio::time::Instant::now();
-            let mut interval = tokio::time::interval_at(
-                now_instant
-                    + std::time::Duration::from_nanos(
-                        1_000_000_000_u64
-                            .saturating_sub(now_clock.nanosecond().into()),
-                    ),
-                std::time::Duration::from_secs(1),
-            );
-            loop {
-                interval.tick().await;
-                event_w.send(Event::ClockTimer);
-            }
-        });
-    }
-
-    let (git_w, mut git_r): (
-        tokio::sync::mpsc::UnboundedSender<std::path::PathBuf>,
-        _,
-    ) = tokio::sync::mpsc::unbounded_channel();
-    {
-        let event_w = event_w.clone();
-        // clippy can't tell that we assign to this later
-        #[allow(clippy::no_effect_underscore_binding)]
-        let mut _active_watcher = None;
-        tokio::task::spawn(async move {
-            while let Some(mut dir) = git_r.recv().await {
-                while let Ok(newer_dir) = git_r.try_recv() {
-                    dir = newer_dir;
-                }
-                let repo = git2::Repository::discover(&dir).ok();
-                if repo.is_some() {
-                    let (sync_watch_w, sync_watch_r) =
-                        std::sync::mpsc::channel();
-                    let (watch_w, mut watch_r) =
-                        tokio::sync::mpsc::unbounded_channel();
-                    let mut watcher = notify::RecommendedWatcher::new(
-                        sync_watch_w,
-                        std::time::Duration::from_millis(100),
-                    )
-                    .unwrap();
-                    watcher
-                        .watch(&dir, notify::RecursiveMode::Recursive)
-                        .unwrap();
-                    tokio::task::spawn_blocking(move || {
-                        while let Ok(event) = sync_watch_r.recv() {
-                            let watch_w = watch_w.clone();
-                            let send_failed = watch_w.send(event).is_err();
-                            if send_failed {
-                                break;
-                            }
-                        }
-                    });
-                    let event_w = event_w.clone();
-                    tokio::task::spawn(async move {
-                        while watch_r.recv().await.is_some() {
-                            let repo = git2::Repository::discover(&dir).ok();
-                            let info = tokio::task::spawn_blocking(|| {
-                                repo.map(|repo| git::Info::new(&repo))
-                            })
-                            .await
-                            .unwrap();
-                            event_w.send(Event::GitInfo(info));
-                        }
-                    });
-                    _active_watcher = Some(watcher);
-                } else {
-                    _active_watcher = None;
-                }
-                let info = tokio::task::spawn_blocking(|| {
-                    repo.map(|repo| git::Info::new(&repo))
-                })
-                .await
-                .unwrap();
-                event_w.send(Event::GitInfo(info));
-            }
-        });
-    }
+    let inputs = inputs::Handler::new(input, event_w.clone()).unwrap();
 
     let mut shell = Shell::new(crate::info::get_offset())?;
     let mut prev_dir = shell.env.pwd().to_path_buf();
-    git_w.send(prev_dir.clone()).unwrap();
+    inputs.new_dir(prev_dir.clone());
     while let Some(event) = event_r.recv().await {
         let dir = shell.env().pwd();
         if dir != prev_dir {
             prev_dir = dir.to_path_buf();
-            git_w.send(dir.to_path_buf()).unwrap();
+            inputs.new_dir(dir.to_path_buf());
         }
         match shell.handle_event(event, &event_w) {
             Some(Action::Refresh) => {
@@ -196,7 +76,7 @@ pub struct Shell {
     readline: readline::Readline,
     history: history::History,
     env: Env,
-    git: Option<git::Info>,
+    git: Option<inputs::GitInfo>,
     focus: Focus,
     scene: Scene,
     escape: bool,

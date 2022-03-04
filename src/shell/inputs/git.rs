@@ -1,3 +1,79 @@
+use crate::shell::prelude::*;
+
+use notify::Watcher as _;
+
+pub struct Handler {
+    git_w: tokio::sync::mpsc::UnboundedSender<std::path::PathBuf>,
+}
+
+impl Handler {
+    pub fn new(event_w: crate::shell::event::Writer) -> Self {
+        let (git_w, git_r) = tokio::sync::mpsc::unbounded_channel();
+        tokio::spawn(Self::task(git_r, event_w));
+        Self { git_w }
+    }
+
+    pub fn new_dir(&self, path: std::path::PathBuf) {
+        self.git_w.send(path).unwrap();
+    }
+
+    async fn task(
+        mut git_r: tokio::sync::mpsc::UnboundedReceiver<std::path::PathBuf>,
+        event_w: crate::shell::event::Writer,
+    ) {
+        // clippy can't tell that we assign to this later
+        #[allow(clippy::no_effect_underscore_binding)]
+        let mut _active_watcher = None;
+        while let Some(mut dir) = git_r.recv().await {
+            while let Ok(newer_dir) = git_r.try_recv() {
+                dir = newer_dir;
+            }
+            let repo = git2::Repository::discover(&dir).ok();
+            if repo.is_some() {
+                let (sync_watch_w, sync_watch_r) = std::sync::mpsc::channel();
+                let (watch_w, mut watch_r) =
+                    tokio::sync::mpsc::unbounded_channel();
+                let mut watcher = notify::RecommendedWatcher::new(
+                    sync_watch_w,
+                    std::time::Duration::from_millis(100),
+                )
+                .unwrap();
+                watcher
+                    .watch(&dir, notify::RecursiveMode::Recursive)
+                    .unwrap();
+                tokio::task::spawn_blocking(move || {
+                    while let Ok(event) = sync_watch_r.recv() {
+                        if watch_w.send(event).is_err() {
+                            break;
+                        }
+                    }
+                });
+                let event_w = event_w.clone();
+                tokio::spawn(async move {
+                    while watch_r.recv().await.is_some() {
+                        let repo = git2::Repository::discover(&dir).ok();
+                        let info = tokio::task::spawn_blocking(|| {
+                            repo.map(|repo| Info::new(&repo))
+                        })
+                        .await
+                        .unwrap();
+                        event_w.send(Event::GitInfo(info));
+                    }
+                });
+                _active_watcher = Some(watcher);
+            } else {
+                _active_watcher = None;
+            }
+            let info = tokio::task::spawn_blocking(|| {
+                repo.map(|repo| Info::new(&repo))
+            })
+            .await
+            .unwrap();
+            event_w.send(Event::GitInfo(info));
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Info {
     modified_files: bool,

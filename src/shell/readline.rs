@@ -23,7 +23,7 @@ impl Readline {
         &self,
         out: &mut impl textmode::Textmode,
         env: &Env,
-        git: Option<&super::git::Info>,
+        git: Option<&super::inputs::GitInfo>,
         focus: bool,
         offset: time::UtcOffset,
     ) -> Result<()> {

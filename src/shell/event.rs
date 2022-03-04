@@ -8,7 +8,7 @@ pub enum Event {
     ChildRunPipeline(usize, (usize, usize)),
     ChildSuspend(usize),
     ChildExit(usize, Option<Env>),
-    GitInfo(Option<super::git::Info>),
+    GitInfo(Option<super::inputs::GitInfo>),
     ClockTimer,
 }
 
@@ -43,7 +43,7 @@ impl Reader {
         let inner = std::sync::Arc::new(InnerReader::new());
         {
             let inner = inner.clone();
-            tokio::task::spawn(async move {
+            tokio::spawn(async move {
                 while let Some(event) = input.recv().await {
                     inner.new_event(Some(event));
                 }
@@ -95,7 +95,7 @@ struct Pending {
     child_run_pipeline: std::collections::VecDeque<(usize, (usize, usize))>,
     child_suspend: std::collections::VecDeque<usize>,
     child_exit: Option<(usize, Option<Env>)>,
-    git_info: Option<Option<super::git::Info>>,
+    git_info: Option<Option<super::inputs::GitInfo>>,
     clock_timer: bool,
     done: bool,
 }

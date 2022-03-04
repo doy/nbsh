@@ -26,7 +26,7 @@ impl Pty {
             super::pty::Vt::new(size),
         ));
 
-        tokio::task::spawn(pty_task(
+        tokio::spawn(Self::task(
             pty,
             std::sync::Arc::clone(&vt),
             request_r,
@@ -65,6 +65,57 @@ impl Pty {
     pub fn resize(&self, size: (u16, u16)) {
         #[allow(clippy::let_underscore_drop)]
         let _ = self.request_w.send(Request::Resize(size.0, size.1));
+    }
+
+    async fn task(
+        pty: pty_process::Pty,
+        vt: std::sync::Arc<std::sync::Mutex<super::pty::Vt>>,
+        request_r: tokio::sync::mpsc::UnboundedReceiver<Request>,
+        event_w: crate::shell::event::Writer,
+    ) {
+        enum Res {
+            Read(Result<bytes::Bytes, std::io::Error>),
+            Request(Request),
+        }
+
+        let (pty_r, mut pty_w) = pty.into_split();
+        let mut stream: futures_util::stream::SelectAll<_> = [
+            tokio_util::io::ReaderStream::new(pty_r)
+                .map(Res::Read)
+                .boxed(),
+            tokio_stream::wrappers::UnboundedReceiverStream::new(request_r)
+                .map(Res::Request)
+                .boxed(),
+        ]
+        .into_iter()
+        .collect();
+        while let Some(res) = stream.next().await {
+            match res {
+                Res::Read(res) => match res {
+                    Ok(bytes) => {
+                        vt.lock().unwrap().process(&bytes);
+                        event_w.send(Event::PtyOutput);
+                    }
+                    Err(e) => {
+                        // this means that there are no longer any open pts
+                        // fds. we could alternately signal this through an
+                        // explicit channel at ChildExit time, but this seems
+                        // reliable enough.
+                        if e.raw_os_error() == Some(libc::EIO) {
+                            return;
+                        }
+                        panic!("pty read failed: {:?}", e);
+                    }
+                },
+                Res::Request(Request::Input(bytes)) => {
+                    pty_w.write(&bytes).await.unwrap();
+                }
+                Res::Request(Request::Resize(row, col)) => {
+                    pty_w.resize(pty_process::Size::new(row, col)).unwrap();
+                    vt.lock().unwrap().set_size((row, col));
+                }
+            }
+        }
     }
 }
 
@@ -159,56 +210,5 @@ impl Vt {
             );
         }
         last_row
-    }
-}
-
-async fn pty_task(
-    pty: pty_process::Pty,
-    vt: std::sync::Arc<std::sync::Mutex<super::pty::Vt>>,
-    request_r: tokio::sync::mpsc::UnboundedReceiver<Request>,
-    event_w: crate::shell::event::Writer,
-) {
-    enum Res {
-        Read(Result<bytes::Bytes, std::io::Error>),
-        Request(Request),
-    }
-
-    let (pty_r, mut pty_w) = pty.into_split();
-    let mut stream: futures_util::stream::SelectAll<_> = [
-        tokio_util::io::ReaderStream::new(pty_r)
-            .map(Res::Read)
-            .boxed(),
-        tokio_stream::wrappers::UnboundedReceiverStream::new(request_r)
-            .map(Res::Request)
-            .boxed(),
-    ]
-    .into_iter()
-    .collect();
-    while let Some(res) = stream.next().await {
-        match res {
-            Res::Read(res) => match res {
-                Ok(bytes) => {
-                    vt.lock().unwrap().process(&bytes);
-                    event_w.send(Event::PtyOutput);
-                }
-                Err(e) => {
-                    // this means that there are no longer any open pts fds.
-                    // we could alternately signal this through an explicit
-                    // channel at ChildExit time, but this seems reliable
-                    // enough.
-                    if e.raw_os_error() == Some(libc::EIO) {
-                        return;
-                    }
-                    panic!("pty read failed: {:?}", e);
-                }
-            },
-            Res::Request(Request::Input(bytes)) => {
-                pty_w.write(&bytes).await.unwrap();
-            }
-            Res::Request(Request::Resize(row, col)) => {
-                pty_w.resize(pty_process::Size::new(row, col)).unwrap();
-                vt.lock().unwrap().set_size((row, col));
-            }
-        }
     }
 }

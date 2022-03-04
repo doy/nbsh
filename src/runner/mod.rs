@@ -68,7 +68,7 @@ enum Frame {
     For(bool, usize, Vec<String>),
 }
 
-pub async fn run(
+pub async fn main(
     commands: String,
     shell_write: &mut Option<tokio::fs::File>,
 ) -> Result<i32> {
