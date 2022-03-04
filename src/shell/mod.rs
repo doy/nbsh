@@ -224,7 +224,8 @@ impl Shell {
                 );
                 self.scene = self.default_scene(self.focus);
             }
-            Event::ChildExit(idx, env) => {
+            Event::ChildExit(idx, exit_info, env) => {
+                self.history.entry_mut(idx).exited(exit_info);
                 if self.focus_idx() == Some(idx) {
                     if let Some(env) = env {
                         if self.hide_readline {

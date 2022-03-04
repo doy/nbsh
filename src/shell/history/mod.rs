@@ -1,8 +1,7 @@
 use crate::shell::prelude::*;
 
 mod entry;
-pub use entry::Entry;
-mod job;
+pub use entry::{Entry, ExitInfo};
 mod pty;
 
 pub struct History {
@@ -29,7 +28,7 @@ impl History {
         offset: time::UtcOffset,
     ) {
         let mut cursor = None;
-        for (idx, used_lines, mut vt, state) in
+        for (idx, used_lines, mut vt) in
             self.visible(repl_lines, focus, scrolling).rev()
         {
             let focused = focus.map_or(false, |focus| idx == focus);
@@ -41,7 +40,6 @@ impl History {
                 out,
                 idx,
                 self.entry_count(),
-                &*state,
                 &mut *vt,
                 self.size,
                 focused,
@@ -83,7 +81,7 @@ impl History {
         event_w: crate::shell::event::Writer,
     ) {
         self.entries
-            .push(Entry::new(cmdline, env, self.size, event_w));
+            .push(Entry::new(cmdline, env, self.size, event_w).unwrap());
     }
 
     pub fn entry_count(&self) -> usize {
@@ -144,7 +142,7 @@ impl History {
             if used_lines > usize::from(self.size.0) {
                 break;
             }
-            iter.add(idx, used_lines, entry.lock_vt(), entry.lock_state());
+            iter.add(idx, used_lines, entry.lock_vt());
         }
         iter
     }
@@ -155,7 +153,6 @@ struct VisibleEntries<'a> {
         usize,
         usize,
         std::sync::MutexGuard<'a, pty::Vt>,
-        std::sync::MutexGuard<'a, job::State>,
     )>,
 }
 
@@ -171,20 +168,14 @@ impl<'a> VisibleEntries<'a> {
         idx: usize,
         offset: usize,
         vt: std::sync::MutexGuard<'a, pty::Vt>,
-        state: std::sync::MutexGuard<'a, job::State>,
     ) {
         // push_front because we are adding them in reverse order
-        self.entries.push_front((idx, offset, vt, state));
+        self.entries.push_front((idx, offset, vt));
     }
 }
 
 impl<'a> std::iter::Iterator for VisibleEntries<'a> {
-    type Item = (
-        usize,
-        usize,
-        std::sync::MutexGuard<'a, pty::Vt>,
-        std::sync::MutexGuard<'a, job::State>,
-    );
+    type Item = (usize, usize, std::sync::MutexGuard<'a, pty::Vt>);
 
     fn next(&mut self) -> Option<Self::Item> {
         self.entries.pop_front()

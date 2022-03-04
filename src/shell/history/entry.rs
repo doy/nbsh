@@ -4,8 +4,10 @@ pub struct Entry {
     cmdline: String,
     env: Env,
     pty: super::pty::Pty,
-    job: super::job::Job,
     fullscreen: Option<bool>,
+    start_instant: std::time::Instant,
+    start_time: time::OffsetDateTime,
+    state: State,
 }
 
 impl Entry {
@@ -14,17 +16,22 @@ impl Entry {
         env: Env,
         size: (u16, u16),
         event_w: crate::shell::event::Writer,
-    ) -> Self {
+    ) -> Result<Self> {
+        let start_instant = std::time::Instant::now();
+        let start_time = time::OffsetDateTime::now_utc();
+
         let (pty, pts) = super::pty::Pty::new(size, event_w.clone()).unwrap();
-        let job = super::job::Job::new(&cmdline, env.clone(), &pts, event_w)
-            .unwrap();
-        Self {
+        let (child, fh) = Self::spawn_command(&cmdline, &env, &pts)?;
+        tokio::spawn(Self::task(child, fh, env.idx(), event_w));
+        Ok(Self {
             cmdline,
             env,
             pty,
-            job,
             fullscreen: None,
-        }
+            start_instant,
+            start_time,
+            state: State::Running((0, 0)),
+        })
     }
 
     pub fn render(
@@ -32,38 +39,33 @@ impl Entry {
         out: &mut impl textmode::Textmode,
         idx: usize,
         entry_count: usize,
-        state: &super::job::State,
         vt: &mut super::pty::Vt,
         size: (u16, u16),
         focused: bool,
         scrolling: bool,
         offset: time::UtcOffset,
     ) {
-        let time = state.exit_info().map_or_else(
+        let time = self.state.exit_info().map_or_else(
             || {
                 format!(
                     "[{}]",
-                    crate::format::time(
-                        self.job.start_time().to_offset(offset)
-                    )
+                    crate::format::time(self.start_time.to_offset(offset))
                 )
             },
             |info| {
                 format!(
                     "({}) [{}]",
                     crate::format::duration(
-                        *info.instant() - *self.job.start_instant()
+                        info.instant - self.start_instant
                     ),
-                    crate::format::time(
-                        self.job.start_time().to_offset(offset)
-                    ),
+                    crate::format::time(self.start_time.to_offset(offset)),
                 )
             },
         );
 
         vt.bell(out, focused);
 
-        set_bgcolor(out, idx, focused);
+        Self::set_bgcolor(out, idx, focused);
         out.set_fgcolor(textmode::color::YELLOW);
         let entry_count_width = format!("{}", entry_count + 1).len();
         let idx_str = format!("{}", idx + 1);
@@ -72,17 +74,16 @@ impl Entry {
         out.write_str(" ");
         out.reset_attributes();
 
-        set_bgcolor(out, idx, focused);
-        if let Some(info) = state.exit_info() {
-            let status = info.status();
-            if status.signal().is_some() {
+        Self::set_bgcolor(out, idx, focused);
+        if let Some(info) = self.state.exit_info() {
+            if info.status.signal().is_some() {
                 out.set_fgcolor(textmode::color::MAGENTA);
-            } else if status.success() {
+            } else if info.status.success() {
                 out.set_fgcolor(textmode::color::DARKGREY);
             } else {
                 out.set_fgcolor(textmode::color::RED);
             }
-            out.write_str(&crate::format::exit_status(status));
+            out.write_str(&crate::format::exit_status(info.status));
         } else {
             out.write_str("     ");
         }
@@ -91,10 +92,10 @@ impl Entry {
         if vt.is_bell() {
             out.set_bgcolor(textmode::Color::Rgb(64, 16, 16));
         } else {
-            set_bgcolor(out, idx, focused);
+            Self::set_bgcolor(out, idx, focused);
         }
         out.write_str("$ ");
-        set_bgcolor(out, idx, focused);
+        Self::set_bgcolor(out, idx, focused);
         let start = usize::from(out.screen().cursor_position().1);
         let end = usize::from(size.1) - time.len() - 2;
         let max_len = end - start;
@@ -103,7 +104,7 @@ impl Entry {
         } else {
             self.cmd()
         };
-        if let super::job::State::Running(span) = state {
+        if let State::Running(span) = self.state {
             let span = (span.0.min(cmd.len()), span.1.min(cmd.len()));
             if !cmd[..span.0].is_empty() {
                 out.write_str(&cmd[..span.0]);
@@ -111,7 +112,7 @@ impl Entry {
             if !cmd[span.0..span.1].is_empty() {
                 out.set_bgcolor(textmode::Color::Rgb(16, 64, 16));
                 out.write_str(&cmd[span.0..span.1]);
-                set_bgcolor(out, idx, focused);
+                Self::set_bgcolor(out, idx, focused);
             }
             if !cmd[span.1..].is_empty() {
                 out.write_str(&cmd[span.1..]);
@@ -120,13 +121,13 @@ impl Entry {
             out.write_str(cmd);
         }
         if self.cmd().len() > max_len {
-            if let super::job::State::Running(span) = state {
+            if let State::Running(span) = self.state {
                 if span.0 < cmd.len() && span.1 > cmd.len() {
                     out.set_bgcolor(textmode::Color::Rgb(16, 64, 16));
                 }
             }
             out.write_str(" ");
-            if let super::job::State::Running(span) = state {
+            if let State::Running(span) = self.state {
                 if span.1 > cmd.len() {
                     out.set_bgcolor(textmode::Color::Rgb(16, 64, 16));
                 }
@@ -136,7 +137,7 @@ impl Entry {
         }
         out.reset_attributes();
 
-        set_bgcolor(out, idx, focused);
+        Self::set_bgcolor(out, idx, focused);
         let cur_pos = out.screen().cursor_position();
         out.write_str(&" ".repeat(
             usize::from(size.1) - time.len() - 1 - usize::from(cur_pos.1),
@@ -157,7 +158,7 @@ impl Entry {
             out.hide_cursor(true);
         } else {
             let last_row =
-                vt.output_lines(focused && !scrolling, state.running());
+                vt.output_lines(focused && !scrolling, self.state.running());
             let mut max_lines = self.max_lines(entry_count);
             if last_row > max_lines {
                 out.write(b"\r\n");
@@ -235,7 +236,11 @@ impl Entry {
     }
 
     pub fn running(&self) -> bool {
-        self.job.running()
+        self.state.running()
+    }
+
+    pub fn exited(&mut self, exit_info: ExitInfo) {
+        self.state = State::Exited(exit_info);
     }
 
     pub fn lines(&self, entry_count: usize, focused: bool) -> usize {
@@ -254,12 +259,10 @@ impl Entry {
         self.pty.lock_vt()
     }
 
-    pub fn lock_state(&self) -> std::sync::MutexGuard<super::job::State> {
-        self.job.lock_state()
-    }
-
-    pub fn set_span(&self, span: (usize, usize)) {
-        self.job.set_span(span);
+    pub fn set_span(&mut self, new_span: (usize, usize)) {
+        if let State::Running(ref mut span) = self.state {
+            *span = new_span;
+        }
     }
 
     fn max_lines(&self, entry_count: usize) -> usize {
@@ -269,14 +272,150 @@ impl Entry {
             5
         }
     }
+
+    fn set_bgcolor(
+        out: &mut impl textmode::Textmode,
+        idx: usize,
+        focus: bool,
+    ) {
+        if focus {
+            out.set_bgcolor(textmode::Color::Rgb(0x56, 0x1b, 0x8b));
+        } else if idx % 2 == 0 {
+            out.set_bgcolor(textmode::Color::Rgb(0x24, 0x21, 0x00));
+        } else {
+            out.set_bgcolor(textmode::Color::Rgb(0x20, 0x20, 0x20));
+        }
+    }
+
+    fn spawn_command(
+        cmdline: &str,
+        env: &Env,
+        pts: &pty_process::Pts,
+    ) -> Result<(tokio::process::Child, std::fs::File)> {
+        let mut cmd = pty_process::Command::new(std::env::current_exe()?);
+        cmd.args(&["-c", cmdline, "--status-fd", "3"]);
+        env.apply(&mut cmd);
+        let (from_r, from_w) =
+            nix::unistd::pipe2(nix::fcntl::OFlag::O_CLOEXEC)?;
+        // Safety: from_r was just opened above and is not used anywhere else
+        let fh = unsafe { std::fs::File::from_raw_fd(from_r) };
+        // Safety: dup2 is an async-signal-safe function
+        unsafe {
+            cmd.pre_exec(move || {
+                nix::unistd::dup2(from_w, 3)?;
+                Ok(())
+            });
+        }
+        let child = cmd.spawn(pts)?;
+        nix::unistd::close(from_w)?;
+        Ok((child, fh))
+    }
+
+    async fn task(
+        mut child: tokio::process::Child,
+        fh: std::fs::File,
+        idx: usize,
+        event_w: crate::shell::event::Writer,
+    ) {
+        enum Res {
+            Read(crate::runner::Event),
+            Exit(std::io::Result<std::process::ExitStatus>),
+        }
+
+        let (read_w, read_r) = tokio::sync::mpsc::unbounded_channel();
+        tokio::task::spawn_blocking(move || loop {
+            let event = bincode::deserialize_from(&fh);
+            match event {
+                Ok(event) => {
+                    read_w.send(event).unwrap();
+                }
+                Err(e) => {
+                    match &*e {
+                        bincode::ErrorKind::Io(io_e) => {
+                            assert!(
+                                io_e.kind()
+                                    == std::io::ErrorKind::UnexpectedEof
+                            );
+                        }
+                        e => {
+                            panic!("{}", e);
+                        }
+                    }
+                    break;
+                }
+            }
+        });
+
+        let mut stream: futures_util::stream::SelectAll<_> = [
+            tokio_stream::wrappers::UnboundedReceiverStream::new(read_r)
+                .map(Res::Read)
+                .boxed(),
+            futures_util::stream::once(child.wait())
+                .map(Res::Exit)
+                .boxed(),
+        ]
+        .into_iter()
+        .collect();
+        let mut exit_status = None;
+        let mut new_env = None;
+        while let Some(res) = stream.next().await {
+            match res {
+                Res::Read(event) => match event {
+                    crate::runner::Event::RunPipeline(new_span) => {
+                        // we could just update the span in place here, but we
+                        // do this as an event so that we can also trigger a
+                        // refresh
+                        event_w.send(Event::ChildRunPipeline(idx, new_span));
+                    }
+                    crate::runner::Event::Suspend => {
+                        event_w.send(Event::ChildSuspend(idx));
+                    }
+                    crate::runner::Event::Exit(env) => {
+                        new_env = Some(env);
+                    }
+                },
+                Res::Exit(status) => {
+                    exit_status = Some(status.unwrap());
+                }
+            }
+        }
+        event_w.send(Event::ChildExit(
+            idx,
+            ExitInfo::new(exit_status.unwrap()),
+            new_env,
+        ));
+    }
 }
 
-fn set_bgcolor(out: &mut impl textmode::Textmode, idx: usize, focus: bool) {
-    if focus {
-        out.set_bgcolor(textmode::Color::Rgb(0x56, 0x1b, 0x8b));
-    } else if idx % 2 == 0 {
-        out.set_bgcolor(textmode::Color::Rgb(0x24, 0x21, 0x00));
-    } else {
-        out.set_bgcolor(textmode::Color::Rgb(0x20, 0x20, 0x20));
+enum State {
+    Running((usize, usize)),
+    Exited(ExitInfo),
+}
+
+impl State {
+    fn exit_info(&self) -> Option<&ExitInfo> {
+        match self {
+            Self::Running(_) => None,
+            Self::Exited(exit_info) => Some(exit_info),
+        }
+    }
+
+    fn running(&self) -> bool {
+        self.exit_info().is_none()
+    }
+}
+
+#[derive(Debug)]
+pub struct ExitInfo {
+    status: std::process::ExitStatus,
+    instant: std::time::Instant,
+}
+
+impl ExitInfo {
+    fn new(status: std::process::ExitStatus) -> Self {
+        Self {
+            status,
+            instant: std::time::Instant::now(),
+        }
     }
 }

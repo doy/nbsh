@@ -7,7 +7,7 @@ pub enum Event {
     PtyOutput,
     ChildRunPipeline(usize, (usize, usize)),
     ChildSuspend(usize),
-    ChildExit(usize, Option<Env>),
+    ChildExit(usize, super::history::ExitInfo, Option<Env>),
     GitInfo(Option<super::inputs::GitInfo>),
     ClockTimer,
 }
@@ -94,7 +94,7 @@ struct Pending {
     pty_output: bool,
     child_run_pipeline: std::collections::VecDeque<(usize, (usize, usize))>,
     child_suspend: std::collections::VecDeque<usize>,
-    child_exit: Option<(usize, Option<Env>)>,
+    child_exit: Option<(usize, super::history::ExitInfo, Option<Env>)>,
     git_info: Option<Option<super::inputs::GitInfo>>,
     clock_timer: bool,
     done: bool,
@@ -121,8 +121,8 @@ impl Pending {
         if let Some(idx) = self.child_suspend.pop_front() {
             return Some(Some(Event::ChildSuspend(idx)));
         }
-        if let Some((idx, env)) = self.child_exit.take() {
-            return Some(Some(Event::ChildExit(idx, env)));
+        if let Some((idx, exit_info, env)) = self.child_exit.take() {
+            return Some(Some(Event::ChildExit(idx, exit_info, env)));
         }
         if let Some(info) = self.git_info.take() {
             return Some(Some(Event::GitInfo(info)));
@@ -152,8 +152,8 @@ impl Pending {
             Some(Event::ChildSuspend(idx)) => {
                 self.child_suspend.push_back(idx);
             }
-            Some(Event::ChildExit(idx, env)) => {
-                self.child_exit = Some((idx, env));
+            Some(Event::ChildExit(idx, exit_info, env)) => {
+                self.child_exit = Some((idx, exit_info, env));
             }
             Some(Event::GitInfo(info)) => self.git_info = Some(info),
             Some(Event::ClockTimer) => self.clock_timer = true,
