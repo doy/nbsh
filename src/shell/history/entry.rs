@@ -1,20 +1,11 @@
 use crate::shell::prelude::*;
 
-enum State {
-    Running((usize, usize)),
-    Exited(ExitInfo),
-}
-
 pub struct Entry {
     cmdline: String,
     env: Env,
-    state: State,
-    vt: super::vt::Vt,
+    pty: super::pty::Pty,
+    job: super::job::Job,
     fullscreen: Option<bool>,
-    input: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
-    resize: tokio::sync::mpsc::UnboundedSender<(u16, u16)>,
-    start_time: time::OffsetDateTime,
-    start_instant: std::time::Instant,
 }
 
 impl Entry {
@@ -22,50 +13,55 @@ impl Entry {
         cmdline: String,
         env: Env,
         size: (u16, u16),
-        input: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
-        resize: tokio::sync::mpsc::UnboundedSender<(u16, u16)>,
+        event_w: crate::shell::event::Writer,
     ) -> Self {
-        let span = (0, cmdline.len());
+        let (pty, pts) = super::pty::Pty::new(size, event_w.clone()).unwrap();
+        let job = super::job::Job::new(&cmdline, env.clone(), &pts, event_w)
+            .unwrap();
         Self {
             cmdline,
             env,
-            state: State::Running(span),
-            vt: super::vt::Vt::new(size),
-            input,
-            resize,
+            pty,
+            job,
             fullscreen: None,
-            start_time: time::OffsetDateTime::now_utc(),
-            start_instant: std::time::Instant::now(),
         }
     }
 
     pub fn render(
-        &mut self,
+        &self,
         out: &mut impl textmode::Textmode,
         idx: usize,
         entry_count: usize,
+        state: &super::job::State,
+        vt: &mut super::pty::Vt,
         size: (u16, u16),
         focused: bool,
         scrolling: bool,
         offset: time::UtcOffset,
     ) {
-        let time = self.exit_info().map_or_else(
+        let time = state.exit_info().map_or_else(
             || {
                 format!(
                     "[{}]",
-                    crate::format::time(self.start_time.to_offset(offset))
+                    crate::format::time(
+                        self.job.start_time().to_offset(offset)
+                    )
                 )
             },
             |info| {
                 format!(
                     "({}) [{}]",
                     crate::format::duration(
-                        info.instant - self.start_instant
+                        *info.instant() - *self.job.start_instant()
                     ),
-                    crate::format::time(self.start_time.to_offset(offset)),
+                    crate::format::time(
+                        self.job.start_time().to_offset(offset)
+                    ),
                 )
             },
         );
+
+        vt.bell(out, focused);
 
         set_bgcolor(out, idx, focused);
         out.set_fgcolor(textmode::color::YELLOW);
@@ -77,23 +73,20 @@ impl Entry {
         out.reset_attributes();
 
         set_bgcolor(out, idx, focused);
-        if let Some(info) = self.exit_info() {
-            if info.status.signal().is_some() {
+        if let Some(info) = state.exit_info() {
+            let status = info.status();
+            if status.signal().is_some() {
                 out.set_fgcolor(textmode::color::MAGENTA);
-            } else if info.status.success() {
+            } else if status.success() {
                 out.set_fgcolor(textmode::color::DARKGREY);
             } else {
                 out.set_fgcolor(textmode::color::RED);
             }
-            out.write_str(&crate::format::exit_status(info.status));
+            out.write_str(&crate::format::exit_status(status));
         } else {
             out.write_str("     ");
         }
         out.reset_attributes();
-
-        self.vt.bell(out, focused);
-
-        let vt = &self.vt;
 
         if vt.is_bell() {
             out.set_bgcolor(textmode::Color::Rgb(64, 16, 16));
@@ -110,7 +103,7 @@ impl Entry {
         } else {
             self.cmd()
         };
-        if let State::Running(span) = self.state {
+        if let super::job::State::Running(span) = state {
             let span = (span.0.min(cmd.len()), span.1.min(cmd.len()));
             if !cmd[..span.0].is_empty() {
                 out.write_str(&cmd[..span.0]);
@@ -127,13 +120,13 @@ impl Entry {
             out.write_str(cmd);
         }
         if self.cmd().len() > max_len {
-            if let State::Running(span) = self.state {
+            if let super::job::State::Running(span) = state {
                 if span.0 < cmd.len() && span.1 > cmd.len() {
                     out.set_bgcolor(textmode::Color::Rgb(16, 64, 16));
                 }
             }
             out.write_str(" ");
-            if let State::Running(span) = self.state {
+            if let super::job::State::Running(span) = state {
                 if span.1 > cmd.len() {
                     out.set_bgcolor(textmode::Color::Rgb(16, 64, 16));
                 }
@@ -164,7 +157,7 @@ impl Entry {
             out.hide_cursor(true);
         } else {
             let last_row =
-                vt.output_lines(focused && !scrolling, self.running());
+                vt.output_lines(focused && !scrolling, state.running());
             let mut max_lines = self.max_lines(entry_count);
             if last_row > max_lines {
                 out.write(b"\r\n");
@@ -209,47 +202,31 @@ impl Entry {
         out.reset_attributes();
     }
 
-    pub fn render_fullscreen(&mut self, out: &mut impl textmode::Textmode) {
-        let vt = &mut self.vt;
-        out.write(&vt.screen().state_formatted());
-        vt.bell(out, true);
-        out.reset_attributes();
+    pub fn render_fullscreen(&self, out: &mut impl textmode::Textmode) {
+        self.pty.with_vt_mut(|vt| {
+            out.write(&vt.screen().state_formatted());
+            vt.bell(out, true);
+            out.reset_attributes();
+        });
     }
 
-    pub fn send_input(&self, bytes: Vec<u8>) {
-        if self.running() {
-            self.input.send(bytes).unwrap();
-        }
+    pub fn input(&self, bytes: Vec<u8>) {
+        self.pty.input(bytes);
     }
 
-    pub fn resize(&mut self, size: (u16, u16)) {
-        if self.running() {
-            self.resize.send(size).unwrap();
-            self.vt.set_size(size);
-        }
-    }
-
-    pub fn size(&self) -> (u16, u16) {
-        self.vt.size()
-    }
-
-    pub fn process(&mut self, input: &[u8]) {
-        self.vt.process(input);
+    pub fn resize(&self, size: (u16, u16)) {
+        self.pty.resize(size);
     }
 
     pub fn cmd(&self) -> &str {
         &self.cmdline
     }
 
-    pub fn env(&self) -> &Env {
-        &self.env
-    }
-
     pub fn toggle_fullscreen(&mut self) {
         if let Some(fullscreen) = self.fullscreen {
             self.fullscreen = Some(!fullscreen);
         } else {
-            self.fullscreen = Some(!self.vt.screen().alternate_screen());
+            self.fullscreen = Some(!self.pty.fullscreen());
         }
     }
 
@@ -258,14 +235,31 @@ impl Entry {
     }
 
     pub fn running(&self) -> bool {
-        matches!(self.state, State::Running(_))
+        self.job.running()
     }
 
     pub fn lines(&self, entry_count: usize, focused: bool) -> usize {
+        let running = self.running();
         1 + std::cmp::min(
-            self.vt.output_lines(focused, self.running()),
+            self.pty.with_vt(|vt| vt.output_lines(focused, running)),
             self.max_lines(entry_count),
         )
+    }
+
+    pub fn should_fullscreen(&self) -> bool {
+        self.fullscreen.unwrap_or_else(|| self.pty.fullscreen())
+    }
+
+    pub fn lock_vt(&self) -> std::sync::MutexGuard<super::pty::Vt> {
+        self.pty.lock_vt()
+    }
+
+    pub fn lock_state(&self) -> std::sync::MutexGuard<super::job::State> {
+        self.job.lock_state()
+    }
+
+    pub fn set_span(&self, span: (usize, usize)) {
+        self.job.set_span(span);
     }
 
     fn max_lines(&self, entry_count: usize) -> usize {
@@ -273,48 +267,6 @@ impl Entry {
             15
         } else {
             5
-        }
-    }
-
-    pub fn should_fullscreen(&self) -> bool {
-        self.fullscreen
-            .unwrap_or_else(|| self.vt.screen().alternate_screen())
-    }
-
-    pub fn set_span(&mut self, span: (usize, usize)) {
-        if matches!(self.state, State::Running(_)) {
-            self.state = State::Running(span);
-        }
-    }
-
-    pub fn finish(
-        &mut self,
-        env: Env,
-        event_w: &crate::shell::event::Writer,
-    ) {
-        self.state = State::Exited(ExitInfo::new(env.latest_status()));
-        self.env = env;
-        event_w.send(Event::PtyClose);
-    }
-
-    fn exit_info(&self) -> Option<&ExitInfo> {
-        match &self.state {
-            State::Running(..) => None,
-            State::Exited(exit_info) => Some(exit_info),
-        }
-    }
-}
-
-struct ExitInfo {
-    status: std::process::ExitStatus,
-    instant: std::time::Instant,
-}
-
-impl ExitInfo {
-    fn new(status: std::process::ExitStatus) -> Self {
-        Self {
-            status,
-            instant: std::time::Instant::now(),
         }
     }
 }

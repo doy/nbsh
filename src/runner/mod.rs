@@ -8,8 +8,8 @@ mod sys;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum Event {
-    RunPipeline(usize, (usize, usize)),
-    Suspend(usize),
+    RunPipeline((usize, usize)),
+    Suspend,
     Exit(Env),
 }
 
@@ -233,8 +233,7 @@ async fn run_pipeline(
     env: &mut Env,
     shell_write: &mut Option<tokio::fs::File>,
 ) -> Result<()> {
-    write_event(shell_write, Event::RunPipeline(env.idx(), pipeline.span()))
-        .await?;
+    write_event(shell_write, Event::RunPipeline(pipeline.span())).await?;
     // Safety: pipelines are run serially, so only one copy of these will ever
     // exist at once. note that reusing a single copy of these at the top
     // level would not be safe, because in the case of a command line like
@@ -252,7 +251,7 @@ async fn run_pipeline(
     let pipeline = pipeline.eval(env).await?;
     let interactive = shell_write.is_some();
     let (children, pg) = spawn_children(pipeline, env, &io, interactive)?;
-    let status = wait_children(children, pg, env, shell_write).await;
+    let status = wait_children(children, pg, shell_write).await;
     if interactive {
         sys::set_foreground_pg(nix::unistd::getpid())?;
     }
@@ -320,7 +319,6 @@ fn spawn_children(
 async fn wait_children(
     children: Vec<Child>,
     pg: Option<nix::unistd::Pid>,
-    env: &Env,
     shell_write: &mut Option<tokio::fs::File>,
 ) -> std::process::ExitStatus {
     enum Res {
@@ -420,11 +418,8 @@ async fn wait_children(
                     }
                     nix::sys::wait::WaitStatus::Stopped(pid, signal) => {
                         if signal == nix::sys::signal::Signal::SIGTSTP {
-                            if let Err(e) = write_event(
-                                shell_write,
-                                Event::Suspend(env.idx()),
-                            )
-                            .await
+                            if let Err(e) =
+                                write_event(shell_write, Event::Suspend).await
                             {
                                 bail!(e);
                             }
