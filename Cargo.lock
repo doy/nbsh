@@ -263,9 +263,9 @@ dependencies = [
 
 [[package]]
 name = "git2"
-version = "0.14.0"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94781080dd1a6b55dea7c46540d5bac87742a22f6dc2d84e54a5071ad6f0e387"
+checksum = "6e7d3b96ec1fcaa8431cf04a4f1ef5caafe58d5cf7bcc31f09c1626adddb0ffe"
 dependencies = [
  "bitflags",
  "libc",
@@ -407,9 +407,9 @@ checksum = "1bf2e165bb3457c8e098ea76f3e3bc9db55f87aa90d52d0e6be741470916aaa4"
 
 [[package]]
 name = "libgit2-sys"
-version = "0.13.0+1.4.1"
+version = "0.13.1+1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "864e22fc06cae62860398cd854c93d5867f11c02ec916aa1417b440f170df23a"
+checksum = "43e598aa7a4faedf1ea1b4608f582b06f0f40211eec551b7ef36019ae3f62def"
 dependencies = [
  "cc",
  "libc",
@@ -590,7 +590,7 @@ dependencies = [
 [[package]]
 name = "nix"
 version = "0.23.1"
-source = "git+https://github.com/nix-rust/nix#6123083a4702002e1958229735a4fd70cb326257"
+source = "git+https://github.com/nix-rust/nix#9312f1c410e7390f9ccb9ea8f255e09b4bb2a0ee"
 dependencies = [
  "bitflags",
  "cfg-if 1.0.0",
@@ -646,9 +646,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.9.0"
+version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da32515d9f6e6e489d7bc9d84c71b060db7247dc035bbe44eac88cf87486d8d5"
+checksum = "87f3e037eac156d1775da914196f0f37741a274155e34a0b7e427c35d2a2ecb9"
 
 [[package]]
 name = "opaque-debug"
@@ -791,7 +791,7 @@ dependencies = [
 [[package]]
 name = "pty-process"
 version = "0.2.0"
-source = "git+https://github.com/doy/pty-process#4513e54c073ea169b98f02f330bb31dff26fee99"
+source = "git+https://github.com/doy/pty-process#b2733e64d900ac237211360848326f3c4caa23f5"
 dependencies = [
  "libc",
  "nix",
@@ -809,9 +809,9 @@ dependencies = [
 
 [[package]]
 name = "redox_syscall"
-version = "0.2.10"
+version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8383f39639269cde97d255a32bdb68c047337295414940c68bdd30c2e13203ff"
+checksum = "8380fe0152551244f0747b1bf41737e0f8a74f97a14ccefd1148187271634f3c"
 dependencies = [
  "bitflags",
 ]
