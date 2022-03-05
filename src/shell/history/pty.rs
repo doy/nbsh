@@ -117,9 +117,7 @@ impl Pty {
 pub struct Vt {
     vt: vt100::Parser,
     audible_bell_state: usize,
-    visual_bell_state: usize,
     audible_bell: bool,
-    visual_bell: bool,
     real_bell_pending: bool,
 }
 
@@ -128,9 +126,7 @@ impl Vt {
         Self {
             vt: vt100::Parser::new(size.0, size.1, 0),
             audible_bell_state: 0,
-            visual_bell_state: 0,
             audible_bell: false,
-            visual_bell: false,
             real_bell_pending: false,
         }
     }
@@ -145,13 +141,6 @@ impl Vt {
             self.real_bell_pending = true;
             self.audible_bell_state = new_audible_bell_state;
         }
-
-        let new_visual_bell_state = screen.visual_bell_count();
-        if new_visual_bell_state != self.visual_bell_state {
-            self.visual_bell = true;
-            self.real_bell_pending = true;
-            self.visual_bell_state = new_visual_bell_state;
-        }
     }
 
     pub fn screen(&self) -> &vt100::Screen {
@@ -163,7 +152,7 @@ impl Vt {
     }
 
     pub fn is_bell(&self) -> bool {
-        self.audible_bell || self.visual_bell
+        self.audible_bell
     }
 
     pub fn bell(&mut self, out: &mut impl textmode::Textmode, focused: bool) {
@@ -171,14 +160,10 @@ impl Vt {
             if self.audible_bell {
                 out.write(b"\x07");
             }
-            if self.visual_bell {
-                out.write(b"\x1bg");
-            }
             self.real_bell_pending = false;
         }
         if focused {
             self.audible_bell = false;
-            self.visual_bell = false;
         }
     }
 
