@@ -7,7 +7,7 @@ enum Request {
 }
 
 pub struct Pty {
-    vt: std::sync::Arc<std::sync::Mutex<super::pty::Vt>>,
+    vt: std::sync::Arc<std::sync::Mutex<Vt>>,
     request_w: tokio::sync::mpsc::UnboundedSender<Request>,
 }
 
@@ -22,9 +22,7 @@ impl Pty {
         pty.resize(pty_process::Size::new(size.0, size.1))?;
         let pts = pty.pts()?;
 
-        let vt = std::sync::Arc::new(std::sync::Mutex::new(
-            super::pty::Vt::new(size),
-        ));
+        let vt = std::sync::Arc::new(std::sync::Mutex::new(Vt::new(size)));
 
         tokio::spawn(Self::task(
             pty,
@@ -36,20 +34,17 @@ impl Pty {
         Ok((Self { vt, request_w }, pts))
     }
 
-    pub fn with_vt<T>(&self, f: impl FnOnce(&super::pty::Vt) -> T) -> T {
+    pub fn with_vt<T>(&self, f: impl FnOnce(&Vt) -> T) -> T {
         let vt = self.vt.lock().unwrap();
         f(&*vt)
     }
 
-    pub fn with_vt_mut<T>(
-        &self,
-        f: impl FnOnce(&mut super::pty::Vt) -> T,
-    ) -> T {
+    pub fn with_vt_mut<T>(&self, f: impl FnOnce(&mut Vt) -> T) -> T {
         let mut vt = self.vt.lock().unwrap();
         f(&mut *vt)
     }
 
-    pub fn lock_vt(&self) -> std::sync::MutexGuard<super::pty::Vt> {
+    pub fn lock_vt(&self) -> std::sync::MutexGuard<Vt> {
         self.vt.lock().unwrap()
     }
 
@@ -69,7 +64,7 @@ impl Pty {
 
     async fn task(
         pty: pty_process::Pty,
-        vt: std::sync::Arc<std::sync::Mutex<super::pty::Vt>>,
+        vt: std::sync::Arc<std::sync::Mutex<Vt>>,
         request_r: tokio::sync::mpsc::UnboundedReceiver<Request>,
         event_w: crate::shell::event::Writer,
     ) {
