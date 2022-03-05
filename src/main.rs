@@ -26,13 +26,15 @@ mod shell;
 
 use prelude::*;
 
-#[derive(structopt::StructOpt)]
-#[structopt(about = "NoteBook SHell")]
+use clap::Parser as _;
+
+#[derive(clap::Parser)]
+#[clap(about = "NoteBook SHell")]
 struct Opt {
-    #[structopt(short = "c")]
+    #[clap(short = 'c')]
     command: Option<String>,
 
-    #[structopt(long)]
+    #[clap(long)]
     status_fd: Option<std::os::unix::io::RawFd>,
 }
 
@@ -53,9 +55,8 @@ async fn async_main(opt: Opt) -> Result<i32> {
     shell::main().await
 }
 
-#[paw::main]
-fn main(opt: Opt) {
-    match async_main(opt) {
+fn main() {
+    match async_main(Opt::parse()) {
         Ok(code) => {
             std::process::exit(code);
         }
