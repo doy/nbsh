@@ -16,7 +16,7 @@ glob = "0.3.0"
 hostname = "0.3.1"
 libc = "0.2.119"
 nix = "0.23.1"
-notify = "4.0.17"
+notify = "5.0.0-pre.13"
 once_cell = "1.10.0"
 pest = "2.1.3"
 pest_derive = "2.1.0"
@@ -34,5 +34,6 @@ vt100 = "0.15.1"
 
 [patch.crates-io]
 nix = { git = "https://github.com/nix-rust/nix" }
+notify = { git = "https://github.com/notify-rs/notify" }
 pty-process = { git = "https://github.com/doy/pty-process" }
 textmode = { git = "https://github.com/doy/textmode" }

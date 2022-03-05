@@ -33,11 +33,8 @@ impl Handler {
                 let (sync_watch_w, sync_watch_r) = std::sync::mpsc::channel();
                 let (watch_w, mut watch_r) =
                     tokio::sync::mpsc::unbounded_channel();
-                let mut watcher = notify::RecommendedWatcher::new(
-                    sync_watch_w,
-                    std::time::Duration::from_millis(100),
-                )
-                .unwrap();
+                let mut watcher =
+                    notify::recommended_watcher(sync_watch_w).unwrap();
                 watcher
                     .watch(&dir, notify::RecursiveMode::Recursive)
                     .unwrap();
