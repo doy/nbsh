@@ -25,11 +25,6 @@ pub async fn main() -> Result<i32> {
     let mut prev_dir = shell.env.pwd().to_path_buf();
     inputs.new_dir(prev_dir.clone());
     while let Some(event) = event_r.recv().await {
-        let dir = shell.env().pwd();
-        if dir != prev_dir {
-            prev_dir = dir.to_path_buf();
-            inputs.new_dir(dir.to_path_buf());
-        }
         match shell.handle_event(event, &event_w) {
             Some(Action::Refresh) => {
                 shell.render(&mut output)?;
@@ -46,6 +41,11 @@ pub async fn main() -> Result<i32> {
             }
             Some(Action::Quit) => break,
             None => {}
+        }
+        let dir = shell.env().pwd();
+        if dir != prev_dir {
+            prev_dir = dir.to_path_buf();
+            inputs.new_dir(dir.to_path_buf());
         }
     }
 
