@@ -12,10 +12,10 @@ pub struct Commands {
 }
 
 impl Commands {
-    pub fn parse(full_cmd: &String) -> Result<Self, super::Error> {
+    pub fn parse(full_cmd: &str) -> Result<Self, super::Error> {
         Ok(Self::build_ast(
             Shell::parse(Rule::line, full_cmd)
-                .map_err(|e| super::Error::new(full_cmd.clone(), e))?
+                .map_err(|e| super::Error::new(full_cmd.to_string(), e))?
                 .next()
                 .unwrap()
                 .into_inner()
