@@ -32,6 +32,9 @@ unicode-width = "0.1.9"
 users = "0.11.0"
 vt100 = "0.15.1"
 
+[target.'cfg(nbsh_tokio_console)'.dependencies]
+console-subscriber = "0.1.3"
+
 [patch.crates-io]
 nix = { git = "https://github.com/nix-rust/nix" }
 notify = { git = "https://github.com/notify-rs/notify" }

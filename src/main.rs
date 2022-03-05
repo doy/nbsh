@@ -52,6 +52,9 @@ async fn async_main(opt: Opt) -> Result<i32> {
         return runner::main(command, &mut shell_write).await;
     }
 
+    #[cfg(nbsh_tokio_console)]
+    console_subscriber::init();
+
     shell::main().await
 }
 
