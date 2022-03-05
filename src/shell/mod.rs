@@ -214,12 +214,11 @@ impl Shell {
                 return Some(Action::Resize(new_size.0, new_size.1));
             }
             Event::PtyOutput => {
-                let idx = self.focus_idx();
                 // the number of visible lines may have changed, so make sure
                 // the focus is still visible
                 self.history.make_focus_visible(
                     self.readline.lines(),
-                    idx,
+                    self.focus_idx(),
                     matches!(self.focus, Focus::Scrolling(_)),
                 );
                 self.scene = self.default_scene(self.focus);
@@ -289,8 +288,7 @@ impl Shell {
                 }
             }
             textmode::Key::Char(' ') => {
-                let idx = self.focus_idx();
-                if let Some(idx) = idx {
+                if let Some(idx) = self.focus_idx() {
                     if self.history.entry(idx).running() {
                         self.set_focus(Focus::History(idx));
                     }
@@ -326,14 +324,10 @@ impl Shell {
                 }
             }
             textmode::Key::Char('j') | textmode::Key::Down => {
-                self.set_focus(Focus::Scrolling(
-                    self.scroll_down(self.focus_idx()),
-                ));
+                self.set_focus(Focus::Scrolling(self.scroll_down()));
             }
             textmode::Key::Char('k') | textmode::Key::Up => {
-                self.set_focus(Focus::Scrolling(
-                    self.scroll_up(self.focus_idx()),
-                ));
+                self.set_focus(Focus::Scrolling(self.scroll_up()));
             }
             textmode::Key::Char('n') => {
                 self.set_focus(self.next_running());
@@ -418,10 +412,6 @@ impl Shell {
         self.focus = new_focus;
         self.hide_readline = false;
         self.scene = self.default_scene(new_focus);
-        // passing entry into default_scene above consumes it, which means
-        // that the mutex lock will be dropped before we call into
-        // make_focus_visible, which is important because otherwise we might
-        // get a deadlock depending on what is visible
         self.history.make_focus_visible(
             self.readline.lines(),
             self.focus_idx(),
@@ -441,8 +431,8 @@ impl Shell {
         }
     }
 
-    fn scroll_up(&self, idx: Option<usize>) -> Option<usize> {
-        idx.map_or_else(
+    fn scroll_up(&self) -> Option<usize> {
+        self.focus_idx().map_or_else(
             || {
                 let count = self.history.entry_count();
                 if count == 0 {
@@ -455,8 +445,8 @@ impl Shell {
         )
     }
 
-    fn scroll_down(&self, idx: Option<usize>) -> Option<usize> {
-        idx.and_then(|idx| {
+    fn scroll_down(&self) -> Option<usize> {
+        self.focus_idx().and_then(|idx| {
             if idx >= self.history.entry_count() - 1 {
                 None
             } else {
@@ -473,7 +463,7 @@ impl Shell {
                 return Focus::History(idx);
             }
         }
-        self.focus_idx().map_or(Focus::Readline, Focus::History)
+        self.focus
     }
 
     fn prev_running(&self) -> Focus {
@@ -484,6 +474,6 @@ impl Shell {
                 return Focus::History(idx);
             }
         }
-        self.focus_idx().map_or(Focus::Readline, Focus::History)
+        self.focus
     }
 }

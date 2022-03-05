@@ -38,10 +38,8 @@ impl History {
             );
             self.entries[idx].render(
                 out,
-                idx,
                 self.entry_count(),
                 &mut *vt,
-                self.size,
                 focused,
                 scrolling,
                 offset,

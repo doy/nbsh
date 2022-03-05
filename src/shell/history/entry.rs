@@ -37,14 +37,14 @@ impl Entry {
     pub fn render(
         &self,
         out: &mut impl textmode::Textmode,
-        idx: usize,
         entry_count: usize,
         vt: &mut super::pty::Vt,
-        size: (u16, u16),
         focused: bool,
         scrolling: bool,
         offset: time::UtcOffset,
     ) {
+        let idx = self.env.idx();
+        let size = vt.screen().size();
         let time = self.state.exit_info().map_or_else(
             || {
                 format!(
