@@ -116,8 +116,8 @@ impl Pty {
 
 pub struct Vt {
     vt: vt100::Parser,
-    audible_bell_state: usize,
-    audible_bell: bool,
+    bell_state: usize,
+    bell: bool,
     real_bell_pending: bool,
 }
 
@@ -125,8 +125,8 @@ impl Vt {
     pub fn new(size: (u16, u16)) -> Self {
         Self {
             vt: vt100::Parser::new(size.0, size.1, 0),
-            audible_bell_state: 0,
-            audible_bell: false,
+            bell_state: 0,
+            bell: false,
             real_bell_pending: false,
         }
     }
@@ -135,11 +135,11 @@ impl Vt {
         self.vt.process(bytes);
         let screen = self.vt.screen();
 
-        let new_audible_bell_state = screen.audible_bell_count();
-        if new_audible_bell_state != self.audible_bell_state {
-            self.audible_bell = true;
+        let new_bell_state = screen.audible_bell_count();
+        if new_bell_state != self.bell_state {
+            self.bell = true;
             self.real_bell_pending = true;
-            self.audible_bell_state = new_audible_bell_state;
+            self.bell_state = new_bell_state;
         }
     }
 
@@ -152,19 +152,21 @@ impl Vt {
     }
 
     pub fn is_bell(&self) -> bool {
-        self.audible_bell
+        self.bell
     }
 
-    pub fn bell(&mut self, out: &mut impl textmode::Textmode, focused: bool) {
+    pub fn bell(&mut self, focused: bool) -> bool {
+        let mut should = false;
         if self.real_bell_pending {
-            if self.audible_bell {
-                out.write(b"\x07");
+            if self.bell {
+                should = true;
             }
             self.real_bell_pending = false;
         }
         if focused {
-            self.audible_bell = false;
+            self.bell = false;
         }
+        should
     }
 
     pub fn binary(&self) -> bool {

@@ -63,7 +63,9 @@ impl Entry {
             },
         );
 
-        vt.bell(out, focused);
+        if vt.bell(focused) {
+            out.write(b"\x07");
+        }
 
         Self::set_bgcolor(out, idx, focused);
         out.set_fgcolor(textmode::color::YELLOW);
@@ -206,7 +208,9 @@ impl Entry {
     pub fn render_fullscreen(&self, out: &mut impl textmode::Textmode) {
         self.pty.with_vt_mut(|vt| {
             out.write(&vt.screen().state_formatted());
-            vt.bell(out, true);
+            if vt.bell(true) {
+                out.write(b"\x07");
+            }
             out.reset_attributes();
         });
     }
