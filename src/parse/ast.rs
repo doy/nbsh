@@ -117,14 +117,14 @@ impl Pipeline {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Exe {
+pub struct Exe {
     exe: Word,
     args: Vec<Word>,
     redirects: Vec<Redirect>,
 }
 
 impl Exe {
-    async fn eval(self, env: &Env) -> Result<super::Exe> {
+    pub async fn eval(self, env: &Env) -> Result<super::Exe> {
         let exe = self.exe.eval(env).await?;
         assert_eq!(exe.len(), 1); // TODO
         let exe = &exe[0];
@@ -150,6 +150,15 @@ impl Exe {
                 .try_collect()
                 .await?,
         })
+    }
+
+    pub fn parse(s: &str) -> Result<Self, super::Error> {
+        Ok(Self::build_ast(
+            Shell::parse(Rule::exe, s)
+                .map_err(|e| super::Error::new(s.to_string(), e))?
+                .next()
+                .unwrap(),
+        ))
     }
 
     fn build_ast(pair: pest::iterators::Pair<Rule>) -> Self {
@@ -203,6 +212,36 @@ impl Exe {
             args,
             redirects,
         }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Exe {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct Visitor;
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = Exe;
+
+            fn expecting(
+                &self,
+                f: &mut std::fmt::Formatter,
+            ) -> std::fmt::Result {
+                f.write_str("a command")
+            }
+
+            fn visit_str<E>(
+                self,
+                value: &str,
+            ) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Exe::parse(value).map_err(serde::de::Error::custom)
+            }
+        }
+        deserializer.deserialize_string(Visitor)
     }
 }
 

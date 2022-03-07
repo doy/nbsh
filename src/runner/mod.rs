@@ -73,7 +73,8 @@ pub async fn main(
     shell_write: &mut Option<tokio::fs::File>,
 ) -> Result<i32> {
     let mut env = Env::new_from_env()?;
-    run_commands(commands, &mut env, shell_write).await?;
+    let config = crate::config::Config::load()?;
+    run_commands(commands, &mut env, &config, shell_write).await?;
     let status = env.latest_status();
     write_event(shell_write, Event::Exit(env)).await?;
 
@@ -86,6 +87,7 @@ pub async fn main(
 async fn run_commands(
     commands: String,
     env: &mut Env,
+    config: &crate::config::Config,
     shell_write: &mut Option<tokio::fs::File>,
 ) -> Result<()> {
     let commands = crate::parse::ast::Commands::parse(&commands)?;
@@ -96,7 +98,8 @@ async fn run_commands(
         match &commands[pc] {
             crate::parse::ast::Command::Pipeline(pipeline) => {
                 if stack.should_execute() {
-                    run_pipeline(pipeline.clone(), env, shell_write).await?;
+                    run_pipeline(pipeline.clone(), env, config, shell_write)
+                        .await?;
                 }
                 pc += 1;
             }
@@ -107,7 +110,8 @@ async fn run_commands(
                 }
                 if should {
                     let status = env.latest_status();
-                    run_pipeline(pipeline.clone(), env, shell_write).await?;
+                    run_pipeline(pipeline.clone(), env, config, shell_write)
+                        .await?;
                     if let Some(Frame::If(should, found)) = stack.top_mut() {
                         *should = env.latest_status().success();
                         if *should {
@@ -127,7 +131,8 @@ async fn run_commands(
                 }
                 if should {
                     let status = env.latest_status();
-                    run_pipeline(pipeline.clone(), env, shell_write).await?;
+                    run_pipeline(pipeline.clone(), env, config, shell_write)
+                        .await?;
                     if let Some(Frame::While(should, _)) = stack.top_mut() {
                         *should = env.latest_status().success();
                     } else {
@@ -187,8 +192,13 @@ async fn run_commands(
                             *should = false;
                         } else if let Some(pipeline) = pipeline {
                             let status = env.latest_status();
-                            run_pipeline(pipeline.clone(), env, shell_write)
-                                .await?;
+                            run_pipeline(
+                                pipeline.clone(),
+                                env,
+                                config,
+                                shell_write,
+                            )
+                            .await?;
                             *should = env.latest_status().success();
                             if *should {
                                 *found = true;
@@ -231,6 +241,7 @@ async fn run_commands(
 async fn run_pipeline(
     pipeline: crate::parse::ast::Pipeline,
     env: &mut Env,
+    config: &crate::config::Config,
     shell_write: &mut Option<tokio::fs::File>,
 ) -> Result<()> {
     write_event(shell_write, Event::RunPipeline(pipeline.span())).await?;
@@ -248,9 +259,21 @@ async fn run_pipeline(
     io.set_stderr(stderr);
 
     let pwd = env.pwd().to_path_buf();
-    let pipeline = pipeline.eval(env).await?;
     let interactive = shell_write.is_some();
-    let (children, pg) = spawn_children(pipeline, env, &io, interactive)?;
+    let pipeline = pipeline.eval(env).await?;
+    let mut exes: Vec<_> = pipeline.into_exes().collect();
+    for exe in &mut exes {
+        if let Some(alias) = config.alias_for(exe.exe()) {
+            let mut new = alias.clone().eval(env).await?;
+            new.append(exe.clone());
+            *exe = new;
+        }
+    }
+    let cmds = exes
+        .into_iter()
+        .map(|exe| Command::new(exe, io.clone()))
+        .collect();
+    let (children, pg) = spawn_children(cmds, env, interactive)?;
     let status = wait_children(children, pg, shell_write).await;
     if interactive {
         sys::set_foreground_pg(nix::unistd::getpid())?;
@@ -275,15 +298,10 @@ async fn write_event(
 }
 
 fn spawn_children(
-    pipeline: crate::parse::Pipeline,
+    mut cmds: Vec<Command>,
     env: &Env,
-    io: &builtins::Io,
     interactive: bool,
 ) -> Result<(Vec<Child>, Option<nix::unistd::Pid>)> {
-    let mut cmds: Vec<_> = pipeline
-        .into_exes()
-        .map(|exe| Command::new(exe, io.clone()))
-        .collect();
     for i in 0..(cmds.len() - 1) {
         let (r, w) = sys::pipe()?;
         cmds[i].stdout(w);

@@ -16,6 +16,8 @@
 // just get a compilation failure
 #![allow(clippy::future_not_send)]
 
+mod config;
+mod dirs;
 mod env;
 mod format;
 mod info;

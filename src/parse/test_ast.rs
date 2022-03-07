@@ -164,6 +164,16 @@ macro_rules! eval_eq {
     }};
 }
 
+macro_rules! deserialize_eq {
+    ($line:literal, $parsed:expr) => {{
+        use serde::de::IntoDeserializer as _;
+        use serde::Deserialize as _;
+        let exe: Result<_, serde::de::value::Error> =
+            Exe::deserialize($line.into_deserializer());
+        assert_eq!(exe.unwrap(), $parsed);
+    }};
+}
+
 macro_rules! eval_fails {
     ($line:literal, $env:expr) => {{
         let ast = Commands::parse($line).unwrap();
@@ -485,4 +495,10 @@ async fn test_eval_glob() {
     eval_fails!("echo foo[", env);
     eval_fails!("echo *.doesnotexist", env);
     eval_fails!("echo *.{toml,doesnotexist}", env);
+}
+
+#[test]
+fn test_deserialize() {
+    deserialize_eq!("foo", e!(w!("foo")));
+    deserialize_eq!("foo bar baz", e!(w!("foo"), w!("bar"), w!("baz")));
 }

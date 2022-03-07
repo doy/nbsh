@@ -11,7 +11,7 @@ impl Pipeline {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Exe {
     exe: std::path::PathBuf,
     args: Vec<String>,
@@ -25,6 +25,16 @@ impl Exe {
 
     pub fn args(&self) -> &[String] {
         &self.args
+    }
+
+    pub fn append(&mut self, other: Self) {
+        let Self {
+            exe: _exe,
+            args,
+            redirects,
+        } = other;
+        self.args.extend(args);
+        self.redirects.extend(redirects);
     }
 
     pub fn redirects(&self) -> &[Redirect] {
@@ -107,10 +117,7 @@ pub struct Error {
 
 impl Error {
     fn new(input: String, e: pest::error::Error<ast::Rule>) -> Self {
-        Self {
-            input,
-            e,
-        }
+        Self { input, e }
     }
 }
 
