@@ -23,8 +23,8 @@ alternation_bareword = @{ alternation_bareword_char+ }
 alternation_word_part = ${
     var |
     alternation_bareword |
-    "'" ~ single_string ~ "'" |
-    "\"" ~ (var | double_string)+ ~ "\""
+    "'" ~ single_string? ~ "'" |
+    "\"" ~ (var | double_string)* ~ "\""
 }
 alternation_word = ${ alternation_word_part* }
 alternation = ${ "{" ~ alternation_word ~ ("," ~ alternation_word)* ~ "}" }
@@ -36,8 +36,8 @@ word_part = ${
     substitution |
     var |
     bareword |
-    "'" ~ single_string ~ "'" |
-    "\"" ~ (substitution | var | double_string)+ ~ "\""
+    "'" ~ single_string? ~ "'" |
+    "\"" ~ (substitution | var | double_string)* ~ "\""
 }
 word = ${ word_part+ }
 

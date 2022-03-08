@@ -233,6 +233,9 @@ fn test_basic() {
             )
         ))
     );
+
+    parse_eq!("foo ''", cs!(p!((0, 6), e!(w!("foo"), w!()))));
+    parse_eq!("foo \"\"", cs!(p!((0, 6), e!(w!("foo"), w!()))));
 }
 
 #[test]
