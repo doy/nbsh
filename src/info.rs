@@ -35,6 +35,17 @@ pub fn pid() -> String {
     nix::unistd::getpid().to_string()
 }
 
+#[cfg(target_os = "linux")]
+#[allow(clippy::unnecessary_wraps)]
+pub fn current_exe() -> Result<std::path::PathBuf> {
+    Ok("/proc/self/exe".into())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn current_exe() -> Result<std::path::PathBuf> {
+    Ok(std::env::current_exe()?)
+}
+
 // the time crate is currently unable to get the local offset on unix due to
 // soundness concerns, so we have to do it manually/:
 //

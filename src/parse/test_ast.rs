@@ -216,7 +216,7 @@ fn test_basic() {
     );
 
     // XXX this parse may change in the future
-    let exe = std::env::current_exe()
+    let exe = crate::info::current_exe()
         .unwrap()
         .into_os_string()
         .into_string()

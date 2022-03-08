@@ -171,7 +171,7 @@ impl Exe {
             return Self {
                 exe: Word {
                     parts: vec![WordPart::SingleQuoted(
-                        std::env::current_exe()
+                        crate::info::current_exe()
                             .unwrap()
                             .to_str()
                             .unwrap()
@@ -370,7 +370,7 @@ impl WordPart {
             Self::Alternation(_) => unreachable!(),
             Self::Substitution(commands) => {
                 let mut cmd = tokio::process::Command::new(
-                    std::env::current_exe().unwrap(),
+                    crate::info::current_exe().unwrap(),
                 );
                 cmd.args(&["-c", &commands]);
                 cmd.stdin(std::process::Stdio::inherit());

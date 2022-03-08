@@ -296,7 +296,7 @@ impl Entry {
         env: &Env,
         pts: &pty_process::Pts,
     ) -> Result<(tokio::process::Child, std::fs::File)> {
-        let mut cmd = pty_process::Command::new(std::env::current_exe()?);
+        let mut cmd = pty_process::Command::new(crate::info::current_exe()?);
         cmd.args(&["-c", cmdline, "--status-fd", "3"]);
         env.apply(&mut cmd);
         let (from_r, from_w) =
