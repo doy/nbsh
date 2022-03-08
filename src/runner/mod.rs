@@ -263,10 +263,22 @@ async fn run_pipeline(
     let pipeline = pipeline.eval(env).await?;
     let mut exes: Vec<_> = pipeline.into_exes().collect();
     for exe in &mut exes {
-        if let Some(alias) = config.alias_for(exe.exe()) {
+        let mut seen = std::collections::HashSet::new();
+        while let Some(alias) = config.alias_for(exe.exe()) {
             let mut new = alias.clone().eval(env).await?;
+            let override_self = exe.exe() == new.exe();
+            if seen.contains(new.exe()) {
+                return Err(anyhow!(
+                    "recursive alias found: {}",
+                    new.exe().display()
+                ));
+            }
+            seen.insert(new.exe().to_path_buf());
             new.append(exe.clone());
             *exe = new;
+            if override_self {
+                break;
+            }
         }
     }
     let cmds = exes
