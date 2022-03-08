@@ -44,7 +44,7 @@ impl Entry {
         offset: time::UtcOffset,
     ) {
         let idx = self.env.idx();
-        let size = vt.screen().size();
+        let size = out.screen().size();
         let time = self.state.exit_info().map_or_else(
             || {
                 format!(
