@@ -50,6 +50,8 @@ pub async fn main() -> Result<i32> {
         }
     }
 
+    shell.history.save().await;
+
     Ok(0)
 }
 

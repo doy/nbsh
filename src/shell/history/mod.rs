@@ -123,6 +123,27 @@ impl History {
         }
     }
 
+    pub async fn save(&self) {
+        // TODO: we'll probably want some amount of flock or something here
+        let mut fh = tokio::fs::OpenOptions::new()
+            .append(true)
+            .open(crate::dirs::history_file())
+            .await
+            .unwrap();
+        for entry in &self.entries {
+            fh.write_all(
+                format!(
+                    ": {}:0;{}\n",
+                    entry.start_time().unix_timestamp(),
+                    entry.cmd()
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+        }
+    }
+
     fn visible(
         &self,
         repl_lines: usize,

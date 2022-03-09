@@ -227,6 +227,10 @@ impl Entry {
         &self.cmdline
     }
 
+    pub fn start_time(&self) -> time::OffsetDateTime {
+        self.start_time
+    }
+
     pub fn toggle_fullscreen(&mut self) {
         if let Some(fullscreen) = self.fullscreen {
             self.fullscreen = Some(!fullscreen);
