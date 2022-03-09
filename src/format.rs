@@ -23,8 +23,16 @@ pub fn exit_status(status: std::process::ExitStatus) -> String {
 }
 
 pub fn time(time: time::OffsetDateTime) -> String {
-    let format =
-        time::format_description::parse("[hour]:[minute]:[second]").unwrap();
+    let format = if time::OffsetDateTime::now_utc() - time
+        > std::time::Duration::from_secs(60 * 60 * 24)
+    {
+        time::format_description::parse(
+            "[year]-[month]-[day] [hour]:[minute]:[second]",
+        )
+        .unwrap()
+    } else {
+        time::format_description::parse("[hour]:[minute]:[second]").unwrap()
+    };
     time.format(&format).unwrap()
 }
 
