@@ -5,6 +5,7 @@ use textmode::Textmode as _;
 mod event;
 mod history;
 mod inputs;
+mod old_history;
 mod prelude;
 mod readline;
 
@@ -75,6 +76,7 @@ pub enum Action {
 pub struct Shell {
     readline: readline::Readline,
     history: history::History,
+    old_history: old_history::History,
     env: Env,
     git: Option<inputs::GitInfo>,
     focus: Focus,
@@ -92,6 +94,7 @@ impl Shell {
         Ok(Self {
             readline: readline::Readline::new(),
             history: history::History::new(),
+            old_history: old_history::History::new(),
             env,
             git: None,
             focus: Focus::Readline,

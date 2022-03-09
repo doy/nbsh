@@ -27,7 +27,7 @@ terminal_size = "0.1.17"
 textmode = { version = "0.3.0", features = ["async"] }
 time = { version = "0.3.7", features = ["formatting", "parsing"] }
 tokio = { version = "1.17.0", features = ["full"] }
-tokio-stream = "0.1.8"
+tokio-stream = { version = "0.1.8", features = ["io-util"] }
 tokio-util = { version = "0.7.0", features = ["io"] }
 toml = "0.5.8"
 unicode-width = "0.1.9"
@@ -42,3 +42,6 @@ nix = { git = "https://github.com/nix-rust/nix" }
 notify = { git = "https://github.com/notify-rs/notify" }
 pty-process = { git = "https://github.com/doy/pty-process" }
 textmode = { git = "https://github.com/doy/textmode" }
+
+[dev-dependencies]
+time = { version = "0.3.7", features = ["macros"] }

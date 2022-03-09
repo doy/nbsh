@@ -1,0 +1,5 @@
+time = @{ ASCII_DIGIT+ }
+duration = @{ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
+command = @{ ANY* }
+
+line = ${ SOI ~ (": " ~ time ~ ":" ~ duration ~ ";")? ~ command ~ "\n"? ~ EOI }
